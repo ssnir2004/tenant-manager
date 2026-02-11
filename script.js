@@ -1,241 +1,2629 @@
-console.log('Script JS loaded successfully!');
+// Tenant Management App - Vanilla JS + IndexedDB
+const DB_NAME = 'tenant_mgmt_v1';
+const DB_VERSION = 3;
+const STORES = ['tenants', 'readings', 'bills', 'payments', 'settings'];
 
-// נתונים של הדגלים (כולל קוד מדינה לשימוש בתמונות FlagCDN)
-const flagsData = {
-    europe: [
-        { country: 'צרפת', code: 'fr' },
-        { country: 'גרמניה', code: 'de' },
-        { country: 'איטליה', code: 'it' },
-        { country: 'ספרד', code: 'es' },
-        { country: 'פולין', code: 'pl' },
-        { country: 'הולנד', code: 'nl' },
-        { country: 'בלגיה', code: 'be' },
-        { country: 'יוון', code: 'gr' },
-        { country: 'פורטוגל', code: 'pt' },
-        { country: 'שוודיה', code: 'se' }
-    ],
-    africa: [
-        { country: 'מצרים', code: 'eg' },
-        { country: 'דרום אפריקה', code: 'za' },
-        { country: 'ניגריה', code: 'ng' },
-        { country: 'קניה', code: 'ke' },
-        { country: 'אתיופיה', code: 'et' },
-        { country: 'טוניסיה', code: 'tn' },
-        { country: 'מרוקו', code: 'ma' },
-        { country: 'זימבבואה', code: 'zw' },
-        { country: 'אוגנדה', code: 'ug' },
-        { country: 'גנה', code: 'gh' }
-    ],
-    asia: [
-        { country: 'סין', code: 'cn' },
-        { country: 'יפן', code: 'jp' },
-        { country: 'הודו', code: 'in' },
-        { country: 'דרום קוריאה', code: 'kr' },
-        { country: 'תאילנד', code: 'th' },
-        { country: 'וייטנאם', code: 'vn' },
-        { country: 'מלזיה', code: 'my' },
-        { country: 'אינדונזיה', code: 'id' },
-        { country: 'סינגפור', code: 'sg' },
-        { country: 'פיליפינים', code: 'ph' }
-    ]
-};
+function openDB() {
+  return new Promise((res, rej) => {
+    const req = indexedDB.open(DB_NAME, DB_VERSION);
+    req.onupgradeneeded = e => {
+      const db = e.target.result;
+      STORES.forEach(st => {
+        if (!db.objectStoreNames.contains(st)) {
+          const s = db.createObjectStore(st, { keyPath: st === 'settings' ? 'key' : 'id', autoIncrement: st !== 'settings' });
+          if (st !== 'settings') {
+            s.createIndex('tenantId', 'tenantId', { unique: false });
+            s.createIndex('date', 'date', { unique: false });
+          }
+        }
+      });
+    };
+    req.onsuccess = () => res(req.result);
+    req.onerror = () => rej(req.error);
+  });
+}
 
-// משתנים גלובליים
-let selectedRegions = [];
-let currentQuestionIndex = 0;
-let questions = [];
-let score = 0;
-let gameActive = false;
-let timeLeft = 60;
-let timerInterval = null;
-let currentCorrectAnswer = null;
+async function getTx(store, mode = 'readonly') {
+  const db = await openDB();
+  return db.transaction(store, mode);
+}
 
-// אלמנטים
-const startMenu = document.getElementById('startMenu');
-const gameArea = document.getElementById('gameArea');
-const endMenu = document.getElementById('endMenu');
-const startBtn = document.getElementById('startBtn');
-const restartBtn = document.getElementById('restartBtn');
-const scoreDisplay = document.getElementById('score');
-const timerDisplay = document.getElementById('timer');
-const questionNumberDisplay = document.getElementById('questionNumber');
-const totalQuestionsDisplay = document.getElementById('totalQuestions');
-const flagImg = document.getElementById('flagImg');
-const optionButtons = document.querySelectorAll('.option-btn');
-const feedback = document.getElementById('feedback');
+// Tenants
+async function addTenant(data) {
+  const tx = await getTx('tenants', 'readwrite');
+  data.createdAt = new Date().toISOString();
+  if (data.archived === undefined) data.archived = false;
+  return new Promise((res, rej) => {
+    const r = tx.objectStore('tenants').add(data);
+    r.onsuccess = () => res(r.result);
+    r.onerror = () => rej(r.error);
+  });
+}
 
-// התחלת משחק
-startBtn.addEventListener('click', startGame);
-restartBtn.addEventListener('click', () => {
-    score = 0;
-    currentQuestionIndex = 0;
-    timeLeft = 60;
-    feedback.innerHTML = '';
-    startGame();
+async function updateTenant(id, patch) {
+  const tx = await getTx('tenants', 'readwrite');
+  const store = tx.objectStore('tenants');
+  return new Promise((res, rej) => {
+    const getReq = store.get(id);
+    getReq.onsuccess = () => {
+      const rec = getReq.result;
+      if (!rec) return rej(new Error('Not found'));
+      Object.assign(rec, patch);
+      const putReq = store.put(rec);
+      putReq.onsuccess = () => res();
+      putReq.onerror = () => rej(putReq.error);
+    };
+    getReq.onerror = () => rej(getReq.error);
+  });
+}
+
+async function deleteTenant(id) {
+  const tx = await getTx('tenants', 'readwrite');
+  return new Promise((res, rej) => {
+    const r = tx.objectStore('tenants').delete(id);
+    r.onsuccess = () => res();
+    r.onerror = () => rej(r.error);
+  });
+}
+
+async function getAllTenants(includeArchived = false) {
+  const tx = await getTx('tenants', 'readonly');
+  return new Promise((res, rej) => {
+    const r = tx.objectStore('tenants').getAll();
+    r.onsuccess = () => {
+      const all = r.result || [];
+      res(all.filter(t => (includeArchived ? true : !t.archived)));
+    };
+    r.onerror = () => rej(r.error);
+  });
+}
+
+async function getTenantById(id) {
+  const tx = await getTx('tenants', 'readonly');
+  return new Promise((res, rej) => {
+    const r = tx.objectStore('tenants').get(id);
+    r.onsuccess = () => res(r.result || null);
+    r.onerror = () => rej(r.error);
+  });
+}
+
+async function clearAllTenants() {
+  const tx = await getTx('tenants', 'readwrite');
+  return new Promise((res, rej) => {
+    const r = tx.objectStore('tenants').clear();
+    r.onsuccess = () => res();
+    r.onerror = () => rej(r.error);
+  });
+}
+
+// Readings
+async function addReading(reading) {
+  const tx = await getTx('readings', 'readwrite');
+  reading.createdAt = new Date().toISOString();
+
+  const store = tx.objectStore('readings');
+  const allReadings = await new Promise((res, rej) => {
+    const r = store.getAll();
+    r.onsuccess = () => res(r.result || []);
+    r.onerror = () => rej(r.error);
+  });
+
+  const isDuplicate = allReadings.some(existing =>
+    existing.tenantId === reading.tenantId &&
+    existing.meterType === reading.meterType &&
+    existing.date === reading.date
+  );
+
+  if (isDuplicate) {
+    throw new Error('קריאה עם תאריך זה כבר קיימת לדייר זה');
+  }
+
+  return new Promise((res, rej) => {
+    const r = store.add(reading);
+    r.onsuccess = () => res();
+    r.onerror = () => rej(r.error);
+  });
+}
+
+async function getReadingsByTenant(tenantId) {
+  const tx = await getTx('readings', 'readonly');
+  return new Promise((res, rej) => {
+    const r = tx.objectStore('readings').index('tenantId').getAll(tenantId);
+    r.onsuccess = () => {
+      const arr = (r.result || []).sort((a, b) => new Date(a.date) - new Date(b.date));
+      res(arr);
+    };
+    r.onerror = () => rej(r.error);
+  });
+}
+
+async function getAllReadings() {
+  const tx = await getTx('readings', 'readonly');
+  return new Promise((res, rej) => {
+    const r = tx.objectStore('readings').getAll();
+    r.onsuccess = () => res(r.result || []);
+    r.onerror = () => rej(r.error);
+  });
+}
+
+async function clearAllReadings() {
+  const tx = await getTx('readings', 'readwrite');
+  return new Promise((res, rej) => {
+    const r = tx.objectStore('readings').clear();
+    r.onsuccess = () => res();
+    r.onerror = () => rej(r.error);
+  });
+}
+
+async function updateReading(id, patch) {
+  const tx = await getTx('readings', 'readwrite');
+  const store = tx.objectStore('readings');
+  return new Promise((res, rej) => {
+    const getReq = store.get(id);
+    getReq.onsuccess = () => {
+      const rec = getReq.result;
+      if (!rec) return rej(new Error('Not found'));
+      Object.assign(rec, patch);
+      const putReq = store.put(rec);
+      putReq.onsuccess = () => res(putReq.result);
+      putReq.onerror = () => rej(putReq.error);
+    };
+    getReq.onerror = () => rej(getReq.error);
+  });
+}
+
+async function deleteReading(id) {
+  const tx = await getTx('readings', 'readwrite');
+  return new Promise((res, rej) => {
+    const r = tx.objectStore('readings').delete(id);
+    r.onsuccess = () => res();
+    r.onerror = () => rej(r.error);
+  });
+}
+
+async function removeDuplicateReadings() {
+  const all = await getAllReadings();
+  const seen = new Set();
+  const toDelete = [];
+
+  all.forEach(r => {
+    const key = `${r.tenantId}-${r.meterType}-${r.date}`;
+    if (seen.has(key)) {
+      toDelete.push(r.id);
+    } else {
+      seen.add(key);
+    }
+  });
+
+  for (const id of toDelete) {
+    const tx = await getTx('readings', 'readwrite');
+    await new Promise((res, rej) => {
+      const r = tx.objectStore('readings').delete(id);
+      r.onsuccess = () => res();
+      r.onerror = () => rej(r.error);
+    });
+  }
+
+  return toDelete.length;
+}
+
+async function detachTenantData(tenantId) {
+  const tenant = await getTenantById(tenantId);
+  if (!tenant) return;
+  const name = `${tenant.firstName || ''} ${tenant.lastName || ''}`.trim();
+  const apartment = tenant.apartmentNumber || '';
+
+  const readings = await getReadingsByTenant(tenantId);
+  for (const r of readings) {
+    await updateReading(r.id, { tenantId: null, tenantName: name, apartmentNumber: apartment });
+  }
+
+  const payments = await getPaymentsByTenant(tenantId);
+  for (const p of payments) {
+    await updatePayment(p.id, { tenantId: null, tenantName: name, apartmentNumber: apartment });
+  }
+}
+
+// Payments
+async function addPayment(p) {
+  const tx = await getTx('payments', 'readwrite');
+  p.createdAt = new Date().toISOString();
+  return new Promise((res, rej) => {
+    const r = tx.objectStore('payments').add(p);
+    r.onsuccess = () => res();
+    r.onerror = () => rej(r.error);
+  });
+}
+
+async function updatePayment(id, patch) {
+  const tx = await getTx('payments', 'readwrite');
+  const store = tx.objectStore('payments');
+  return new Promise((res, rej) => {
+    const getReq = store.get(id);
+    getReq.onsuccess = () => {
+      const rec = getReq.result;
+      if (!rec) return rej(new Error('Not found'));
+      Object.assign(rec, patch);
+      const putReq = store.put(rec);
+      putReq.onsuccess = () => res(putReq.result);
+      putReq.onerror = () => rej(putReq.error);
+    };
+    getReq.onerror = () => rej(getReq.error);
+  });
+}
+
+async function deletePayment(id) {
+  const tx = await getTx('payments', 'readwrite');
+  return new Promise((res, rej) => {
+    const r = tx.objectStore('payments').delete(id);
+    r.onsuccess = () => res();
+    r.onerror = () => rej(r.error);
+  });
+}
+
+async function getAllPayments() {
+  const tx = await getTx('payments', 'readonly');
+  return new Promise((res, rej) => {
+    const r = tx.objectStore('payments').getAll();
+    r.onsuccess = () => res(r.result || []);
+    r.onerror = () => rej(r.error);
+  });
+}
+
+async function getPaymentsByTenant(tenantId) {
+  const tx = await getTx('payments', 'readonly');
+  return new Promise((res, rej) => {
+    const r = tx.objectStore('payments').index('tenantId').getAll(tenantId);
+    r.onsuccess = () => res(r.result || []);
+    r.onerror = () => rej(r.error);
+  });
+}
+
+async function clearAllPayments() {
+  const tx = await getTx('payments', 'readwrite');
+  return new Promise((res, rej) => {
+    const r = tx.objectStore('payments').clear();
+    r.onsuccess = () => res();
+    r.onerror = () => rej(r.error);
+  });
+}
+
+const paymentsSort = { key: null, dir: 'asc' };
+
+function comparePayments(a, b, tenantMap, key) {
+  const tA = tenantMap.get(a.tenantId) || {};
+  const tB = tenantMap.get(b.tenantId) || {};
+  switch (key) {
+    case 'date':
+      return new Date(a.date) - new Date(b.date);
+    case 'apartment':
+      return Number(tA.apartmentNumber || a.apartmentNumber || 0) - Number(tB.apartmentNumber || b.apartmentNumber || 0);
+    case 'tenant':
+      return (`${tA.firstName || ''} ${tA.lastName || ''}`.trim() || a.tenantName || '').localeCompare(`${tB.firstName || ''} ${tB.lastName || ''}`.trim() || b.tenantName || '');
+    case 'amount':
+      return Number(a.amount) - Number(b.amount);
+    case 'account':
+      return accountLabel(a.account).localeCompare(accountLabel(b.account));
+    case 'method':
+      return String(a.method || '').localeCompare(String(b.method || ''));
+    case 'notes':
+      return String(a.notes || '').localeCompare(String(b.notes || ''));
+    default:
+      return 0;
+  }
+}
+
+function accountLabel(accountValue) {
+  if (accountValue === 'grandma') return 'חשבון אסתר ומיכאל';
+  if (accountValue === 'my') return 'חשבון ניר וליאור';
+  return accountValue || '';
+}
+
+function meterTypeLabel(meterType) {
+  if (meterType === 'electricity') return 'חשמל';
+  if (meterType === 'water') return 'מים';
+  return meterType || '';
+}
+
+function meterTypeFromCsv(value) {
+  const raw = String(value || '').trim();
+  if (raw === 'חשמל' || raw.toLowerCase() === 'electricity') return 'electricity';
+  if (raw === 'מים' || raw.toLowerCase() === 'water') return 'water';
+  return '';
+}
+
+function accountValueFromCsv(value) {
+  const raw = String(value || '').trim();
+  if (raw === 'חשבון אסתר ומיכאל') return 'grandma';
+  if (raw === 'חשבון ניר וליאור') return 'my';
+  return accountValueFromEnglish(raw);
+}
+
+function methodLabel(methodValue) {
+  if (methodValue === 'cash') return 'מזומן';
+  if (methodValue === 'check') return "צ'ק";
+  if (methodValue === 'bit') return 'ביט';
+  if (methodValue === 'transfer') return 'העברה';
+  return methodValue || '';
+}
+
+function methodValueFromCsv(value) {
+  const raw = String(value || '').trim();
+  if (raw === 'מזומן') return 'cash';
+  if (raw === "צ'ק") return 'check';
+  if (raw === 'ביט') return 'bit';
+  if (raw === 'העברה') return 'transfer';
+  const v = raw.toLowerCase();
+  if (v === 'cash' || v === 'check' || v === 'bit' || v === 'transfer') return v;
+  return 'check';
+}
+
+function accountValueFromEnglish(value) {
+  const v = String(value || '').trim().toLowerCase();
+  if (v === 'esther_michael' || v === 'esther&michel' || v === 'esther_and_michael') return 'grandma';
+  if (v === 'nir_lior' || v === 'nir&lior' || v === 'nir_and_lior') return 'my';
+  if (v === 'grandma') return 'grandma';
+  if (v === 'my') return 'my';
+  return v;
+}
+
+function accountEnglishLabel(value) {
+  if (value === 'grandma') return 'esther_michael';
+  if (value === 'my') return 'nir_lior';
+  return String(value || '');
+}
+
+function parseCsvLine(line) {
+  const result = [];
+  let current = '';
+  let inQuotes = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (ch === '"') {
+      if (inQuotes && line[i + 1] === '"') {
+        current += '"';
+        i++;
+      } else {
+        inQuotes = !inQuotes;
+      }
+    } else if (ch === ',' && !inQuotes) {
+      result.push(current);
+      current = '';
+    } else {
+      current += ch;
+    }
+  }
+  result.push(current);
+  return result;
+}
+
+async function readCsvWithEncoding(file) {
+  const buffer = await file.arrayBuffer();
+  const utf8Text = new TextDecoder('utf-8').decode(buffer);
+  if (utf8Text.includes('\uFFFD')) {
+    try {
+      return new TextDecoder('windows-1255').decode(buffer);
+    } catch (e) {
+      return utf8Text;
+    }
+  }
+  return utf8Text;
+}
+
+function parseMonthYear(value) {
+  if (!value) return null;
+  const raw = String(value).trim();
+  const nums = raw.match(/\d+/g) || [];
+
+  if (nums.length >= 2) {
+    let month = Number(nums[0]);
+    let year = Number(nums[1]);
+    if (year < 100) year += 2000;
+    if (month < 1 || month > 12) return null;
+    return { month, year };
+  }
+
+  if (nums.length === 1) {
+    let year = Number(nums[0]);
+    if (year < 100) year += 2000;
+    const hebMonths = [
+      { key: 'ינו', month: 1 },
+      { key: 'פבר', month: 2 },
+      { key: 'מרץ', month: 3 },
+      { key: 'אפר', month: 4 },
+      { key: 'מאי', month: 5 },
+      { key: 'יונ', month: 6 },
+      { key: 'יול', month: 7 },
+      { key: 'אוג', month: 8 },
+      { key: 'ספט', month: 9 },
+      { key: 'אוק', month: 10 },
+      { key: 'נוב', month: 11 },
+      { key: 'דצ', month: 12 }
+    ];
+    for (const m of hebMonths) {
+      if (raw.includes(m.key)) {
+        return { month: m.month, year };
+      }
+    }
+  }
+
+  return null;
+}
+
+function parseDay(value) {
+  if (!value) return null;
+  const nums = String(value).match(/\d+/g);
+  if (!nums || nums.length < 1) return null;
+  const day = Number(nums[0]);
+  if (day < 1 || day > 31) return null;
+  return day;
+}
+
+function splitName(name) {
+  const parts = String(name || '').trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return { firstName: '', lastName: '' };
+  if (parts.length === 1) return { firstName: parts[0], lastName: '' };
+  return { firstName: parts[0], lastName: parts.slice(1).join(' ') };
+}
+
+function parseCsvBoolean(value) {
+  const raw = String(value || '').trim().toLowerCase();
+  if (raw === 'true' || raw === '1' || raw === 'yes' || raw === 'כן') return true;
+  if (raw === 'false' || raw === '0' || raw === 'no' || raw === 'לא') return false;
+  return false;
+}
+
+function normalizeName(value) {
+  return String(value || '').trim().replace(/\s+/g, ' ').toLowerCase();
+}
+
+function buildTenantName(t) {
+  return `${t.firstName || ''} ${t.lastName || ''}`.trim();
+}
+
+function buildPaymentKey(tenantId, tenantName, apartmentNumber, date, amount, account) {
+  const name = normalizeName(tenantName);
+  const apt = String(apartmentNumber || '').trim();
+  const idPart = tenantId ? String(tenantId) : `${name}|${apt}`;
+  return `${idPart}|${date}|${amount}|${account}`;
+}
+
+function buildTenantNameIndex(tenants) {
+  const map = new Map();
+  tenants.forEach(t => {
+    const key = normalizeName(buildTenantName(t));
+    if (!key) return;
+    if (!map.has(key)) map.set(key, []);
+    map.get(key).push(t);
+  });
+  return map;
+}
+
+function findTenantByName(nameIndex, fullName) {
+  const key = normalizeName(fullName);
+  if (!key) return null;
+  const matches = nameIndex.get(key) || [];
+  if (matches.length !== 1) return null;
+  return matches[0];
+}
+
+async function exportTenantsCsv() {
+  const tenants = await getAllTenants(true);
+  const rows = [
+    ['apartment', 'first_name', 'last_name', 'national_id', 'phone', 'active', 'start_date', 'end_date', 'move_out_date', 'rent_amount', 'arnona_amount', 'electricity_meter', 'water_meter', 'notes', 'archived']
+  ];
+
+  tenants.slice().sort((a, b) => Number(a.apartmentNumber || 0) - Number(b.apartmentNumber || 0)).forEach(t => {
+    rows.push([
+      t.apartmentNumber || '',
+      t.firstName || '',
+      t.lastName || '',
+      t.nationalId || '',
+      t.phone || '',
+      t.archived ? 'false' : 'true',
+      t.startDate || '',
+      t.endDate || '',
+      t.moveOutDate || '',
+      t.rentAmount ?? '',
+      t.arnonaAmount ?? '',
+      t.electricityMeter || '',
+      t.waterMeter || '',
+      t.notes || '',
+      t.archived ? 'true' : 'false'
+    ]);
+  });
+
+  const csv = rows.map(row => row.map(v => '"' + String(v).replace(/"/g, '""') + '"').join(',')).join('\n');
+  downloadCsv(csv, 'tenants.csv');
+}
+
+async function importTenantsCsv(text) {
+  const lines = text.split(/\r?\n/).filter(l => l.trim().length > 0);
+  if (lines.length < 2) throw new Error('קובץ ריק');
+  const rows = lines.map(parseCsvLine);
+  const startIdx = rows[0][0]?.toLowerCase() === 'apartment' ? 1 : 0;
+
+  const headerMap = {};
+  if (startIdx === 1) {
+    rows[0].forEach((h, i) => { headerMap[String(h || '').trim().toLowerCase()] = i; });
+  }
+  const idx = (name, fallback) => (headerMap[name] === undefined ? fallback : headerMap[name]);
+  const activeIdx = headerMap['active'];
+  const hasHeader = startIdx === 1;
+  const legacyNoHeader = !hasHeader && rows[0].length <= 12;
+  const startDateIdx = legacyNoHeader ? 5 : 6;
+  const endDateIdx = legacyNoHeader ? 6 : 7;
+  const moveOutDateIdx = legacyNoHeader ? -1 : 8;
+  const rentIdx = legacyNoHeader ? 7 : 9;
+  const arnonaIdx = legacyNoHeader ? null : 10;
+  const elecIdx = legacyNoHeader ? 8 : 11;
+  const waterIdx = legacyNoHeader ? 9 : 12;
+  const notesIdx = legacyNoHeader ? 10 : 13;
+  const archivedIdx = headerMap['archived'] === undefined
+    ? (legacyNoHeader ? 11 : (activeIdx === undefined ? 14 : 14))
+    : headerMap['archived'];
+
+  const existing = await getAllTenants(true);
+  const byApartment = new Map(existing.map(t => [String(t.apartmentNumber || ''), t]));
+
+  let total = 0, success = 0, updated = 0;
+
+  for (let i = startIdx; i < rows.length; i++) {
+    const row = rows[i];
+    const apartmentNumber = String(row[0] || '').trim();
+    if (!apartmentNumber) continue;
+
+    const data = {
+      firstName: String(row[idx('first_name', 1)] || '').trim(),
+      lastName: String(row[idx('last_name', 2)] || '').trim(),
+      nationalId: String(row[idx('national_id', 3)] || '').trim(),
+      phone: String(row[idx('phone', 4)] || '').trim(),
+      startDate: normalizeDateString(row[idx('start_date', startDateIdx)]),
+      endDate: normalizeDateString(row[idx('end_date', endDateIdx)]),
+      moveOutDate: moveOutDateIdx >= 0 ? normalizeDateString(row[idx('move_out_date', moveOutDateIdx)]) : '',
+      rentAmount: Number(String(row[idx('rent_amount', rentIdx)] || '').replace(/,/g, '')) || 0,
+      arnonaAmount: arnonaIdx === null ? 0 : Number(String(row[idx('arnona_amount', arnonaIdx)] || '').replace(/,/g, '')) || 0,
+      electricityMeter: String(row[idx('electricity_meter', elecIdx)] || '').trim(),
+      waterMeter: String(row[idx('water_meter', waterIdx)] || '').trim(),
+      notes: String(row[idx('notes', notesIdx)] || '').trim(),
+      apartmentNumber: apartmentNumber,
+      archived: activeIdx === undefined ? parseCsvBoolean(row[archivedIdx]) : !parseCsvBoolean(row[activeIdx])
+    };
+
+    total++;
+    const existingTenant = byApartment.get(apartmentNumber);
+    if (existingTenant) {
+      await updateTenant(existingTenant.id, data);
+      updated++;
+    } else {
+      const id = await addTenant(data);
+      if (data.archived) await updateTenant(id, { archived: true });
+      success++;
+    }
+  }
+
+  return { success, total, updated };
+}
+
+async function ensureTenant(apartmentNumber, name) {
+  const tenants = await getAllTenants(true);
+  const existing = tenants.find(t => String(t.apartmentNumber) === String(apartmentNumber));
+  if (existing) return existing;
+  const { firstName, lastName } = splitName(name);
+  const id = await addTenant({
+    firstName,
+    lastName,
+    apartmentNumber: String(apartmentNumber),
+    phone: '',
+    startDate: '',
+    endDate: '',
+    rentAmount: 0,
+    nationalId: '',
+    electricityMeter: '',
+    waterMeter: '',
+    notes: 'יובא מטבלת הפקדות'
+  });
+  return { id, apartmentNumber, firstName, lastName };
+}
+
+async function importDepositsFromCsv(csvText, accountValue) {
+  const lines = csvText.split(/\r?\n/).filter(l => l.trim().length > 0);
+  if (lines.length < 4) throw new Error('פורמט קובץ לא תקין');
+  const rows = lines.map(parseCsvLine);
+
+  const apartments = rows[0];
+  const names = rows[1];
+  const dayRow = rows[2];
+
+  const tenants = await getAllTenants(true);
+  const tenantIndex = buildTenantNameIndex(tenants);
+  const existingPayments = await getAllPayments();
+  const existingSet = new Set(existingPayments.map(p => buildPaymentKey(p.tenantId, p.tenantName, p.apartmentNumber, p.date, p.amount, p.account)));
+
+  let total = 0;
+  let success = 0;
+  let skipped = 0;
+
+  for (let r = 3; r < rows.length; r++) {
+    const monthCell = rows[r][0];
+    const parsed = parseMonthYear(monthCell);
+    if (!parsed) continue;
+    const { month, year } = parsed;
+
+    for (let c = 1; c < rows[r].length; c++) {
+      const apt = apartments[c];
+      const name = names[c];
+      if (!apt && !name) continue;
+      const day = parseDay(dayRow[c]) || 1;
+      const valueRaw = rows[r][c];
+      if (!valueRaw || String(valueRaw).trim() === '') continue;
+      const amount = Number(String(valueRaw).replace(/,/g, ''));
+      if (Number.isNaN(amount) || amount === 0) continue;
+
+      const tenant = findTenantByName(tenantIndex, name);
+      const date = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+      const key = buildPaymentKey(tenant?.id, name, apt, date, amount, accountValue);
+      if (existingSet.has(key)) {
+        skipped++;
+        continue;
+      }
+
+      total++;
+      await addPayment({
+        tenantId: tenant?.id || null,
+        tenantName: tenant ? buildTenantName(tenant) : (name || ''),
+        apartmentNumber: tenant?.apartmentNumber || apt || '',
+        amount,
+        method: 'check',
+        account: accountValue,
+        date,
+        notes: 'יובא מטבלת הפקדות'
+      });
+      existingSet.add(key);
+      success++;
+    }
+  }
+
+  return { success, total, skipped };
+}
+
+// Bills (legacy)
+async function generateBills(asOfDate) {
+  const elecPrice = await getSetting('electricityPrice') ?? 1.5;
+  const waterPrice = await getSetting('waterPrice') ?? 6;
+  const tenants = await getAllTenants(false);
+  const created = [];
+  const tx = await getTx('bills', 'readwrite');
+  const billStore = tx.objectStore('bills');
+
+  for (const t of tenants) {
+    for (const meterType of ['electricity', 'water']) {
+      const readings = await getReadingsByTenant(t.id);
+      const relevant = readings.filter(r => r.meterType === meterType && new Date(r.date) <= new Date(asOfDate)).slice(-2);
+      if (relevant.length < 2) continue;
+      const [prev, curr] = relevant;
+      const consumption = Number(curr.value) - Number(prev.value);
+      const amount = Math.max(0, consumption) * (meterType === 'electricity' ? elecPrice : waterPrice);
+      const bill = { tenantId: t.id, apartmentNumber: t.apartmentNumber, meterType, prevReading: prev.value, prevDate: prev.date, currReading: curr.value, currDate: curr.date, consumption, amount, date: asOfDate, paid: false, createdAt: new Date().toISOString() };
+      billStore.add(bill);
+      created.push(bill);
+    }
+  }
+  return created;
+}
+
+async function getAllBills() {
+  const tx = await getTx('bills', 'readonly');
+  return new Promise((res, rej) => {
+    const r = tx.objectStore('bills').getAll();
+    r.onsuccess = () => res(r.result || []);
+    r.onerror = () => rej(r.error);
+  });
+}
+
+async function clearAllBills() {
+  const tx = await getTx('bills', 'readwrite');
+  return new Promise((res, rej) => {
+    const r = tx.objectStore('bills').clear();
+    r.onsuccess = () => res();
+    r.onerror = () => rej(r.error);
+  });
+}
+
+// Settings
+async function getSetting(key) {
+  const tx = await getTx('settings', 'readonly');
+  return new Promise((res, rej) => {
+    const r = tx.objectStore('settings').get(key);
+    r.onsuccess = () => res(r.result?.value ?? null);
+    r.onerror = () => rej(r.error);
+  });
+}
+
+async function setSetting(key, value) {
+  const tx = await getTx('settings', 'readwrite');
+  return new Promise((res, rej) => {
+    const r = tx.objectStore('settings').put({ key, value });
+    r.onsuccess = () => res();
+    r.onerror = () => rej(r.error);
+  });
+}
+
+// CSV Import
+async function parseCSVAndImport(csvText, meterType = 'water') {
+  const lines = csvText.trim().split('\n');
+  const imported = { success: 0, total: 0, skipped: 0 };
+
+  const tenants = await getAllTenants(false);
+  const aptToTenant = {};
+  tenants.forEach(t => { aptToTenant[t.apartmentNumber] = t.id; });
+
+  for (let apt = 1; apt <= 5; apt++) {
+    if (!aptToTenant[String(apt)]) {
+      const id = await addTenant({ firstName: 'דייר', lastName: `דירה ${apt}`, apartmentNumber: String(apt), phone: '', startDate: '', endDate: '', rentAmount: 0, nationalId: '', electricityMeter: '', waterMeter: '', notes: 'יובא מ-CSV' });
+      aptToTenant[String(apt)] = id;
+    }
+  }
+
+  const existing = await getAllReadings();
+  const existingSet = new Set();
+  existing.forEach(r => existingSet.add(`${r.tenantId}-${r.meterType}-${r.date}`));
+
+  for (let i = 1; i < lines.length; i++) {
+    const row = lines[i].split(',');
+    if (!row[0]) continue;
+    const date = row[2];
+    if (!date) continue;
+
+    const apartments = [1, 2, 3, 4, 5];
+    const valueIndices = [6, 8, 10, 12, 14];
+
+    for (let aIdx = 0; aIdx < apartments.length; aIdx++) {
+      const apt = apartments[aIdx];
+      const valIdx = valueIndices[aIdx];
+      if (valIdx >= row.length) continue;
+      const value = row[valIdx];
+      if (!value || value.trim() === '') continue;
+
+      const tenantId = aptToTenant[String(apt)];
+      if (!tenantId) continue;
+
+      const key = `${tenantId}-${meterType}-${date}`;
+      if (existingSet.has(key)) {
+        imported.skipped++;
+        continue;
+      }
+
+      imported.total++;
+      try {
+        await addReading({ tenantId, meterType, value: Number(value), date });
+        imported.success++;
+        existingSet.add(key);
+      } catch (e) {
+        console.error(e);
+      }
+    }
+  }
+
+  return imported;
+}
+
+// Monthly bills report
+let lastMonthlyReport = null;
+
+function parseMonthValue(value) {
+  if (!value) return null;
+  const parts = value.split('-').map(Number);
+  if (parts.length !== 2 || !parts[0] || !parts[1]) return null;
+  return { year: parts[0], month: parts[1] };
+}
+
+function isInMonth(dateStr, year, month) {
+  const d = new Date(dateStr);
+  if (Number.isNaN(d.getTime())) return false;
+  return d.getFullYear() === year && (d.getMonth() + 1) === month;
+}
+
+function getMonthFirstReading(readings, year, month) {
+  const monthReadings = readings.filter(r => isInMonth(r.date, year, month))
+    .sort((a, b) => new Date(a.date) - new Date(b.date));
+  return monthReadings[0] || null;
+}
+
+function getClosestBefore(readings, dateStr) {
+  const target = new Date(dateStr);
+  const before = readings.filter(r => new Date(r.date) < target)
+    .sort((a, b) => new Date(b.date) - new Date(a.date));
+  return before[0] || null;
+}
+
+function calculateMeterReportFromPair(prevReading, currentReading, unitPrice) {
+  if (!prevReading || !currentReading) return null;
+  const consumption = Number(currentReading.value) - Number(prevReading.value);
+  const cost = Math.max(0, consumption) * unitPrice;
+  return {
+    startValue: Number(prevReading.value),
+    startDate: prevReading.date,
+    endValue: Number(currentReading.value),
+    endDate: currentReading.date,
+    consumption,
+    cost
+  };
+}
+
+async function buildMonthlyReport(monthValue) {
+  const parsed = parseMonthValue(monthValue);
+  if (!parsed) throw new Error('בחר חודש תקין');
+  const { year, month } = parsed;
+
+  const waterPrice = Number(await getSetting('waterPrice') ?? 0);
+  const elecPrice = Number(await getSetting('electricityPrice') ?? 0);
+  const tenants = await getAllTenants(false);
+  const allReadings = await getAllReadings();
+
+  const rows = tenants.map(t => {
+    const tenantReadings = allReadings.filter(r => r.tenantId === t.id);
+    const waterAll = tenantReadings.filter(r => r.meterType === 'water');
+    const elecAll = tenantReadings.filter(r => r.meterType === 'electricity');
+
+    const waterCurrent = getMonthFirstReading(waterAll, year, month);
+    const waterPrev = waterCurrent ? getClosestBefore(waterAll, waterCurrent.date) : null;
+    const elecCurrent = getMonthFirstReading(elecAll, year, month);
+    const elecPrev = elecCurrent ? getClosestBefore(elecAll, elecCurrent.date) : null;
+
+    const waterReport = calculateMeterReportFromPair(waterPrev, waterCurrent, waterPrice);
+    const elecReport = calculateMeterReportFromPair(elecPrev, elecCurrent, elecPrice);
+
+    const total = (waterReport?.cost || 0) + (elecReport?.cost || 0);
+
+    return {
+      tenantName: `${t.firstName || ''} ${t.lastName || ''}`.trim(),
+      apartment: t.apartmentNumber || '',
+      waterMeter: t.waterMeter || '',
+      electricMeter: t.electricityMeter || '',
+      water: waterReport,
+      electric: elecReport,
+      total
+    };
+  });
+
+  return { monthValue, rows };
+}
+
+function renderBillsReport(report) {
+  const container = document.getElementById('bills-report');
+  if (!container) return;
+  if (!report || report.rows.length === 0) {
+    container.innerHTML = '<p>אין נתונים להצגה</p>';
+    return;
+  }
+
+  const header = `<div style="margin-bottom:8px;font-weight:600;">דוח חשבונות לחודש ${report.monthValue}</div>`;
+
+  const tableHeader = `
+    <table class="report-table">
+      <thead>
+        <tr>
+          <th>דייר</th>
+          <th>דירה</th>
+          <th>PDF</th>
+          <th>מונה מים</th>
+          <th>קריאת מים התחלה</th>
+          <th>תאריך התחלה</th>
+          <th>קריאת מים סוף</th>
+          <th>תאריך סוף</th>
+          <th>עלות מים</th>
+          <th>מונה חשמל</th>
+          <th>קריאת חשמל התחלה</th>
+          <th>תאריך התחלה</th>
+          <th>קריאת חשמל סוף</th>
+          <th>תאריך סוף</th>
+          <th>עלות חשמל</th>
+          <th>סה"כ</th>
+        </tr>
+      </thead>
+      <tbody>
+  `;
+
+  const body = report.rows.map(r => {
+    const w = r.water || {};
+    const e = r.electric || {};
+    return `
+      <tr>
+        <td>${r.tenantName || '-'}</td>
+        <td>${r.apartment || '-'}</td>
+        <td><button class="btn-pdf" data-tenant="${r.apartment}">PDF</button></td>
+        <td>${r.waterMeter || '-'}</td>
+        <td>${w.startValue ?? '-'}</td>
+        <td>${w.startDate ?? '-'}</td>
+        <td>${w.endValue ?? '-'}</td>
+        <td>${w.endDate ?? '-'}</td>
+        <td>${(w.cost ?? 0).toFixed(2)}</td>
+        <td>${r.electricMeter || '-'}</td>
+        <td>${e.startValue ?? '-'}</td>
+        <td>${e.startDate ?? '-'}</td>
+        <td>${e.endValue ?? '-'}</td>
+        <td>${e.endDate ?? '-'}</td>
+        <td>${(e.cost ?? 0).toFixed(2)}</td>
+        <td>${(r.total ?? 0).toFixed(2)}</td>
+      </tr>
+    `;
+  }).join('');
+
+  container.innerHTML = `${header}${tableHeader}${body}</tbody></table>`;
+}
+
+function reportToCsv(report) {
+  const rows = [
+    ['דייר', 'דירה', 'מונה מים', 'קריאת מים התחלה', 'תאריך התחלה', 'קריאת מים סוף', 'תאריך סוף', 'עלות מים', 'מונה חשמל', 'קריאת חשמל התחלה', 'תאריך התחלה', 'קריאת חשמל סוף', 'תאריך סוף', 'עלות חשמל', 'סה"כ']
+  ];
+
+  report.rows.forEach(r => {
+    const w = r.water || {};
+    const e = r.electric || {};
+    rows.push([
+      r.tenantName || '',
+      r.apartment || '',
+      r.waterMeter || '',
+      w.startValue ?? '',
+      w.startDate ?? '',
+      w.endValue ?? '',
+      w.endDate ?? '',
+      (w.cost ?? 0).toFixed(2),
+      r.electricMeter || '',
+      e.startValue ?? '',
+      e.startDate ?? '',
+      e.endValue ?? '',
+      e.endDate ?? '',
+      (e.cost ?? 0).toFixed(2),
+      (r.total ?? 0).toFixed(2)
+    ]);
+  });
+
+  const escape = v => '"' + String(v).replace(/"/g, '""') + '"';
+  return rows.map(row => row.map(escape).join(',')).join('\n');
+}
+
+function downloadCsv(content, filename) {
+  const blob = new Blob(['\ufeff' + content], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+function buildTenantPdfHtml(row, monthValue) {
+  const w = row.water || {};
+  const e = row.electric || {};
+  const total = (row.total ?? 0).toFixed(2);
+  return `
+    <html lang="he" dir="rtl">
+      <head>
+        <meta charset="UTF-8">
+        <title>דוח דייר</title>
+        <style>
+          body{font-family:Arial, sans-serif; direction:rtl; padding:24px;}
+          h1{font-size:20px; margin-bottom:8px;}
+          table{width:100%; border-collapse:collapse; margin-top:12px;}
+          th,td{border:1px solid #ccc; padding:6px; font-size:12px;}
+          th{background:#f3f3f3;}
+          .section{margin-top:16px;}
+        </style>
+      </head>
+      <body>
+        <h1>דוח חשבונות לחודש ${monthValue}</h1>
+        <div>דייר: ${row.tenantName || '-'}</div>
+        <div>דירה: ${row.apartment || '-'}</div>
+
+        <div class="section">
+          <h2>מים</h2>
+          <table>
+            <tr><th>מונה</th><th>קריאה התחלה</th><th>תאריך התחלה</th><th>קריאה סוף</th><th>תאריך סוף</th><th>עלות</th></tr>
+            <tr>
+              <td>${row.waterMeter || '-'}</td>
+              <td>${w.startValue ?? '-'}</td>
+              <td>${w.startDate ?? '-'}</td>
+              <td>${w.endValue ?? '-'}</td>
+              <td>${w.endDate ?? '-'}</td>
+              <td>${(w.cost ?? 0).toFixed(2)}</td>
+            </tr>
+          </table>
+        </div>
+
+        <div class="section">
+          <h2>חשמל</h2>
+          <table>
+            <tr><th>מונה</th><th>קריאה התחלה</th><th>תאריך התחלה</th><th>קריאה סוף</th><th>תאריך סוף</th><th>עלות</th></tr>
+            <tr>
+              <td>${row.electricMeter || '-'}</td>
+              <td>${e.startValue ?? '-'}</td>
+              <td>${e.startDate ?? '-'}</td>
+              <td>${e.endValue ?? '-'}</td>
+              <td>${e.endDate ?? '-'}</td>
+              <td>${(e.cost ?? 0).toFixed(2)}</td>
+            </tr>
+          </table>
+        </div>
+
+        <div class="section"><strong>סה"כ לתשלום: ${total} ₪</strong></div>
+      </body>
+    </html>
+  `;
+}
+
+function openPdfWindow(html) {
+  const w = window.open('', '_blank');
+  if (!w) { alert('חסום חלון קופץ בדפדפן'); return; }
+  w.document.open();
+  w.document.write(html);
+  w.document.close();
+  w.focus();
+  w.print();
+}
+
+// UI Elements
+const tenantList = document.getElementById('tenant-list');
+const tenantForm = document.getElementById('tenant-form');
+const archiveView = document.getElementById('archive-view');
+const readingsView = document.getElementById('readings-view');
+const settingsView = document.getElementById('settings-view');
+const paymentsView = document.getElementById('payments-view');
+const balanceView = document.getElementById('balance-view');
+const dashboardView = document.getElementById('dashboard-view');
+const confirmModal = document.getElementById('confirm-modal');
+
+// UI Helpers
+function hideAll() { [tenantForm, archiveView, readingsView, settingsView, paymentsView, balanceView, dashboardView].forEach(x => x?.classList.add('hidden')); }
+function show(el) { hideAll(); el?.classList.remove('hidden'); }
+function confirmDialog(msg) {
+  return new Promise(res => {
+    document.getElementById('confirm-text').textContent = msg;
+    confirmModal.classList.remove('hidden');
+    const onYes = () => { clean(); res(true); };
+    const onNo = () => { clean(); res(false); };
+    const clean = () => {
+      confirmModal.classList.add('hidden');
+      document.getElementById('confirm-yes').removeEventListener('click', onYes);
+      document.getElementById('confirm-no').removeEventListener('click', onNo);
+    };
+    document.getElementById('confirm-yes').addEventListener('click', onYes);
+    document.getElementById('confirm-no').addEventListener('click', onNo);
+  });
+}
+
+function sortTenantsByMeter(tenants, meterKey) {
+  return tenants.slice().sort((a, b) => {
+    const aVal = Number(a[meterKey]);
+    const bVal = Number(b[meterKey]);
+    if (Number.isNaN(aVal) && Number.isNaN(bVal)) return 0;
+    if (Number.isNaN(aVal)) return 1;
+    if (Number.isNaN(bVal)) return -1;
+    return aVal - bVal;
+  });
+}
+
+function buildBulkList(containerId, tenants, meterKey, unitLabel) {
+  const container = document.getElementById(containerId);
+  if (!container) return;
+  container.innerHTML = '';
+  tenants.forEach(t => {
+    const meter = t[meterKey] || '';
+    const row = document.createElement('div');
+    row.className = 'bulk-row';
+    row.innerHTML = `
+      <span class="bulk-label">דירה ${t.apartmentNumber || '-'} — ${t.firstName || ''} ${t.lastName || ''} (מונה: ${meter || 'לא מוגדר'})</span>
+      <input type="number" step="0.01" data-tenant-id="${t.id}" placeholder="קריאה (${unitLabel})">
+    `;
+    container.appendChild(row);
+  });
+}
+
+function buildTenantSelectOptions(tenants, selectedId = '') {
+  const options = ['<option value="">בחר דייר</option>'];
+  tenants.forEach(t => {
+    const name = `${t.firstName || ''} ${t.lastName || ''}`.trim();
+    const label = `${t.apartmentNumber || '-'}: ${name || '-'}`;
+    const selected = String(t.id) === String(selectedId) ? ' selected' : '';
+    options.push(`<option value="${t.id}"${selected}>${label}</option>`);
+  });
+  return options.join('');
+}
+
+async function saveBulkReadings(meterType, dateInputId, listId, statusId) {
+  const date = document.getElementById(dateInputId)?.value;
+  if (!date) { alert('נא להזין תאריך קריאה'); return; }
+
+  const inputs = Array.from(document.querySelectorAll(`#${listId} input[data-tenant-id]`));
+  let total = 0, success = 0, skipped = 0, failed = 0;
+
+  for (const input of inputs) {
+    const valueRaw = input.value.trim();
+    if (!valueRaw) continue;
+    total++;
+    const tenantId = Number(input.dataset.tenantId);
+    try {
+      await addReading({ tenantId, meterType, value: Number(valueRaw), date });
+      success++;
+      input.value = '';
+    } catch (err) {
+      if (String(err.message).includes('כבר קיימת')) skipped++; else failed++;
+    }
+  }
+
+  const statusEl = document.getElementById(statusId);
+  if (statusEl) {
+    statusEl.textContent = `נשמרו ${success}/${total} | דילוגים: ${skipped} | שגיאות: ${failed}`;
+  }
+
+  await renderReadings();
+}
+
+// Rendering
+async function renderTenants() {
+  const tenants = await getAllTenants(false);
+  tenantList.innerHTML = tenants.length === 0 ? '<p>אין דיירים</p>' : '';
+  tenants.forEach(t => {
+    const el = document.createElement('div');
+    el.className = 'tenant-item';
+    el.innerHTML = `<div><strong>${t.apartmentNumber || '-'}: ${t.firstName} ${t.lastName}</strong><div class="muted">${t.phone || ''}</div></div><div class="actions"><button data-id="${t.id}" class="btn-edit">✏️</button><button data-id="${t.id}" class="btn-archive">📦</button><button data-id="${t.id}" class="btn-delete">🗑️</button></div>`;
+    tenantList.appendChild(el);
+  });
+  await renderTenantsTable();
+}
+
+async function renderTenantsTable() {
+  const container = document.getElementById('tenants-table');
+  if (!container) return;
+  const tenants = await getAllTenants(false);
+  if (tenants.length === 0) {
+    container.innerHTML = '<p>אין דיירים</p>';
+    return;
+  }
+
+  const rows = tenants.slice().sort((a, b) => Number(a.apartmentNumber || 0) - Number(b.apartmentNumber || 0)).map(t => {
+    const rentNum = Number(t.rentAmount);
+    const rent = !Number.isNaN(rentNum) && String(t.rentAmount).trim() !== '' ? `₪${rentNum.toFixed(2)}` : '-';
+    const arnonaNum = Number(t.arnonaAmount);
+    const arnona = !Number.isNaN(arnonaNum) && String(t.arnonaAmount).trim() !== '' ? `₪${arnonaNum.toFixed(2)}` : '-';
+    const name = `${t.firstName || ''} ${t.lastName || ''}`.trim();
+    const status = t.archived ? 'לא פעיל' : 'פעיל';
+    return `
+      <tr>
+        <td>${t.apartmentNumber || '-'}</td>
+        <td>${name || '-'}</td>
+        <td>${t.phone || '-'}</td>
+        <td>${status}</td>
+        <td>${rent}</td>
+        <td>${arnona}</td>
+        <td>${t.electricityMeter || '-'}</td>
+        <td>${t.waterMeter || '-'}</td>
+        <td>${t.startDate || '-'}</td>
+        <td>${t.endDate || '-'}</td>
+        <td><input type="date" class="moveout-input" data-id="${t.id}" value="${t.moveOutDate || ''}"></td>
+        <td>${t.notes || '-'}</td>
+      </tr>
+    `;
+  }).join('');
+
+  container.innerHTML = `
+    <table class="payments-table">
+      <thead>
+        <tr>
+          <th>דירה</th>
+          <th>דייר</th>
+          <th>טלפון</th>
+          <th>סטטוס</th>
+          <th>שכירות</th>
+          <th>ארנונה</th>
+          <th>מונה חשמל</th>
+          <th>מונה מים</th>
+          <th>תחילת חוזה</th>
+          <th>סיום חוזה</th>
+          <th>תאריך עזיבה</th>
+          <th>הערות</th>
+        </tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>
+  `;
+}
+
+async function renderArchive() {
+  const archived = (await getAllTenants(true)).filter(t => t.archived);
+  const list = document.getElementById('archive-list');
+  if (archived.length === 0) {
+    list.innerHTML = '<p>אין בארכיון</p>';
+    return;
+  }
+
+  const rows = archived.slice().sort((a, b) => Number(a.apartmentNumber || 0) - Number(b.apartmentNumber || 0)).map(t => {
+    const rentNum = Number(t.rentAmount);
+    const rent = !Number.isNaN(rentNum) && String(t.rentAmount).trim() !== '' ? `₪${rentNum.toFixed(2)}` : '-';
+    const arnonaNum = Number(t.arnonaAmount);
+    const arnona = !Number.isNaN(arnonaNum) && String(t.arnonaAmount).trim() !== '' ? `₪${arnonaNum.toFixed(2)}` : '-';
+    const name = `${t.firstName || ''} ${t.lastName || ''}`.trim();
+    return `
+      <tr>
+        <td>${t.apartmentNumber || '-'}</td>
+        <td>${name || '-'}</td>
+        <td>${t.phone || '-'}</td>
+        <td>לא פעיל</td>
+        <td>${rent}</td>
+        <td>${arnona}</td>
+        <td>${t.electricityMeter || '-'}</td>
+        <td>${t.waterMeter || '-'}</td>
+        <td>${t.startDate || '-'}</td>
+        <td>${t.endDate || '-'}</td>
+        <td><input type="date" class="moveout-input" data-id="${t.id}" value="${t.moveOutDate || ''}"></td>
+        <td>${t.notes || '-'}</td>
+        <td>
+          <button data-id="${t.id}" class="btn-restore">↩️</button>
+          <button data-id="${t.id}" class="btn-delete">🗑️</button>
+        </td>
+      </tr>
+    `;
+  }).join('');
+
+  list.innerHTML = `
+    <table class="payments-table">
+      <thead>
+        <tr>
+          <th>דירה</th>
+          <th>דייר</th>
+          <th>טלפון</th>
+          <th>סטטוס</th>
+          <th>שכירות</th>
+          <th>ארנונה</th>
+          <th>מונה חשמל</th>
+          <th>מונה מים</th>
+          <th>תחילת חוזה</th>
+          <th>סיום חוזה</th>
+          <th>תאריך עזיבה</th>
+          <th>הערות</th>
+          <th>פעולות</th>
+        </tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>
+  `;
+}
+
+async function renderReadings() {
+  const all = await getAllReadings();
+  const tenants = await getAllTenants(true);
+  const list = document.getElementById('readings-list');
+  list.innerHTML = '';
+
+  if (all.length === 0) { list.innerHTML = '<p>אין קריאות</p>'; return; }
+
+  const tenantMap = new Map(tenants.map(t => [t.id, t]));
+  const tenantsSorted = tenants.slice().sort((a, b) => {
+    const aNum = Number(a.apartmentNumber);
+    const bNum = Number(b.apartmentNumber);
+    if (Number.isNaN(aNum) && Number.isNaN(bNum)) return 0;
+    if (Number.isNaN(aNum)) return 1;
+    if (Number.isNaN(bNum)) return -1;
+    return aNum - bNum;
+  });
+
+  const dateSet = new Set(all.map(r => r.date));
+  const dates = Array.from(dateSet).sort((a, b) => new Date(b) - new Date(a));
+
+  const byDate = {};
+  dates.forEach(d => { byDate[d] = {}; });
+  all.forEach(r => {
+    if (!r.tenantId || !tenantMap.has(r.tenantId)) return;
+    if (!byDate[r.date]) byDate[r.date] = {};
+    if (!byDate[r.date][r.tenantId]) byDate[r.date][r.tenantId] = { electricity: null, water: null };
+    byDate[r.date][r.tenantId][r.meterType] = r;
+  });
+
+  const headerTop = tenantsSorted.map(t => {
+    const name = `${t.firstName || ''} ${t.lastName || ''}`.trim();
+    const title = name ? ` title="${name}"` : '';
+    return `<th colspan="2"${title}>דירה ${t.apartmentNumber || '-'}</th>`;
+  }).join('');
+
+  const headerBottom = tenantsSorted.map(() => '<th>חשמל</th><th>מים</th>').join('');
+
+  const body = dates.map(date => {
+    const cells = tenantsSorted.map(t => {
+      const rec = (byDate[date] && byDate[date][t.id]) || {};
+      const e = rec.electricity ? `${rec.electricity.value} <span class="cell-actions"><button data-id="${rec.electricity.id}" class="btn-edit-reading">✏️</button><button data-id="${rec.electricity.id}" class="btn-delete-reading">🗑️</button></span>` : '-';
+      const w = rec.water ? `${rec.water.value} <span class="cell-actions"><button data-id="${rec.water.id}" class="btn-edit-reading">✏️</button><button data-id="${rec.water.id}" class="btn-delete-reading">🗑️</button></span>` : '-';
+      return `<td>${e}</td><td>${w}</td>`;
+    }).join('');
+    return `<tr><td class="date-col">${date}</td>${cells}</tr>`;
+  }).join('');
+
+  const orphanReadings = all.filter(r => !r.tenantId || !tenantMap.has(r.tenantId));
+  const orphanRows = orphanReadings.map(r => {
+    const name = r.tenantName || '-';
+    const apartment = r.apartmentNumber || '-';
+    return `
+      <tr class="row-missing">
+        <td>${r.date || ''}</td>
+        <td>${meterTypeLabel(r.meterType)}</td>
+        <td>${r.value ?? ''}</td>
+        <td>${apartment}</td>
+        <td>${name}</td>
+        <td>
+          <select class="link-reading-select" data-reading-id="${r.id}">
+            ${buildTenantSelectOptions(tenants)}
+          </select>
+        </td>
+      </tr>
+    `;
+  }).join('');
+
+  const orphanTable = orphanReadings.length > 0 ? `
+    <div class="section" style="margin-top: 12px;">
+      <h3>קריאות לא משויכות</h3>
+      <table class="payments-table">
+        <thead>
+          <tr>
+            <th>תאריך</th>
+            <th>סוג</th>
+            <th>ערך</th>
+            <th>דירה</th>
+            <th>דייר</th>
+            <th>קישור</th>
+          </tr>
+        </thead>
+        <tbody>${orphanRows}</tbody>
+      </table>
+    </div>
+  ` : '';
+
+  list.innerHTML = `
+    <table class="readings-table">
+      <thead>
+        <tr><th rowspan="2" class="date-col">תאריך</th>${headerTop}</tr>
+        <tr>${headerBottom}</tr>
+      </thead>
+      <tbody>${body}</tbody>
+    </table>
+    ${orphanTable}
+  `;
+}
+
+async function renderPayments() {
+  const all = await getAllPayments();
+  const list = document.getElementById('payments-list');
+  if (all.length === 0) {
+    list.innerHTML = '<p>אין תשלומים</p>';
+    return;
+  }
+
+  const tenants = await getAllTenants(true);
+  const tenantMap = new Map(tenants.map(t => [t.id, t]));
+  const sorted = all.slice();
+  if (paymentsSort.key) {
+    const dir = paymentsSort.dir === 'asc' ? 1 : -1;
+    sorted.sort((a, b) => comparePayments(a, b, tenantMap, paymentsSort.key) * dir);
+  } else {
+    sorted.sort((a, b) => new Date(b.date) - new Date(a.date));
+  }
+
+  const rows = sorted.map(p => {
+    const t = tenantMap.get(p.tenantId);
+    const name = t ? `${t.firstName || ''} ${t.lastName || ''}`.trim() : (p.tenantName || '');
+    const apartment = t?.apartmentNumber || p.apartmentNumber || '';
+    const missing = !t;
+    const linkCell = missing ? `
+      <select class="link-payment-select" data-payment-id="${p.id}">
+        ${buildTenantSelectOptions(tenants)}
+      </select>
+    ` : '—';
+    return `
+      <tr class="${missing ? 'row-missing' : ''}">
+        <td>${p.date || ''}</td>
+        <td>${apartment || '-'}</td>
+        <td>${name || '-'}</td>
+        <td>₪${Number(p.amount).toFixed(2)}</td>
+        <td>${accountLabel(p.account)}</td>
+        <td>${p.method || ''}</td>
+        <td>${p.notes || ''}</td>
+        <td>${linkCell}</td>
+        <td>
+          <button class="btn-edit-payment" data-id="${p.id}">✏️</button>
+          <button class="btn-delete-payment" data-id="${p.id}">🗑️</button>
+        </td>
+      </tr>
+    `;
+  }).join('');
+
+  list.innerHTML = `
+    <table class="payments-table">
+      <thead>
+        <tr>
+          <th data-key="date">תאריך</th>
+          <th data-key="apartment">דירה</th>
+          <th data-key="tenant">דייר</th>
+          <th data-key="amount">סכום</th>
+          <th data-key="account">חשבון</th>
+          <th data-key="method">אמצעי</th>
+          <th data-key="notes">הערות</th>
+          <th>קישור</th>
+          <th>פעולות</th>
+        </tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>
+  `;
+}
+
+async function renderBalance() {
+  const tenants = await getAllTenants(false);
+  const bills = await getAllBills();
+  const payments = await getAllPayments();
+  const list = document.getElementById('balance-list');
+  list.innerHTML = '';
+
+  tenants.forEach(t => {
+    const billSum = bills.filter(b => b.tenantId === t.id).reduce((s, x) => s + x.amount, 0);
+    const paySum = payments.filter(p => p.tenantId === t.id).reduce((s, x) => s + x.amount, 0);
+    const balance = billSum - paySum;
+    const el = document.createElement('div');
+    el.className = 'tenant-item';
+    el.innerHTML = `<div><strong>${t.apartmentNumber || '-'}: ${t.firstName} ${t.lastName}</strong><div class="muted">חשבונות: ₪${billSum.toFixed(2)} | תשלומים: ₪${paySum.toFixed(2)}</div><div style="color:${balance > 0 ? '#e74c3c' : '#27ae60'};font-weight:bold;margin-top:4px;">${balance > 0 ? 'חוב' : 'זכות'}: ₪${Math.abs(balance).toFixed(2)}</div></div>`;
+    list.appendChild(el);
+  });
+}
+
+async function populateTenantSelects() {
+  const tenants = await getAllTenants(false);
+  [document.getElementById('reading-tenant'), document.getElementById('payment-tenant')].forEach(sel => {
+    if (!sel) return;
+    sel.innerHTML = '<option value="">בחר דייר</option>';
+    tenants.forEach(t => { const opt = document.createElement('option'); opt.value = t.id; opt.textContent = `${t.apartmentNumber || '-'}: ${t.firstName}`; sel.appendChild(opt); });
+  });
+}
+
+// Actions
+const showAddBtn = document.getElementById('show-add');
+const showArchiveBtn = document.getElementById('show-archive');
+const showSettingsBtn = document.getElementById('show-settings');
+const showReadingsBtn = document.getElementById('show-readings');
+const showPaymentsBtn = document.getElementById('show-payments');
+const showBalanceBtn = document.getElementById('show-balance');
+
+showAddBtn?.addEventListener('click', async () => { show(tenantForm); tenantForm.editId = null; document.getElementById('form-title').textContent = 'הוספת דייר'; tenantForm.reset(); await renderTenantsTable(); });
+showArchiveBtn?.addEventListener('click', async () => { await renderArchive(); show(archiveView); });
+showSettingsBtn?.addEventListener('click', async () => { const e = await getSetting('electricityPrice'); const w = await getSetting('waterPrice'); document.getElementById('electricity-price').value = e ?? ''; document.getElementById('water-price').value = w ?? ''; show(settingsView); });
+showPaymentsBtn?.addEventListener('click', async () => { await populateTenantSelects(); await renderPayments(); show(paymentsView); });
+showBalanceBtn?.addEventListener('click', async () => { await renderBalance(); show(balanceView); });
+
+showReadingsBtn?.addEventListener('click', async () => {
+  const tenants = await getAllTenants(false);
+  const sortedElec = sortTenantsByMeter(tenants, 'electricityMeter');
+  const sortedWater = sortTenantsByMeter(tenants, 'waterMeter');
+  buildBulkList('bulk-electricity-list', sortedElec, 'electricityMeter', 'קוט"ש');
+  buildBulkList('bulk-water-list', sortedWater, 'waterMeter', 'מ"ק');
+  await renderReadings();
+  const monthInput = document.getElementById('bill-month');
+  if (monthInput && !monthInput.value) {
+    const now = new Date();
+    monthInput.value = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  }
+  const today = new Date().toISOString().slice(0, 10);
+  const elecDate = document.getElementById('bulk-electricity-date');
+  const waterDate = document.getElementById('bulk-water-date');
+  if (elecDate && !elecDate.value) elecDate.value = today;
+  if (waterDate && !waterDate.value) waterDate.value = today;
+  const reportContainer = document.getElementById('bills-report');
+  if (reportContainer) reportContainer.innerHTML = '';
+  show(readingsView);
 });
 
-function startGame() {
-    // בדיקה שלפחות אזור אחד נבחר
-    const checkboxes = document.querySelectorAll('.region-buttons input[type="checkbox"]:checked');
-    if (checkboxes.length === 0) {
-        alert('בחר לפחות אזור אחד!');
-        return;
+// Close buttons
+document.getElementById('cancel')?.addEventListener('click', () => show(tenantForm));
+document.getElementById('close-archive')?.addEventListener('click', () => show(tenantForm));
+document.getElementById('cancel-reading')?.addEventListener('click', () => show(tenantForm));
+document.getElementById('close-settings')?.addEventListener('click', () => show(tenantForm));
+document.getElementById('close-payments')?.addEventListener('click', () => show(tenantForm));
+
+// Tenant form
+tenantForm?.addEventListener('submit', async e => {
+  e.preventDefault();
+  const f = e.target;
+  const data = {};
+  for (const el of f.elements) if (el.name) data[el.name] = el.value;
+  const isActive = f.elements['active'] ? f.elements['active'].checked : true;
+  data.archived = !isActive;
+  if (f.editId) await updateTenant(Number(f.editId), data); else await addTenant(data);
+  show(tenantForm);
+  await renderTenants();
+  f.reset();
+});
+
+const tenantsExportBtn = document.getElementById('tenants-export-csv');
+const tenantsImportBtn = document.getElementById('tenants-import-csv');
+const tenantsClearBtn = document.getElementById('tenants-clear-all');
+
+tenantsExportBtn?.addEventListener('click', async () => {
+  const statusEl = document.getElementById('tenants-csv-status');
+  if (statusEl) statusEl.textContent = 'מייצא...';
+  try {
+    await exportTenantsCsv();
+    if (statusEl) statusEl.textContent = 'קובץ CSV נוצר ✓';
+  } catch (e) {
+    if (statusEl) statusEl.textContent = `שגיאה: ${e.message}`;
+  }
+});
+
+tenantsImportBtn?.addEventListener('click', async () => {
+  const file = document.getElementById('tenants-csv-upload').files[0];
+  if (!file) { alert('בחר קובץ'); return; }
+  const statusEl = document.getElementById('tenants-csv-status');
+  if (statusEl) statusEl.textContent = 'מעבד...';
+  try {
+    const text = await readCsvWithEncoding(file);
+    const res = await importTenantsCsv(text);
+    if (statusEl) statusEl.textContent = `יובאו ${res.success}/${res.total} דיירים | עודכנו ${res.updated} ✓`;
+  } catch (e) {
+    if (statusEl) statusEl.textContent = `שגיאה: ${e.message}`;
+  }
+  await renderTenants();
+  await renderArchive();
+});
+
+tenantsClearBtn?.addEventListener('click', async () => {
+  const confirmed = await confirmDialog('למחוק את כל הדיירים? זה ימחק גם קריאות, תשלומים וחשבונות. פעולה זו לא הפיכה.');
+  if (!confirmed) return;
+  const statusEl = document.getElementById('tenants-csv-status');
+  if (statusEl) statusEl.textContent = 'מוחק...';
+  try {
+    await clearAllReadings();
+    await clearAllPayments();
+    await clearAllBills();
+    await clearAllTenants();
+    if (statusEl) statusEl.textContent = 'כל הדיירים והנתונים נמחקו ✓';
+  } catch (e) {
+    if (statusEl) statusEl.textContent = `שגיאה: ${e.message}`;
+  }
+  await renderTenants();
+  await renderArchive();
+  await renderReadings();
+  await renderPayments();
+  await renderBalance();
+});
+
+// Bulk save
+document.getElementById('bulk-electricity-save')?.addEventListener('click', async () => {
+  await saveBulkReadings('electricity', 'bulk-electricity-date', 'bulk-electricity-list', 'bulk-electricity-status');
+});
+
+document.getElementById('bulk-water-save')?.addEventListener('click', async () => {
+  await saveBulkReadings('water', 'bulk-water-date', 'bulk-water-list', 'bulk-water-status');
+});
+
+// Payments form
+document.getElementById('payment-form')?.addEventListener('submit', async e => {
+  e.preventDefault();
+  const f = e.target;
+  const tenantId = f.elements['tenantId'].value ? Number(f.elements['tenantId'].value) : null;
+  const tenant = tenantId ? await getTenantById(tenantId) : null;
+  await addPayment({
+    tenantId,
+    tenantName: tenant ? `${tenant.firstName || ''} ${tenant.lastName || ''}`.trim() : '',
+    apartmentNumber: tenant?.apartmentNumber || '',
+    amount: Number(f.elements['amount'].value),
+    method: f.elements['method'].value,
+    account: f.elements['account'].value,
+    date: f.elements['date'].value,
+    notes: f.elements['notes'].value || ''
+  });
+  f.reset();
+  await renderPayments();
+  await renderBalance();
+});
+
+const paymentsExportBtn = document.getElementById('payments-export-csv');
+const paymentsImportBtn = document.getElementById('payments-import-csv');
+const paymentsClearBtn = document.getElementById('payments-clear-all');
+
+paymentsExportBtn?.addEventListener('click', async () => {
+  const statusEl = document.getElementById('payments-csv-status');
+  if (statusEl) statusEl.textContent = 'מייצא...';
+  try {
+    await exportPaymentsCsvEnglish();
+    if (statusEl) statusEl.textContent = 'קובץ CSV נוצר ✓';
+  } catch (e) {
+    if (statusEl) statusEl.textContent = `שגיאה: ${e.message}`;
+  }
+});
+
+paymentsImportBtn?.addEventListener('click', async () => {
+  const file = document.getElementById('payments-csv-upload').files[0];
+  if (!file) { alert('בחר קובץ'); return; }
+  const statusEl = document.getElementById('payments-csv-status');
+  if (statusEl) statusEl.textContent = 'מעבד...';
+  try {
+    const text = await readCsvWithEncoding(file);
+    const res = await importPaymentsCsvEnglish(text);
+    if (statusEl) statusEl.textContent = `יובאו ${res.success}/${res.total} תשלומים (${res.skipped} כפילויות דולגו) ✓`;
+  } catch (e) {
+    if (statusEl) statusEl.textContent = `שגיאה: ${e.message}`;
+  }
+  await renderPayments();
+  await renderBalance();
+});
+
+paymentsClearBtn?.addEventListener('click', async () => {
+  const confirmed = await confirmDialog('למחוק את כל התשלומים? פעולה זו לא הפיכה.');
+  if (!confirmed) return;
+  const statusEl = document.getElementById('payments-csv-status');
+  if (statusEl) statusEl.textContent = 'מוחק...';
+  try {
+    await clearAllPayments();
+    if (statusEl) statusEl.textContent = 'כל התשלומים נמחקו ✓';
+  } catch (e) {
+    if (statusEl) statusEl.textContent = `שגיאה: ${e.message}`;
+  }
+  await renderPayments();
+  await renderBalance();
+});
+
+// Settings
+const saveSettingsBtn = document.getElementById('save-settings');
+saveSettingsBtn?.addEventListener('click', async () => {
+  const e = Number(document.getElementById('electricity-price').value);
+  const w = Number(document.getElementById('water-price').value);
+  if (isNaN(e) || isNaN(w)) { alert('הזן מספרים'); return; }
+  await setSetting('electricityPrice', e);
+  await setSetting('waterPrice', w);
+  alert('שמור');
+  show(tenantForm);
+});
+
+
+// Bills actions
+const generateBillsBtn = document.getElementById('generate-bills');
+generateBillsBtn?.addEventListener('click', async () => {
+  try {
+    const monthValue = document.getElementById('bill-month')?.value;
+    const report = await buildMonthlyReport(monthValue);
+    lastMonthlyReport = report;
+    renderBillsReport(report);
+  } catch (err) {
+    alert(`שגיאה: ${err.message}`);
+  }
+});
+
+document.getElementById('export-bills-report')?.addEventListener('click', async () => {
+  try {
+    const monthValue = document.getElementById('bill-month')?.value;
+    if (!lastMonthlyReport || lastMonthlyReport.monthValue !== monthValue) {
+      lastMonthlyReport = await buildMonthlyReport(monthValue);
     }
+    const csv = reportToCsv(lastMonthlyReport);
+    downloadCsv(csv, `bills_${lastMonthlyReport.monthValue}.csv`);
+  } catch (err) {
+    alert(`שגיאה: ${err.message}`);
+  }
+});
 
-    console.log('Game started!');
-    // איסוף אזורים שנבחרו
-    selectedRegions = Array.from(checkboxes).map(cb => cb.value);
-    console.log('Selected regions:', selectedRegions);
+const readingsExportBtn = document.getElementById('readings-export-csv');
+const readingsImportBtn = document.getElementById('readings-import-csv');
+const readingsClearBtn = document.getElementById('readings-clear-all');
 
-    // יצירת שאלות
-    createQuestions();
+readingsExportBtn?.addEventListener('click', async () => {
+  const statusEl = document.getElementById('readings-csv-status');
+  if (statusEl) statusEl.textContent = 'מייצא...';
+  try {
+    await exportReadingsCsv();
+    if (statusEl) statusEl.textContent = 'קובץ CSV נוצר ✓';
+  } catch (e) {
+    if (statusEl) statusEl.textContent = `שגיאה: ${e.message}`;
+  }
+});
 
-    // הסתרת תפריט וגם הוצאת משחק
-    startMenu.classList.add('hidden');
-    endMenu.classList.add('hidden');
-    gameArea.classList.remove('hidden');
+readingsImportBtn?.addEventListener('click', async () => {
+  const file = document.getElementById('readings-csv-upload').files[0];
+  if (!file) { alert('בחר קובץ'); return; }
+  const statusEl = document.getElementById('readings-csv-status');
+  if (statusEl) statusEl.textContent = 'מעבד...';
+  try {
+    const text = await readCsvWithEncoding(file);
+    const res = await importReadingsCsv(text);
+    if (statusEl) statusEl.textContent = `יובאו ${res.success}/${res.total} קריאות (${res.skipped} כפילויות דולגו) ✓`;
+  } catch (e) {
+    if (statusEl) statusEl.textContent = `שגיאה: ${e.message}`;
+  }
+  await renderReadings();
+});
 
-    gameActive = true;
-    totalQuestionsDisplay.textContent = questions.length;
+readingsClearBtn?.addEventListener('click', async () => {
+  const confirmed = await confirmDialog('למחוק את כל הקריאות? פעולה זו לא הפיכה.');
+  if (!confirmed) return;
+  const statusEl = document.getElementById('readings-csv-status');
+  if (statusEl) statusEl.textContent = 'מוחק...';
+  try {
+    await clearAllReadings();
+    if (statusEl) statusEl.textContent = 'כל הקריאות נמחקו ✓';
+  } catch (e) {
+    if (statusEl) statusEl.textContent = `שגיאה: ${e.message}`;
+  }
+  await renderReadings();
+});
 
-    // התחלת טיימר
-    startTimer();
+document.getElementById('bills-report')?.addEventListener('click', e => {
+  const btn = e.target.closest('.btn-pdf');
+  if (!btn || !lastMonthlyReport) return;
+  const apartment = btn.dataset.tenant;
+  const row = lastMonthlyReport.rows.find(r => String(r.apartment) === String(apartment));
+  if (!row) { alert('לא נמצא דייר'); return; }
+  const html = buildTenantPdfHtml(row, lastMonthlyReport.monthValue);
+  openPdfWindow(html);
+});
 
-    // הצגת השאלה הראשונה
-    console.log('About to display first question');
-    displayQuestion();
+// Reading edit/delete handlers (delegated)
+document.getElementById('readings-list')?.addEventListener('click', async e => {
+  const editBtn = e.target.closest('.btn-edit-reading');
+  const delBtn = e.target.closest('.btn-delete-reading');
+  if (editBtn) {
+    const id = Number(editBtn.dataset.id);
+    try {
+      const tx = await getTx('readings', 'readonly');
+      const rec = await new Promise((res, rej) => { const r = tx.objectStore('readings').get(id); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); });
+      if (!rec) return alert('לא נמצא רישום');
+      const newVal = prompt('ערוך ערך קריאה (ללא יחידות):', String(rec.value));
+      if (newVal === null) return;
+      const newDate = prompt('ערוך תאריך (YYYY-MM-DD):', String(rec.date));
+      if (newDate === null) return;
+      await updateReading(id, { value: Number(newVal), date: newDate });
+      await renderReadings();
+      alert('קריאה עודכנה');
+    } catch (err) { console.error(err); alert('שגיאה בעדכון: ' + err.message); }
+    return;
+  }
+  if (delBtn) {
+    const id = Number(delBtn.dataset.id);
+    if (await confirmDialog('להסיר קריאה זו?')) {
+      try { await deleteReading(id); await renderReadings(); alert('נמחק'); } catch (err) { console.error(err); alert('שגיאה במחיקה: ' + err.message); }
+    }
+  }
+});
+
+document.getElementById('readings-list')?.addEventListener('change', async e => {
+  const select = e.target.closest('.link-reading-select');
+  if (!select) return;
+  const tenantId = Number(select.value);
+  if (!tenantId) return;
+  const readingId = Number(select.dataset.readingId);
+  const tenant = await getTenantById(tenantId);
+  if (!tenant) return;
+  await updateReading(readingId, {
+    tenantId: tenant.id,
+    tenantName: `${tenant.firstName || ''} ${tenant.lastName || ''}`.trim(),
+    apartmentNumber: tenant.apartmentNumber || ''
+  });
+  await renderReadings();
+});
+
+// Payments header double-click sort
+document.getElementById('payments-list')?.addEventListener('dblclick', async e => {
+  const th = e.target.closest('th[data-key]');
+  if (!th) return;
+  const key = th.dataset.key;
+  if (paymentsSort.key === key) {
+    paymentsSort.dir = paymentsSort.dir === 'asc' ? 'desc' : 'asc';
+  } else {
+    paymentsSort.key = key;
+    paymentsSort.dir = 'asc';
+  }
+  await renderPayments();
+});
+
+async function exportReadingsCsv() {
+  const readings = await getAllReadings();
+  const tenants = await getAllTenants(true);
+  const tenantMap = new Map(tenants.map(t => [t.id, t]));
+  const rows = [
+    ['date', 'apartment', 'tenant', 'meter_type', 'meter_number', 'value']
+  ];
+
+  readings.slice().sort((a, b) => new Date(a.date) - new Date(b.date)).forEach(r => {
+    const t = tenantMap.get(r.tenantId) || {};
+    const name = t.id ? `${t.firstName || ''} ${t.lastName || ''}`.trim() : (r.tenantName || '');
+    const apartment = t.id ? (t.apartmentNumber || '') : (r.apartmentNumber || '');
+    const meterNumber = r.meterType === 'electricity' ? (t.electricityMeter || '') : (t.waterMeter || '');
+    rows.push([
+      r.date || '',
+      apartment,
+      name,
+      meterTypeLabel(r.meterType),
+      meterNumber,
+      r.value ?? ''
+    ]);
+  });
+
+  const csv = rows.map(row => row.map(v => '"' + String(v).replace(/"/g, '""') + '"').join(',')).join('\n');
+  downloadCsv(csv, 'readings.csv');
 }
 
-function createQuestions() {
-    // איסוף כל הדגלים מהאזורים שנבחרו
-    let allFlags = [];
-    selectedRegions.forEach(region => {
-        allFlags = allFlags.concat(flagsData[region]);
+async function importReadingsCsv(text) {
+  const lines = text.split(/\r?\n/).filter(l => l.trim().length > 0);
+  if (lines.length < 2) throw new Error('קובץ ריק');
+  const rows = lines.map(parseCsvLine);
+
+  const startIdx = rows[0][0]?.toLowerCase() === 'date' ? 1 : 0;
+  const existing = await getAllReadings();
+  const existingSet = new Set(existing.map(r => `${r.tenantId}|${r.meterType}|${r.date}`));
+
+  let total = 0, success = 0, skipped = 0;
+
+  for (let i = startIdx; i < rows.length; i++) {
+    const row = rows[i];
+    const date = row[0]?.trim();
+    const apartment = row[1]?.trim();
+    const tenantName = row[2]?.trim();
+    const meterType = meterTypeFromCsv(row[3]);
+    const meterNumber = row[4]?.trim();
+    const value = Number(String(row[5] || '').replace(/,/g, ''));
+
+    if (!date || !apartment || !meterType || Number.isNaN(value)) continue;
+    total++;
+    const tenant = await ensureTenant(apartment, tenantName);
+    if (meterNumber) {
+      const patch = meterType === 'electricity' ? { electricityMeter: meterNumber } : { waterMeter: meterNumber };
+      await updateTenant(tenant.id, patch);
+    }
+
+    const key = `${tenant.id}|${meterType}|${date}`;
+    if (existingSet.has(key)) { skipped++; continue; }
+
+    await addReading({ tenantId: tenant.id, meterType, value, date, tenantName: `${tenant.firstName || ''} ${tenant.lastName || ''}`.trim(), apartmentNumber: tenant.apartmentNumber || '' });
+    existingSet.add(key);
+    success++;
+  }
+
+  return { success, total, skipped };
+}
+
+async function exportPaymentsCsvEnglish() {
+  const payments = await getAllPayments();
+  const tenants = await getAllTenants(true);
+  const tenantMap = new Map(tenants.map(t => [t.id, t]));
+  const rows = [
+    ['date', 'apartment', 'first_name', 'last_name', 'amount', 'account', 'method', 'notes']
+  ];
+
+  payments.slice().sort((a, b) => new Date(a.date) - new Date(b.date)).forEach(p => {
+    const t = tenantMap.get(p.tenantId) || {};
+    const name = t.id ? `${t.firstName || ''} ${t.lastName || ''}`.trim() : (p.tenantName || '');
+    const nameParts = splitName(name);
+    const apartment = t.id ? (t.apartmentNumber || '') : (p.apartmentNumber || '');
+    rows.push([
+      p.date || '',
+      apartment,
+      nameParts.firstName || '',
+      nameParts.lastName || '',
+      Number(p.amount).toFixed(2),
+      accountLabel(p.account),
+      methodLabel(p.method),
+      p.notes || ''
+    ]);
+  });
+
+  const csv = rows.map(r => r.map(v => '"' + String(v).replace(/"/g, '""') + '"').join(',')).join('\n');
+  downloadCsv(csv, 'payments_english.csv');
+}
+
+async function importPaymentsCsvEnglish(text) {
+  const lines = text.split(/\r?\n/).filter(l => l.trim().length > 0);
+  if (lines.length < 2) throw new Error('קובץ ריק');
+  const rows = lines.map(parseCsvLine);
+
+  // skip header if present
+  const startIdx = rows[0][0]?.toLowerCase() === 'date' ? 1 : 0;
+  const headerMap = {};
+  if (startIdx === 1) {
+    rows[0].forEach((h, i) => { headerMap[String(h || '').trim().toLowerCase()] = i; });
+  }
+  const idx = (name, fallback) => (headerMap[name] === undefined ? fallback : headerMap[name]);
+
+  const tenants = await getAllTenants(true);
+  const tenantIndex = buildTenantNameIndex(tenants);
+
+  const existingPayments = await getAllPayments();
+  const existingSet = new Set(existingPayments.map(p => buildPaymentKey(p.tenantId, p.tenantName, p.apartmentNumber, p.date, p.amount, p.account)));
+
+  let total = 0, success = 0, skipped = 0;
+
+  for (let i = startIdx; i < rows.length; i++) {
+    const row = rows[i];
+    const date = row[idx('date', 0)]?.trim();
+    const apartment = row[idx('apartment', 1)]?.trim();
+    const firstName = row[idx('first_name', 2)]?.trim();
+    const lastName = row[idx('last_name', 3)]?.trim();
+    const legacyName = row[idx('tenant', 2)]?.trim();
+    const tenantName = `${firstName || ''} ${lastName || ''}`.trim() || legacyName || '';
+    const amount = Number(String(row[idx('amount', 4)] || '').replace(/,/g, ''));
+    const account = accountValueFromCsv(row[idx('account', 5)]);
+    const method = methodValueFromCsv(row[idx('method', 6)]);
+    const notes = row[idx('notes', 7)]?.trim() || '';
+
+    if (!date || Number.isNaN(amount)) continue;
+    total++;
+    const tenant = findTenantByName(tenantIndex, tenantName);
+    const key = buildPaymentKey(tenant?.id, tenantName, apartment, date, amount, account);
+    if (existingSet.has(key)) { skipped++; continue; }
+
+    await addPayment({
+      tenantId: tenant?.id || null,
+      tenantName: tenant ? buildTenantName(tenant) : (tenantName || ''),
+      apartmentNumber: tenant?.apartmentNumber || apartment || '',
+      amount,
+      method,
+      account,
+      date,
+      notes
+    });
+    existingSet.add(key);
+    success++;
+  }
+
+  return { success, total, skipped };
+}
+
+// Payments edit/delete handlers
+document.getElementById('payments-list')?.addEventListener('click', async e => {
+  const editBtn = e.target.closest('.btn-edit-payment');
+  const delBtn = e.target.closest('.btn-delete-payment');
+  if (editBtn) {
+    const id = Number(editBtn.dataset.id);
+    try {
+      const tx = await getTx('payments', 'readonly');
+      const rec = await new Promise((res, rej) => { const r = tx.objectStore('payments').get(id); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); });
+      if (!rec) return alert('לא נמצא רישום');
+      const newAmount = prompt('ערוך סכום:', String(rec.amount));
+      if (newAmount === null) return;
+      const newDate = prompt('ערוך תאריך (YYYY-MM-DD):', String(rec.date));
+      if (newDate === null) return;
+      const newNotes = prompt('ערוך הערה:', String(rec.notes || ''));
+      if (newNotes === null) return;
+      await updatePayment(id, { amount: Number(newAmount), date: newDate, notes: newNotes });
+      await renderPayments();
+      await renderBalance();
+      alert('הפקדה עודכנה');
+    } catch (err) {
+      console.error(err);
+      alert('שגיאה בעדכון: ' + err.message);
+    }
+  }
+  if (delBtn) {
+    const id = Number(delBtn.dataset.id);
+    if (await confirmDialog('להסיר הפקדה זו?')) {
+      try {
+        await deletePayment(id);
+        await renderPayments();
+        await renderBalance();
+        alert('הפקדה נמחקה');
+      } catch (err) {
+        console.error(err);
+        alert('שגיאה במחיקה: ' + err.message);
+      }
+    }
+  }
+});
+
+document.getElementById('payments-list')?.addEventListener('change', async e => {
+  const select = e.target.closest('.link-payment-select');
+  if (!select) return;
+  const tenantId = Number(select.value);
+  if (!tenantId) return;
+  const paymentId = Number(select.dataset.paymentId);
+  const tenant = await getTenantById(tenantId);
+  if (!tenant) return;
+  await updatePayment(paymentId, {
+    tenantId: tenant.id,
+    tenantName: `${tenant.firstName || ''} ${tenant.lastName || ''}`.trim(),
+    apartmentNumber: tenant.apartmentNumber || ''
+  });
+  await renderPayments();
+  await renderBalance();
+});
+
+// Tenant list handlers
+tenantList?.addEventListener('click', async e => {
+  const id = Number(e.target.dataset.id);
+  if (e.target.classList.contains('btn-edit')) {
+    const tx = await getTx('tenants', 'readonly');
+    const store = tx.objectStore('tenants');
+    const rec = await new Promise((res, rej) => { const r = store.get(id); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); });
+    const tenant = rec;
+    show(tenantForm);
+    tenantForm.editId = tenant.id;
+    document.getElementById('form-title').textContent = 'ערוך דייר';
+    for (const k of ['firstName', 'lastName', 'nationalId', 'phone', 'startDate', 'endDate', 'rentAmount', 'arnonaAmount', 'apartmentNumber', 'electricityMeter', 'waterMeter', 'notes'])
+      tenantForm.elements[k].value = tenant[k] || '';
+    if (tenantForm.elements['active']) tenantForm.elements['active'].checked = !tenant.archived;
+  }
+  if (e.target.classList.contains('btn-archive')) { await updateTenant(id, { archived: true }); await renderTenants(); }
+  if (e.target.classList.contains('btn-delete')) { if (await confirmDialog('מחק?')) { await detachTenantData(id); await deleteTenant(id); await renderTenants(); } }
+});
+
+// Archive list handlers
+document.getElementById('archive-list')?.addEventListener('click', async e => {
+  const id = Number(e.target.dataset.id);
+  if (e.target.classList.contains('btn-restore')) { await updateTenant(id, { archived: false }); await renderArchive(); await renderTenants(); }
+  if (e.target.classList.contains('btn-delete')) { if (await confirmDialog('מחק לצמיתות?')) { await detachTenantData(id); await deleteTenant(id); await renderArchive(); } }
+});
+
+document.getElementById('archive-list')?.addEventListener('change', async e => {
+  const input = e.target.closest('.moveout-input');
+  if (!input) return;
+  const id = Number(input.dataset.id);
+  if (!id) return;
+  await updateTenant(id, { moveOutDate: input.value });
+});
+
+document.getElementById('tenants-table')?.addEventListener('change', async e => {
+  const input = e.target.closest('.moveout-input');
+  if (!input) return;
+  const id = Number(input.dataset.id);
+  if (!id) return;
+  await updateTenant(id, { moveOutDate: input.value });
+});
+
+document.getElementById('tenants-table')?.addEventListener('change', async e => {
+  const input = e.target.closest('.moveout-input');
+  if (!input) return;
+  const id = Number(input.dataset.id);
+  if (!id) return;
+  await updateTenant(id, { moveOutDate: input.value });
+});
+
+// Helper function to parse YYYY-MM-DD strings safely
+function parseDate(dateStr) {
+  if (!dateStr) return null;
+  const parts = dateStr.split('-');
+  if (parts.length !== 3) return null;
+  const year = Number(parts[0]);
+  const month = Number(parts[1]);
+  const day = Number(parts[2]);
+  if (Number.isNaN(year) || Number.isNaN(month) || Number.isNaN(day)) return null;
+  // Parse as UTC to avoid timezone issues
+  return new Date(Date.UTC(year, month - 1, day));
+}
+
+// Helper to normalize various date formats to YYYY-MM-DD
+function normalizeDateString(dateStr) {
+  if (!dateStr || typeof dateStr !== 'string') return '';
+  const trimmed = dateStr.trim();
+  if (!trimmed) return '';
+  
+  console.log('[normalizeDateString] Input:', trimmed);
+  
+  // Check if it looks like YYYY-MM-DD format
+  const ymdMatch = trimmed.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+  if (ymdMatch) {
+    const [, y, m, d] = ymdMatch;
+    const year = parseInt(y);
+    const month = parseInt(m);
+    const day = parseInt(d);
+    
+    // Validate: month must be 1-12, day must be 1-31
+    if (month >= 1 && month <= 12 && day >= 1 && day <= 31) {
+      // Valid date
+      const result = `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`;
+      console.log('[normalizeDateString] Already valid YYYY-MM-DD:', result);
+      return result;
+    } else {
+      // Invalid date! Month or day out of range
+      // Likely swapped: YYYY-DD-MM instead of YYYY-MM-DD
+      console.log(`[normalizeDateString] Invalid YYYY-MM-DD detected (month=${month}, day=${day}), swapping...`);
+      if (day >= 1 && day <= 12 && month >= 1 && month <= 31) {
+        // Swap month and day
+        const result = `${y}-${String(day).padStart(2, '0')}-${String(month).padStart(2, '0')}`;
+        console.log(`[normalizeDateString] Fixed by swapping: ${trimmed} → ${result}`);
+        return result;
+      }
+      console.log('[normalizeDateString] Cannot fix, returning as-is');
+      return trimmed;
+    }
+  }
+  
+  // DD/MM/YYYY or MM/DD/YYYY format (with /, -, or .)
+  const slashMatch = trimmed.match(/^(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{2,4})$/);
+  if (slashMatch) {
+    let [, first, second, year] = slashMatch;
+    if (year.length === 2) year = '20' + year;
+    const f = parseInt(first);
+    const s = parseInt(second);
+    const y = parseInt(year);
+    
+    let day, month;
+    
+    // Logic: if a number is > 12, it MUST be a day (not month)
+    if (f > 12) {
+      // First number > 12 → must be day → format is DD/MM
+      day = f;
+      month = s;
+    } else if (s > 12) {
+      // Second number > 12 → must be day → format is MM/DD
+      month = f;
+      day = s;
+    } else {
+      // Both <= 12 (ambiguous) → assume Israeli format DD/MM
+      day = f;
+      month = s;
+    }
+    
+    const result = `${y}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    console.log(`[normalizeDateString] Converted ${trimmed} → ${result} (day=${day}, month=${month})`);
+    return result;
+  }
+  
+  console.log('[normalizeDateString] No match, returning as-is:', trimmed);
+  return trimmed;
+}
+
+// Dashboard
+async function renderDashboard() {
+  const container = document.getElementById('dashboard-view');
+  if (!container) return;
+
+  try {
+    // Render income summary
+    await renderIncomeSummary();
+    
+    // Render timeline
+    await renderTimeline();
+  } catch (err) {
+    console.error('Dashboard render error:', err);
+    const incomeSummary = document.getElementById('income-summary');
+    const timelineContainer = document.getElementById('timeline-container');
+    if (incomeSummary) incomeSummary.innerHTML = `<p style="color: red;">שגיאה: ${err.message}</p>`;
+    if (timelineContainer) timelineContainer.innerHTML = `<p style="color: red;">שגיאה: ${err.message}</p>`;
+  }
+}
+
+async function exportTimelineCSV() {
+  const tenants = await getAllTenants(true);
+  
+  if (tenants.length === 0) {
+    alert('אין דיירים לייצוא');
+    return;
+  }
+
+  // Group by apartment
+  const byApartment = {};
+  tenants.forEach(t => {
+    const apt = t.apartmentNumber || 'ללא מספר';
+    if (!byApartment[apt]) byApartment[apt] = [];
+    byApartment[apt].push(t);
+  });
+
+  // Sort apartments
+  const apartmentsSorted = Object.keys(byApartment).sort((a, b) => {
+    const aNum = Number(a);
+    const bNum = Number(b);
+    if (Number.isNaN(aNum) && Number.isNaN(bNum)) return a.localeCompare(b);
+    if (Number.isNaN(aNum)) return 1;
+    if (Number.isNaN(bNum)) return -1;
+    return aNum - bNum;
+  });
+
+  // Build CSV
+  const rows = [['דירה', 'שם דייר', 'תאריך התחלה', 'תאריך סיום', 'חודשים מושכרים']];
+
+  apartmentsSorted.forEach(apt => {
+    byApartment[apt].forEach(tenant => {
+      if (!tenant.startDate) return; // Skip tenants without start date
+
+      const name = `${tenant.firstName || ''} ${tenant.lastName || ''}`.trim();
+      const startDate = parseDate(tenant.startDate);
+      const endDate = parseDate(tenant.moveOutDate || tenant.endDate);
+      
+      if (!startDate) return;
+
+      // Calculate months
+      const months = [];
+      let current = new Date(startDate.getFullYear(), startDate.getUTCMonth(), 1);
+      const end = endDate || new Date(); // If no end date, use today
+
+      while (current <= end) {
+        const year = current.getFullYear();
+        const month = String(current.getMonth() + 1).padStart(2, '0');
+        months.push(`${year}-${month}`);
+        current = new Date(current.getFullYear(), current.getMonth() + 1, 1);
+      }
+
+      const endStr = tenant.moveOutDate || tenant.endDate || 'עד היום';
+      rows.push([
+        apt,
+        name,
+        tenant.startDate,
+        endStr,
+        months.join(', ')
+      ]);
+    });
+  });
+
+  // Convert to CSV
+  const csv = rows.map(row => 
+    row.map(cell => {
+      const cellStr = String(cell || '');
+      return '"' + cellStr.replace(/"/g, '""') + '"';
+    }).join(',')
+  ).join('\n');
+
+  downloadCsv(csv, `timeline_${new Date().toISOString().slice(0, 10)}.csv`);
+  alert('קובץ ייצא בהצלחה!');
+}
+
+async function fixAllTenantDates() {
+  try {
+    const tenants = await getAllTenants(true);
+    let fixed = 0;
+    let alreadyOk = 0;
+    
+    console.log(`[fixAllTenantDates] Starting with ${tenants.length} tenants`);
+    
+    for (const tenant of tenants) {
+      let needsUpdate = false;
+      const updates = {};
+      
+      console.log(`\n[fixAllTenantDates] Checking tenant: ${tenant.firstName} ${tenant.lastName} (#${tenant.id})`);
+      console.log('  startDate:', tenant.startDate);
+      console.log('  endDate:', tenant.endDate);
+      console.log('  moveOutDate:', tenant.moveOutDate);
+      
+      // Check and fix startDate
+      if (tenant.startDate) {
+        const normalized = normalizeDateString(tenant.startDate);
+        if (normalized !== tenant.startDate) {
+          updates.startDate = normalized;
+          needsUpdate = true;
+          console.log(`  ✓ Fixing startDate: ${tenant.startDate} → ${normalized}`);
+        }
+      }
+      
+      // Check and fix endDate
+      if (tenant.endDate) {
+        const normalized = normalizeDateString(tenant.endDate);
+        if (normalized !== tenant.endDate) {
+          updates.endDate = normalized;
+          needsUpdate = true;
+          console.log(`  ✓ Fixing endDate: ${tenant.endDate} → ${normalized}`);
+        }
+      }
+      
+      // Check and fix moveOutDate
+      if (tenant.moveOutDate) {
+        const normalized = normalizeDateString(tenant.moveOutDate);
+        if (normalized !== tenant.moveOutDate) {
+          updates.moveOutDate = normalized;
+          needsUpdate = true;
+          console.log(`  ✓ Fixing moveOutDate: ${tenant.moveOutDate} → ${normalized}`);
+        }
+      }
+      
+      if (needsUpdate) {
+        console.log('  → Updating tenant with:', updates);
+        await updateTenant(tenant.id, updates);
+        fixed++;
+      } else {
+        console.log('  → No changes needed');
+        alreadyOk++;
+      }
+    }
+    
+    console.log(`\n[fixAllTenantDates] Complete: ${fixed} fixed, ${alreadyOk} already OK`);
+    
+    await renderDashboard();
+    alert(`סיים לתקן תאריכים!\n\nתוקנו: ${fixed} דיירים\nכבר תקינים: ${alreadyOk} דיירים\nסה"כ: ${tenants.length} דיירים\n\nעיין ב-Console (F12) לפרטים נוספים`);
+  } catch (err) {
+    console.error('Error fixing dates:', err);
+    alert('שגיאה בתיקון תאריכים: ' + err.message);
+  }
+}
+
+async function addSampleTenants() {
+  try {
+    const today = new Date();
+    const samples = [
+      {
+        firstName: 'דוד',
+        lastName: 'כהן',
+        apartmentNumber: '1',
+        nationId: '123456789',
+        phone: '050-1234567',
+        startDate: '2024-01-15',
+        rentAmount: 3000,
+        arnonaAmount: 500
+      },
+      {
+        firstName: 'שרה',
+        lastName: 'לוי',
+        apartmentNumber: '2',
+        nationId: '987654321',
+        phone: '050-7654321',
+        startDate: '2023-06-01',
+        endDate: '2024-06-01',
+        rentAmount: 2500,
+        arnonaAmount: 400
+      },
+      {
+        firstName: 'אברהם',
+        lastName: 'דויד',
+        apartmentNumber: '3',
+        nationId: '112233445',
+        phone: '050-2223334',
+        startDate: '2025-03-01',
+        rentAmount: 3500,
+        arnonaAmount: 600
+      }
+    ];
+
+    for (const tenant of samples) {
+      await addTenant(tenant);
+    }
+
+    await renderDashboard();
+    alert('נוספו 3 דיירים לדוגמא!');
+  } catch (err) {
+    console.error('Error adding samples:', err);
+    alert('שגיאה בהוספת דוגמאות: ' + err.message);
+  }
+}
+
+async function renderIncomeSummary() {
+  const payments = await getAllPayments();
+  const container = document.getElementById('income-summary');
+  if (!container) return;
+
+  // Group payments by account
+  const byAccount = {
+    my: payments.filter(p => p.account === 'my').reduce((sum, p) => sum + Number(p.amount), 0),
+    grandma: payments.filter(p => p.account === 'grandma').reduce((sum, p) => sum + Number(p.amount), 0)
+  };
+
+  const cards = [
+    { account: 'my', label: 'ניר וליאור', amount: byAccount.my },
+    { account: 'grandma', label: 'אסתר ומיכאל', amount: byAccount.grandma }
+  ];
+
+  if (payments.length === 0) {
+    container.innerHTML = '<p style="text-align: center; color: #999; grid-column: 1/-1;">אין תשלומים עדיין</p>';
+    return;
+  }
+
+  container.innerHTML = cards.map(card => `
+    <div class="income-card">
+      <h4>${card.label}</h4>
+      <div class="amount">₪${card.amount.toFixed(2)}</div>
+    </div>
+  `).join('');
+}
+
+async function renderTimeline() {
+  const tenants = await getAllTenants(true);
+  const container = document.getElementById('timeline-container');
+  if (!container) return;
+
+  console.log('Timeline - All tenants:', tenants);
+
+  if (tenants.length === 0) {
+    container.innerHTML = '<p style="padding: 16px; text-align: center; color: #999;">אין דיירים</p>';
+    return;
+  }
+
+  // Check if any tenants have startDate
+  const tenantsWithDates = tenants.filter(t => t.startDate);
+  if (tenantsWithDates.length === 0) {
+    container.innerHTML = `
+      <p style="padding: 16px; text-align: center; color: #999;">
+        יש ${tenants.length} דיירים אבל אף אחד לא בעל תאריך התחלה.<br>
+        עדכן את הדיירים עם תאריכי התחלה כדי לראות את ציר הזמן.
+      </p>
+    `;
+    return;
+  }
+
+  try {
+    // Group tenants by apartment
+    const byApartment = {};
+    tenantsWithDates.forEach(t => {
+      const apt = t.apartmentNumber || 'ללא מספר';
+      if (!byApartment[apt]) byApartment[apt] = [];
+      byApartment[apt].push(t);
     });
 
-    console.log('All flags available:', allFlags.length);
-    // ערבוב הדגלים
-    allFlags = shuffleArray(allFlags);
-
-    // בחירת 10 שאלות (או פחות אם יש פחות דגלים)
-    questions = allFlags.slice(0, Math.min(10, allFlags.length)).map(item => ({
-        correctCountry: item.country,
-        code: item.code,
-        options: generateOptions(item, allFlags)
-    }));
-    console.log('Questions created:', questions.length);
-}
-
-function generateOptions(correctItem, allFlags) {
-    const options = [correctItem.country];
-
-    // בחירת 3 מדינות אחרות
-    const otherCountries = allFlags.filter(f => f.country !== correctItem.country);
-    const randomOthers = shuffleArray(otherCountries).slice(0, 3);
-    options.push(...randomOthers.map(f => f.country));
-
-    // ערבוב האפשרויות
-    return shuffleArray(options);
-}
-
-function displayQuestion() {
-    if (currentQuestionIndex >= questions.length || timeLeft <= 0) {
-        endGame();
-        return;
-    }
-
-    const question = questions[currentQuestionIndex];
-    currentCorrectAnswer = question.correctCountry;
-
-    // הצגת דגל מתמונה ב-FlagCDN (fallback לשם המדינה אם אין קוד)
-    console.log('Displaying question:', question.correctCountry, 'code:', question.code);
-    if (question.code) {
-        const imgUrl = `https://flagcdn.com/w320/${question.code}.png`;
-        flagImg.innerHTML = `<img src="${imgUrl}" alt="דגל ${question.correctCountry}" class="flag-img">`;
-    } else {
-        flagImg.innerHTML = `<div class="flag-fallback">${question.correctCountry}</div>`;
-    }
-
-    // הצגת אפשרויות
-    question.options.forEach((option, index) => {
-        optionButtons[index].textContent = option;
-        optionButtons[index].className = 'option-btn';
-        optionButtons[index].disabled = false;
-        optionButtons[index].onclick = () => selectAnswer(option);
+    // Sort apartments numerically
+    const apartmentsSorted = Object.keys(byApartment).sort((a, b) => {
+      const aNum = Number(a);
+      const bNum = Number(b);
+      if (Number.isNaN(aNum) && Number.isNaN(bNum)) return a.localeCompare(b);
+      if (Number.isNaN(aNum)) return 1;
+      if (Number.isNaN(bNum)) return -1;
+      return aNum - bNum;
     });
 
-    // עדכון מספר השאלה
-    questionNumberDisplay.textContent = currentQuestionIndex + 1;
-    feedback.innerHTML = '';
+    console.log('Timeline - Apartments:', apartmentsSorted, byApartment);
+
+    // Calculate date range
+    const today = new Date();
+    const todayStr = today.toISOString().slice(0, 10);
+    
+    let minDate = null;
+    let maxDate = new Date(today.getTime()); // Today
+
+    tenantsWithDates.forEach(t => {
+      if (t.startDate) {
+        const d = parseDate(t.startDate);
+        if (d && (!minDate || d < minDate)) minDate = d;
+      }
+    });
+
+    // Default: show past 2 years
+    if (!minDate) {
+      minDate = new Date(today.getFullYear() - 2, today.getMonth(), 1);
+    }
+
+    // Go to first of that month
+    minDate = new Date(minDate.getFullYear(), minDate.getMonth(), 1);
+    
+    // Show at least 24 months
+    if ((maxDate - minDate) / (1000 * 60 * 60 * 24 * 30.44) < 24) {
+      minDate = new Date(maxDate.getFullYear() - 2, maxDate.getMonth(), 1);
+    }
+
+    const totalDays = Math.floor((maxDate - minDate) / (1000 * 60 * 60 * 24)) + 1;
+    
+    console.log('Timeline - Date range:', minDate, 'to', maxDate, 'total days:', totalDays);
+
+    // Build apartment rows
+    const rows = apartmentsSorted.map(apt => {
+      const tenantsList = byApartment[apt];
+      console.log('Processing apartment', apt, 'tenants:', tenantsList);
+      const bars = buildTimelineBars(tenantsList, minDate, maxDate, totalDays);
+      
+      return `
+        <div class="timeline-row">
+          <div class="timeline-apt-label">דירה ${apt}</div>
+          <div class="timeline-bars">
+            ${bars}
+          </div>
+        </div>
+      `;
+    }).join('');
+
+    // Build legend
+    const legend = `
+      <div class="timeline-legend">
+        <div class="legend-item">
+          <div class="legend-box legend-active"></div>
+          <span>דייר פעיל כרגע</span>
+        </div>
+        <div class="legend-item">
+          <div class="legend-box legend-inactive"></div>
+          <span>דייר קודם</span>
+        </div>
+      </div>
+    `;
+
+    container.innerHTML = `
+      <div class="timeline-chart">
+        ${rows}
+      </div>
+      ${legend}
+    `;
+  } catch (err) {
+    console.error('Timeline render error:', err);
+    container.innerHTML = `<p style="padding: 16px; color: red;">שגיאה בעריכת קו הזמן: ${err.message}</p>`;
+  }
 }
 
-function selectAnswer(selectedCountry) {
-    if (!gameActive) return;
+function buildTimelineBars(tenantsList, minDate, maxDate, totalDays) {
+  const today = new Date();
+  const todayStr = today.toISOString().slice(0, 10);
+  
+  console.log('buildTimelineBars - input:', {
+    tenantCount: tenantsList.length,
+    minDate,
+    maxDate,
+    totalDays
+  });
+  
+  // Sort tenants by start date
+  const sortedTenants = tenantsList.slice().sort((a, b) => {
+    const aDate = parseDate(a.startDate);
+    const bDate = parseDate(b.startDate);
+    if (!aDate) return 1;
+    if (!bDate) return -1;
+    return aDate - bDate;
+  });
 
-    // מציאת הכפתור שנלחץ
-    const selectedButton = Array.from(optionButtons).find(btn => btn.textContent === selectedCountry);
-
-    // ניטרול כל הכפתורים
-    optionButtons.forEach(btn => btn.disabled = true);
-
-    if (selectedCountry === currentCorrectAnswer) {
-        selectedButton.classList.add('correct');
-        feedback.innerHTML = '✓ נכון!';
-        feedback.classList.add('correct');
-        feedback.classList.remove('incorrect');
-        score += 10;
-        scoreDisplay.textContent = score;
+  let bars = '';
+  
+  sortedTenants.forEach(t => {
+    const startDate = parseDate(t.startDate);
+    const endDate = parseDate(t.moveOutDate || t.endDate);
+    
+    if (!startDate) {
+      console.warn('No start date for tenant:', t);
+      return;
+    }
+    
+    // Calculate position and width
+    const startDays = Math.max(0, Math.floor((startDate - minDate) / (1000 * 60 * 60 * 24)));
+    let endDays;
+    
+    if (!endDate) {
+      // Still active
+      endDays = totalDays;
     } else {
-        selectedButton.classList.add('incorrect');
-        feedback.innerHTML = '✗ לא נכון!';
-        feedback.classList.add('incorrect');
-        feedback.classList.remove('correct');
-
-        // הצגת התשובה הנכונה
-        const correctButton = Array.from(optionButtons).find(btn => btn.textContent === currentCorrectAnswer);
-        if (correctButton) {
-            correctButton.classList.add('correct');
-        }
+      endDays = Math.floor((endDate - minDate) / (1000 * 60 * 60 * 24));
     }
+    
+    const start = Math.max(0, startDays);
+    const duration = Math.max(1, Math.min(totalDays - start, endDays - start + 1));
+    const width = (duration / totalDays) * 100;
+    const left = (start / totalDays) * 100;
 
-    // עבור לשאלה הבאה אחרי 2 שניות
-    setTimeout(() => {
-        currentQuestionIndex++;
-        displayQuestion();
-    }, 2000);
-}
-
-function startTimer() {
-    timerInterval = setInterval(() => {
-        timeLeft--;
-        timerDisplay.textContent = timeLeft;
-
-        if (timeLeft <= 0) {
-            clearInterval(timerInterval);
-            endGame();
-        }
-    }, 1000);
-}
-
-function endGame() {
-    gameActive = false;
-    clearInterval(timerInterval);
-
-    const percentage = Math.round((score / (questions.length * 10)) * 100);
-
-    document.getElementById('finalScore').textContent = score;
-    document.getElementById('percentage').textContent = percentage + '%';
-
-    gameArea.classList.add('hidden');
-    endMenu.classList.remove('hidden');
-}
-
-// פונקציות עזר
-function shuffleArray(array) {
-    const newArray = [...array];
-    for (let i = newArray.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [newArray[i], newArray[j]] = [newArray[j], newArray[i]];
+    const name = `${t.firstName || ''} ${t.lastName || ''}`.trim() || 'בלא שם';
+    
+    // Check if tenant is currently active
+    // Active = no end date OR end date is in the future
+    let isActive = false;
+    if (!endDate) {
+      isActive = true; // No end date = still active
+    } else {
+      // Has end date - check if it's in the future
+      isActive = endDate > today;
     }
-    return newArray;
+    
+    const barClass = isActive ? 'timeline-bar-active' : 'timeline-bar-inactive';
+    
+    // Show dates as tooltip
+    const startStr = t.startDate;
+    const endStr = t.moveOutDate || t.endDate || 'עד היום';
+    const tooltip = `${name} (${startStr} - ${endStr})`;
+
+    console.log('Bar:', { name, left: left.toFixed(2), width: width.toFixed(2), isActive, startStr, endStr });
+
+    bars += `
+      <div 
+        class="timeline-bar ${barClass}" 
+        style="left: ${left}%; width: ${width}%; min-width: 40px;"
+        title="${tooltip}"
+      >
+        ${name}
+      </div>
+    `;
+  });
+
+  if (!bars) {
+    console.log('No bars generated, showing empty message');
+    bars = '<div style="position: absolute; left: 0; top: 50%; width: 100%; text-align: center; transform: translateY(-50%); color: #ccc; font-size: 12px;">אין דיירים בתקופה זו</div>';
+  }
+
+  console.log('Generated bars HTML:', bars);
+  return bars;
 }
+
+// Dashboard button handlers
+const showDashboardBtn = document.getElementById('show-dashboard');
+showDashboardBtn?.addEventListener('click', async () => {
+  await renderDashboard();
+  show(document.getElementById('dashboard-view'));
+});
+
+document.getElementById('close-dashboard')?.addEventListener('click', () => {
+  show(tenantForm);
+});
+
+document.getElementById('export-timeline-csv')?.addEventListener('click', async () => {
+  await exportTimelineCSV();
+});
+
+// Init
+window.addEventListener('DOMContentLoaded', async () => { await renderTenants(); });

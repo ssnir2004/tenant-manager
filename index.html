@@ -1,89 +1,236 @@
 <!DOCTYPE html>
 <html lang="he">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>משחק דגלים</title>
-    <link rel="stylesheet" href="style.css">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ניהול דיירים — טרומפלדור 31</title>
+  <link rel="stylesheet" href="style.css">
 </head>
 <body>
-    <div class="container">
-        <!-- תפריט ההתחלה -->
-        <div id="startMenu" class="menu">
-            <h1>🚩 משחק הדגלים</h1>
-            <p>בחר את האזורים שברצונך לשחק בהם:</p>
-            <div class="region-buttons">
-                <label class="checkbox-label">
-                    <input type="checkbox" id="europe" value="europe" checked>
-                    <span class="checkbox-custom">🇪🇺</span>
-                    אירופה
-                </label>
-                <label class="checkbox-label">
-                    <input type="checkbox" id="africa" value="africa" checked>
-                    <span class="checkbox-custom">🌍</span>
-                    אפריקה
-                </label>
-                <label class="checkbox-label">
-                    <input type="checkbox" id="asia" value="asia" checked>
-                    <span class="checkbox-custom">🏯</span>
-                    אסיה
-                </label>
-            </div>
-            <button id="startBtn" class="btn btn-primary">התחל משחק</button>
+  <header>
+    <h1>ניהול דיירים — טרומפלדור 31, נהריה</h1>
+  </header>
+
+  <main>
+    <aside class="sidebar">
+      <div class="controls">
+        <button id="show-dashboard">📊 דשבורד</button>
+        <button id="show-add">הוסף דייר חדש</button>
+        <button id="show-archive">ארכיב</button>
+        <button id="show-settings">הגדרות</button>
+        <button id="show-readings">הזן קריאות</button>
+        <button id="show-payments">הכנסות</button>
+        <button id="show-balance">מאזן</button>
+      </div>
+      <div class="tenant-list" id="tenant-list"></div>
+    </aside>
+
+    <section class="content">
+      <!-- Tenant Form -->
+      <form id="tenant-form" class="card hidden">
+        <h2 id="form-title">הוספת דייר</h2>
+        <div class="row"><input name="firstName" placeholder="שם" required></div>
+        <div class="row"><input name="lastName" placeholder="שם משפחה" required></div>
+        <div class="row"><input name="nationalId" placeholder="ת.ז."></div>
+        <div class="row"><input name="phone" placeholder="טלפון"></div>
+        <div class="row">
+          <label><input type="checkbox" name="active" checked> דייר פעיל</label>
         </div>
-
-        <!-- המשחק -->
-        <div id="gameArea" class="hidden">
-            <div class="game-header">
-                <div class="stats">
-                    <div class="stat">
-                        <span class="label">ניקוד:</span>
-                        <span id="score" class="value">0</span>
-                    </div>
-                    <div class="stat">
-                        <span class="label">זמן:</span>
-                        <span id="timer" class="value">60</span>s
-                    </div>
-                    <div class="stat">
-                        <span class="label">שאלה:</span>
-                        <span id="questionNumber" class="value">1</span>/<span id="totalQuestions" class="value">10</span>
-                    </div>
-                </div>
-            </div>
-
-            <div class="game-content">
-                <div class="flag-container">
-                    <span id="flagImg" class="flag" style="display: block; font-size: 120px; line-height: 1;"></span>
-                </div>
-
-                <div class="options">
-                    <button class="option-btn" data-option="0"></button>
-                    <button class="option-btn" data-option="1"></button>
-                    <button class="option-btn" data-option="2"></button>
-                    <button class="option-btn" data-option="3"></button>
-                </div>
-
-                <div id="feedback" class="feedback"></div>
-            </div>
+        <div class="row"><label>תאריך התחלה<input type="date" name="startDate"></label></div>
+        <div class="row"><label>תאריך סיום<input type="date" name="endDate"></label></div>
+        <div class="row"><input name="rentAmount" type="number" placeholder="סכום שכירות"></div>
+        <div class="row"><input name="arnonaAmount" type="number" placeholder="ארנונה"></div>
+        <div class="row"><input name="apartmentNumber" placeholder="מספר דירה"></div>
+        <div class="row"><input name="electricityMeter" placeholder="מונה חשמל"></div>
+        <div class="row"><input name="waterMeter" placeholder="מונה מים"></div>
+        <div class="row"><textarea name="notes" placeholder="הערות"></textarea></div>
+        <div class="actions">
+          <button type="submit">שמור</button>
+          <button type="button" id="cancel">בטל</button>
         </div>
-
-        <!-- תוצאות סוף המשחק -->
-        <div id="endMenu" class="menu hidden">
-            <h2>המשחק הסתיים!</h2>
-            <div class="final-stats">
-                <div class="stat-large">
-                    <span class="label">הניקוד הסופי שלך:</span>
-                    <span id="finalScore" class="large-value">0</span>
-                </div>
-                <div class="stat-large">
-                    <span class="label">אחוז הצלחה:</span>
-                    <span id="percentage" class="large-value">0%</span>
-                </div>
-            </div>
-            <button id="restartBtn" class="btn btn-primary">שחק שוב</button>
+        <div class="row" style="margin-top: 12px;">
+          <label>CSV לדיירים (כותרות באנגלית)
+            <input id="tenants-csv-upload" type="file" accept=".csv">
+          </label>
         </div>
+        <div class="actions">
+          <button id="tenants-export-csv" type="button">Export CSV (EN)</button>
+          <button id="tenants-import-csv" type="button">Import CSV (EN)</button>
+          <button id="tenants-clear-all" type="button" style="background-color: #e74c3c; color: white;">מחק את כל הדיירים</button>
+        </div>
+        <div id="tenants-csv-status" style="margin-top: 10px; color: #27ae60;"></div>
+        <div id="tenants-table" style="margin-top: 12px;"></div>
+      </form>
+
+      <!-- Archive View -->
+      <div id="archive-view" class="card hidden">
+        <h2>ארכיון דיירים</h2>
+        <div id="archive-list"></div>
+        <button id="close-archive">סגור</button>
+      </div>
+
+      <!-- Readings View -->
+      <div id="readings-view" class="card hidden">
+        <h2>הזנת קריאות</h2>
+        <div class="bulk-readings">
+          <div class="bulk-block">
+            <h3>קריאות חשמל</h3>
+            <div class="row">
+              <label>תאריך קריאה
+                <input id="bulk-electricity-date" type="date">
+              </label>
+            </div>
+            <div id="bulk-electricity-list" class="bulk-list"></div>
+            <div class="actions">
+              <button type="button" id="bulk-electricity-save">שמור קריאות חשמל</button>
+              <button type="button" id="cancel-reading">סגור</button>
+            </div>
+            <div id="bulk-electricity-status" class="bulk-status"></div>
+          </div>
+
+          <div class="bulk-block">
+            <h3>קריאות מים</h3>
+            <div class="row">
+              <label>תאריך קריאה
+                <input id="bulk-water-date" type="date">
+              </label>
+            </div>
+            <div id="bulk-water-list" class="bulk-list"></div>
+            <div class="actions">
+              <button type="button" id="bulk-water-save">שמור קריאות מים</button>
+            </div>
+            <div id="bulk-water-status" class="bulk-status"></div>
+          </div>
+        </div>
+        <div class="row" style="margin-top: 12px;">
+          <label>בחר חודש לחיוב
+            <input id="bill-month" type="month">
+          </label>
+        </div>
+        <div class="actions">
+          <button id="generate-bills" type="button">הפק חשבונות לחודש</button>
+          <button id="export-bills-report" type="button">ייצא דוח CSV</button>
+        </div>
+        <div class="row" style="margin-top: 12px;">
+          <label>CSV לקריאות (כותרות באנגלית)
+            <input id="readings-csv-upload" type="file" accept=".csv">
+          </label>
+        </div>
+        <div class="actions">
+          <button id="readings-export-csv" type="button">Export CSV (EN)</button>
+          <button id="readings-import-csv" type="button">Import CSV (EN)</button>
+          <button id="readings-clear-all" type="button" style="background-color: #e74c3c; color: white;">מחק את כל הקריאות</button>
+        </div>
+        <div id="readings-csv-status" style="margin-top: 10px; color: #27ae60;"></div>
+        <div id="bills-report" style="margin-top: 12px;"></div>
+        <div id="readings-list" style="margin-top: 12px;"></div>
+      </div>
+
+      <!-- Settings View -->
+      <div id="settings-view" class="card hidden">
+        <h2>הגדרות</h2>
+        <div class="row">
+          <label>מחיר חשמל (₪/קוט"ש)
+            <input id="electricity-price" type="number" step="0.01">
+          </label>
+        </div>
+        <div class="row">
+          <label>מחיר מים (₪/מ"ק)
+            <input id="water-price" type="number" step="0.01">
+          </label>
+        </div>
+        <div class="actions">
+          <button id="save-settings">שמור</button>
+          <button id="close-settings" type="button">סגור</button>
+        </div>
+      </div>
+
+      <!-- Payments View -->
+      <div id="payments-view" class="card hidden">
+        <h2>תשלומים / הפקדות</h2>
+        <form id="payment-form">
+          <div class="row">
+            <select name="tenantId" id="payment-tenant">
+              <option value="">דייר (אופציונלי)</option>
+            </select>
+          </div>
+          <div class="row"><input name="amount" type="number" step="0.01" placeholder="סכום" required></div>
+          <div class="row">
+            <select name="method">
+              <option value="cash">מזומן</option>
+              <option value="check">צ'ק</option>
+              <option value="bit">ביט</option>
+              <option value="transfer">העברה</option>
+            </select>
+          </div>
+          <div class="row">
+            <select name="account">
+              <option value="my">חשבון ניר וליאור</option>
+              <option value="grandma">חשבון אסתר ומיכאל</option>
+            </select>
+          </div>
+          <div class="row"><input name="date" type="date" required></div>
+          <div class="row"><textarea name="notes" placeholder="הערות"></textarea></div>
+          <div class="actions">
+            <button type="submit">הכנס</button>
+            <button type="button" id="close-payments">סגור</button>
+          </div>
+        </form>
+        <div class="row" style="margin-top: 12px;">
+          <label>CSV באנגלית בלבד (פורמט אחיד)
+            <input id="payments-csv-upload" type="file" accept=".csv">
+          </label>
+        </div>
+        <div class="actions">
+          <button id="payments-export-csv" type="button">Export CSV (EN)</button>
+          <button id="payments-import-csv" type="button">Import CSV (EN)</button>
+          <button id="payments-clear-all" type="button" style="background-color: #e74c3c; color: white;">מחק את כל התשלומים</button>
+        </div>
+        <div id="payments-csv-status" style="margin-top: 10px; color: #27ae60;"></div>
+        <div id="payments-list" style="margin-top: 12px;"></div>
+      </div>
+
+      <!-- Balance View -->
+      <div id="balance-view" class="card hidden">
+        <h2>מאזן דיירים</h2>
+        <div id="balance-list"></div>
+      </div>
+
+      <!-- Dashboard View -->
+      <div id="dashboard-view" class="card hidden">
+        <h2>📊 דשבורד</h2>
+        
+        <!-- Income Summary -->
+        <div class="dashboard-section">
+          <h3>סיכום הכנסות לפי חשבון</h3>
+          <div id="income-summary" class="income-summary"></div>
+        </div>
+        
+        <!-- Timeline -->
+        <div class="dashboard-section" style="margin-top: 24px;">
+          <h3>ציר זמן שכירה לפי דירה</h3>
+          <div id="timeline-container" class="timeline-container"></div>
+          <div style="text-align: center; margin-top: 12px;">
+            <button id="export-timeline-csv" type="button" style="background-color: #27ae60; color: white;">ייצא CSV</button>
+          </div>
+        </div>
+        
+        <button id="close-dashboard" style="margin-top: 16px;">סגור</button>
+      </div>
+    </section>
+  </main>
+
+  <!-- Confirm Modal -->
+  <div id="confirm-modal" class="modal hidden">
+    <div class="modal-content">
+      <p id="confirm-text">בטוח?</p>
+      <div class="modal-actions">
+        <button id="confirm-yes">כן</button>
+        <button id="confirm-no">לא</button>
+      </div>
     </div>
+  </div>
 
-    <script src="script.js"></script>
+  <script src="script.js" defer></script>
 </body>
 </html>
