@@ -107,10 +107,28 @@ function toBooleanInt(value) {
     res.json({ ok: true });
   });
 
+  // Delete all tenants (and related data)
+  app.delete('/api/tenants', async (req, res) => {
+    await db.run('DELETE FROM payments');
+    await db.run('DELETE FROM bills');
+    await db.run('DELETE FROM readings');
+    await db.run('DELETE FROM tenants');
+    res.json({ ok: true });
+  });
+
   // Readings
   app.get('/api/readings', async (req, res) => {
     const rows = await db.all('SELECT * FROM readings ORDER BY date DESC, id DESC');
     res.json(rows);
+  });
+
+  app.get('/api/readings/:id', async (req, res) => {
+    const row = await db.get('SELECT * FROM readings WHERE id = ?', req.params.id);
+    if (!row) {
+      res.status(404).send('Not found');
+      return;
+    }
+    res.json(row);
   });
 
   app.post('/api/readings', async (req, res) => {
@@ -126,6 +144,25 @@ function toBooleanInt(value) {
 
   app.delete('/api/readings/:id', async (req, res) => {
     await db.run('DELETE FROM readings WHERE id = ?', req.params.id);
+    res.json({ ok: true });
+  });
+
+  app.put('/api/readings/:id', async (req, res) => {
+    const r = req.body || {};
+    await db.run(
+      'UPDATE readings SET tenantId = ?, meterType = ?, date = ?, value = ? WHERE id = ?',
+      [r.tenantId ?? null, r.meterType || '', r.date || '', r.value ?? null, req.params.id]
+    );
+    const row = await db.get('SELECT * FROM readings WHERE id = ?', req.params.id);
+    if (!row) {
+      res.status(404).send('Not found');
+      return;
+    }
+    res.json(row);
+  });
+
+  app.delete('/api/readings', async (req, res) => {
+    await db.run('DELETE FROM readings');
     res.json({ ok: true });
   });
 

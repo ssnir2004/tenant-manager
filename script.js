@@ -3,10 +3,14 @@ const DB_NAME = 'tenant_mgmt_v1';
 const DB_VERSION = 3;
 const STORES = ['tenants', 'readings', 'bills', 'payments', 'settings'];
 
+function isRemoteApp() {
+  return window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1';
+}
+
 // Get API base URL - auto-detect or use saved settings
 function getApiBase() {
   // If accessed via Cloudflare (not localhost), use same origin for API
-  if (window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
+  if (isRemoteApp()) {
     return window.location.origin;
   }
   // Otherwise use saved server URL or localhost
@@ -221,6 +225,32 @@ async function addReading(reading) {
   });
 }
 
+async function addReadingRemote(reading) {
+  const payload = {
+    tenantId: reading.tenantId ?? null,
+    meterType: reading.meterType || '',
+    date: reading.date || '',
+    value: reading.value ?? null
+  };
+  return await apiRequest('/api/readings', {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  });
+}
+
+async function addReadingRemote(reading) {
+  const payload = {
+    tenantId: reading.tenantId ?? null,
+    meterType: reading.meterType || '',
+    date: reading.date || '',
+    value: reading.value ?? null
+  };
+  return await apiRequest('/api/readings', {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  });
+}
+
 async function getReadingsByTenant(tenantId) {
   const tx = await getTx('readings', 'readonly');
   return new Promise((res, rej) => {
@@ -240,6 +270,16 @@ async function getAllReadings() {
     r.onsuccess = () => res(r.result || []);
     r.onerror = () => rej(r.error);
   });
+}
+
+async function getAllReadingsRemote() {
+  const rows = await apiRequest('/api/readings');
+  return rows || [];
+}
+
+async function getAllReadingsRemote() {
+  const rows = await apiRequest('/api/readings');
+  return rows || [];
 }
 
 async function clearAllReadings() {
@@ -266,6 +306,26 @@ async function updateReading(id, patch) {
     };
     getReq.onerror = () => rej(getReq.error);
   });
+}
+
+async function getReadingByIdRemote(id) {
+  try {
+    return await apiRequest(`/api/readings/${id}`);
+  } catch (err) {
+    if (String(err.message || '').includes('404')) return null;
+    throw err;
+  }
+}
+
+async function updateReadingRemote(id, patch) {
+  return await apiRequest(`/api/readings/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(patch)
+  });
+}
+
+async function deleteReadingRemote(id) {
+  await apiRequest(`/api/readings/${id}`, { method: 'DELETE' });
 }
 
 async function deleteReading(id) {
@@ -659,7 +719,8 @@ async function importTenantsCsv(text) {
     ? (legacyNoHeader ? 11 : (activeIdx === undefined ? 14 : 14))
     : headerMap['archived'];
 
-  const existing = await getAllTenants(true);
+  const useRemote = window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1';
+  const existing = useRemote ? await getAllTenantsRemote(true) : await getAllTenants(true);
   const byApartment = new Map(existing.map(t => [String(t.apartmentNumber || ''), t]));
 
   let total = 0, success = 0, updated = 0;
@@ -689,11 +750,19 @@ async function importTenantsCsv(text) {
     total++;
     const existingTenant = byApartment.get(apartmentNumber);
     if (existingTenant) {
-      await updateTenant(existingTenant.id, data);
+      if (useRemote) {
+        await updateTenantRemote(existingTenant.id, data);
+      } else {
+        await updateTenant(existingTenant.id, data);
+      }
       updated++;
     } else {
-      const id = await addTenant(data);
-      if (data.archived) await updateTenant(id, { archived: true });
+      if (useRemote) {
+        await addTenantRemote(data);
+      } else {
+        const id = await addTenant(data);
+        if (data.archived) await updateTenant(id, { archived: true });
+      }
       success++;
     }
   }
@@ -702,11 +771,12 @@ async function importTenantsCsv(text) {
 }
 
 async function ensureTenant(apartmentNumber, name) {
-  const tenants = await getAllTenants(true);
+  const useRemote = isRemoteApp();
+  const tenants = useRemote ? await getAllTenantsRemote(true) : await getAllTenants(true);
   const existing = tenants.find(t => String(t.apartmentNumber) === String(apartmentNumber));
   if (existing) return existing;
   const { firstName, lastName } = splitName(name);
-  const id = await addTenant({
+  const payload = {
     firstName,
     lastName,
     apartmentNumber: String(apartmentNumber),
@@ -718,7 +788,11 @@ async function ensureTenant(apartmentNumber, name) {
     electricityMeter: '',
     waterMeter: '',
     notes: 'יובא מטבלת הפקדות'
-  });
+  };
+  if (useRemote) {
+    return await addTenantRemote(payload);
+  }
+  const id = await addTenant(payload);
   return { id, apartmentNumber, firstName, lastName };
 }
 
@@ -1211,8 +1285,11 @@ function buildBulkList(containerId, tenants, meterKey, unitLabel) {
     const row = document.createElement('div');
     row.className = 'bulk-row';
     row.innerHTML = `
-      <span class="bulk-label">דירה ${t.apartmentNumber || '-'} — ${t.firstName || ''} ${t.lastName || ''} (מונה: ${meter || 'לא מוגדר'})</span>
-      <input type="number" step="0.01" data-tenant-id="${t.id}" placeholder="קריאה (${unitLabel})">
+      <div class="bulk-main">
+        <div class="bulk-title">דירה ${t.apartmentNumber || '-'} · ${t.firstName || ''} ${t.lastName || ''}</div>
+        <div class="bulk-sub">מונה: ${meter || 'לא מוגדר'}</div>
+      </div>
+      <input class="bulk-value" type="number" step="0.01" data-tenant-id="${t.id}" placeholder="קריאה (${unitLabel})">
     `;
     container.appendChild(row);
   });
@@ -1242,7 +1319,8 @@ async function saveBulkReadings(meterType, dateInputId, listId, statusId) {
     total++;
     const tenantId = Number(input.dataset.tenantId);
     try {
-      await addReading({ tenantId, meterType, value: Number(valueRaw), date });
+      const payload = { tenantId, meterType, value: Number(valueRaw), date };
+      await addReading(payload);
       success++;
       input.value = '';
     } catch (err) {
@@ -1389,102 +1467,65 @@ async function renderArchive() {
 }
 
 async function renderReadings() {
-  const all = await getAllReadings();
-  const tenants = await getAllTenants(true);
   const list = document.getElementById('readings-list');
+  if (!list) return;
   list.innerHTML = '';
 
-  if (all.length === 0) { list.innerHTML = '<p>אין קריאות</p>'; return; }
+  try {
+    const all = await getAllReadings();
+    const tenants = await getAllTenants(true);
 
-  const tenantMap = new Map(tenants.map(t => [t.id, t]));
-  const tenantsSorted = tenants.slice().sort((a, b) => {
-    const aNum = Number(a.apartmentNumber);
-    const bNum = Number(b.apartmentNumber);
-    if (Number.isNaN(aNum) && Number.isNaN(bNum)) return 0;
-    if (Number.isNaN(aNum)) return 1;
-    if (Number.isNaN(bNum)) return -1;
-    return aNum - bNum;
-  });
+    if (all.length === 0) { list.innerHTML = '<p>אין קריאות</p>'; return; }
 
-  const dateSet = new Set(all.map(r => r.date));
-  const dates = Array.from(dateSet).sort((a, b) => new Date(b) - new Date(a));
+    const tenantMap = new Map(tenants.map(t => [t.id, t]));
+    const sorted = all.slice().sort((a, b) => new Date(b.date) - new Date(a.date));
 
-  const byDate = {};
-  dates.forEach(d => { byDate[d] = {}; });
-  all.forEach(r => {
-    if (!r.tenantId || !tenantMap.has(r.tenantId)) return;
-    if (!byDate[r.date]) byDate[r.date] = {};
-    if (!byDate[r.date][r.tenantId]) byDate[r.date][r.tenantId] = { electricity: null, water: null };
-    byDate[r.date][r.tenantId][r.meterType] = r;
-  });
-
-  const headerTop = tenantsSorted.map(t => {
-    const name = `${t.firstName || ''} ${t.lastName || ''}`.trim();
-    const title = name ? ` title="${name}"` : '';
-    return `<th colspan="2"${title}>דירה ${t.apartmentNumber || '-'}</th>`;
-  }).join('');
-
-  const headerBottom = tenantsSorted.map(() => '<th>חשמל</th><th>מים</th>').join('');
-
-  const body = dates.map(date => {
-    const cells = tenantsSorted.map(t => {
-      const rec = (byDate[date] && byDate[date][t.id]) || {};
-      const e = rec.electricity ? `${rec.electricity.value} <span class="cell-actions"><button data-id="${rec.electricity.id}" class="btn-edit-reading">✏️</button><button data-id="${rec.electricity.id}" class="btn-delete-reading">🗑️</button></span>` : '-';
-      const w = rec.water ? `${rec.water.value} <span class="cell-actions"><button data-id="${rec.water.id}" class="btn-edit-reading">✏️</button><button data-id="${rec.water.id}" class="btn-delete-reading">🗑️</button></span>` : '-';
-      return `<td>${e}</td><td>${w}</td>`;
+    const rows = sorted.map(r => {
+      const t = tenantMap.get(r.tenantId);
+      const name = t ? `${t.firstName || ''} ${t.lastName || ''}`.trim() : (r.tenantName || '');
+      const apartment = t?.apartmentNumber || r.apartmentNumber || '';
+      const missing = !t;
+      const linkCell = missing ? `
+        <select class="link-reading-select" data-reading-id="${r.id}">
+          ${buildTenantSelectOptions(tenants)}
+        </select>
+      ` : '—';
+      return `
+        <tr class="${missing ? 'row-missing' : ''}">
+          <td>${r.date || ''}</td>
+          <td>${apartment || '-'}</td>
+          <td>${name || '-'}</td>
+          <td>${meterTypeLabel(r.meterType)}</td>
+          <td>${r.value ?? ''}</td>
+          <td>${linkCell}</td>
+          <td>
+            <button class="btn-edit-reading" data-id="${r.id}">✏️</button>
+            <button class="btn-delete-reading" data-id="${r.id}">🗑️</button>
+          </td>
+        </tr>
+      `;
     }).join('');
-    return `<tr><td class="date-col">${date}</td>${cells}</tr>`;
-  }).join('');
 
-  const orphanReadings = all.filter(r => !r.tenantId || !tenantMap.has(r.tenantId));
-  const orphanRows = orphanReadings.map(r => {
-    const name = r.tenantName || '-';
-    const apartment = r.apartmentNumber || '-';
-    return `
-      <tr class="row-missing">
-        <td>${r.date || ''}</td>
-        <td>${meterTypeLabel(r.meterType)}</td>
-        <td>${r.value ?? ''}</td>
-        <td>${apartment}</td>
-        <td>${name}</td>
-        <td>
-          <select class="link-reading-select" data-reading-id="${r.id}">
-            ${buildTenantSelectOptions(tenants)}
-          </select>
-        </td>
-      </tr>
-    `;
-  }).join('');
-
-  const orphanTable = orphanReadings.length > 0 ? `
-    <div class="section" style="margin-top: 12px;">
-      <h3>קריאות לא משויכות</h3>
+    list.innerHTML = `
       <table class="payments-table">
         <thead>
           <tr>
             <th>תאריך</th>
-            <th>סוג</th>
-            <th>ערך</th>
             <th>דירה</th>
             <th>דייר</th>
+            <th>סוג</th>
+            <th>ערך</th>
             <th>קישור</th>
+            <th>פעולות</th>
           </tr>
         </thead>
-        <tbody>${orphanRows}</tbody>
+        <tbody>${rows}</tbody>
       </table>
-    </div>
-  ` : '';
-
-  list.innerHTML = `
-    <table class="readings-table">
-      <thead>
-        <tr><th rowspan="2" class="date-col">תאריך</th>${headerTop}</tr>
-        <tr>${headerBottom}</tr>
-      </thead>
-      <tbody>${body}</tbody>
-    </table>
-    ${orphanTable}
-  `;
+    `;
+  } catch (err) {
+    console.error(err);
+    list.innerHTML = `<p style="color: #e74c3c;">שגיאה בטעינת קריאות: ${err.message}</p>`;
+  }
 }
 
 async function renderPayments() {
@@ -1684,10 +1725,23 @@ tenantsClearBtn?.addEventListener('click', async () => {
   const statusEl = document.getElementById('tenants-csv-status');
   if (statusEl) statusEl.textContent = 'מוחק...';
   try {
-    await clearAllReadings();
-    await clearAllPayments();
-    await clearAllBills();
-    await clearAllTenants();
+    if (isRemoteApp()) {
+      // Remote: delete everything on server in one call
+      await apiRequest('/api/tenants', { method: 'DELETE' });
+    } else {
+      // Local: clear IndexedDB data
+      await clearAllReadings();
+      await clearAllPayments();
+      await clearAllBills();
+      await clearAllTenants();
+      // Also clear from server (best-effort)
+      try {
+        await apiRequest('/api/tenants', { method: 'DELETE' });
+      } catch (err) {
+        console.warn('Failed to delete from server:', err);
+      }
+    }
+    
     if (statusEl) statusEl.textContent = 'כל הדיירים והנתונים נמחקו ✓';
   } catch (e) {
     if (statusEl) statusEl.textContent = `שגיאה: ${e.message}`;
@@ -2115,8 +2169,13 @@ document.getElementById('readings-list')?.addEventListener('click', async e => {
   if (editBtn) {
     const id = Number(editBtn.dataset.id);
     try {
-      const tx = await getTx('readings', 'readonly');
-      const rec = await new Promise((res, rej) => { const r = tx.objectStore('readings').get(id); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); });
+      const rec = await new Promise((res, rej) => {
+        getTx('readings', 'readonly').then(tx => {
+          const r = tx.objectStore('readings').get(id);
+          r.onsuccess = () => res(r.result);
+          r.onerror = () => rej(r.error);
+        }).catch(rej);
+      });
       if (!rec) return alert('לא נמצא רישום');
       const newVal = prompt('ערוך ערך קריאה (ללא יחידות):', String(rec.value));
       if (newVal === null) return;
@@ -2131,7 +2190,11 @@ document.getElementById('readings-list')?.addEventListener('click', async e => {
   if (delBtn) {
     const id = Number(delBtn.dataset.id);
     if (await confirmDialog('להסיר קריאה זו?')) {
-      try { await deleteReading(id); await renderReadings(); alert('נמחק'); } catch (err) { console.error(err); alert('שגיאה במחיקה: ' + err.message); }
+      try {
+        await deleteReading(id);
+        await renderReadings();
+        alert('נמחק');
+      } catch (err) { console.error(err); alert('שגיאה במחיקה: ' + err.message); }
     }
   }
 });
@@ -2144,11 +2207,12 @@ document.getElementById('readings-list')?.addEventListener('change', async e => 
   const readingId = Number(select.dataset.readingId);
   const tenant = await getTenantById(tenantId);
   if (!tenant) return;
-  await updateReading(readingId, {
+  const patch = {
     tenantId: tenant.id,
     tenantName: `${tenant.firstName || ''} ${tenant.lastName || ''}`.trim(),
     apartmentNumber: tenant.apartmentNumber || ''
-  });
+  };
+  await updateReading(readingId, patch);
   await renderReadings();
 });
 
@@ -2201,6 +2265,8 @@ async function importReadingsCsv(text) {
   const startIdx = rows[0][0]?.toLowerCase() === 'date' ? 1 : 0;
   const existing = await getAllReadings();
   const existingSet = new Set(existing.map(r => `${r.tenantId}|${r.meterType}|${r.date}`));
+  const tenants = await getAllTenants(true);
+  const tenantIndex = buildTenantNameIndex(tenants);
 
   let total = 0, success = 0, skipped = 0;
 
@@ -2215,16 +2281,19 @@ async function importReadingsCsv(text) {
 
     if (!date || !apartment || !meterType || Number.isNaN(value)) continue;
     total++;
-    const tenant = await ensureTenant(apartment, tenantName);
-    if (meterNumber) {
-      const patch = meterType === 'electricity' ? { electricityMeter: meterNumber } : { waterMeter: meterNumber };
-      await updateTenant(tenant.id, patch);
-    }
-
-    const key = `${tenant.id}|${meterType}|${date}`;
+    const tenant = findTenantByName(tenantIndex, tenantName);
+    const key = `${tenant?.id || ''}|${meterType}|${date}`;
     if (existingSet.has(key)) { skipped++; continue; }
 
-    await addReading({ tenantId: tenant.id, meterType, value, date, tenantName: `${tenant.firstName || ''} ${tenant.lastName || ''}`.trim(), apartmentNumber: tenant.apartmentNumber || '' });
+    const readingPayload = {
+      tenantId: tenant?.id || null,
+      meterType,
+      value,
+      date,
+      tenantName: tenant ? `${tenant.firstName || ''} ${tenant.lastName || ''}`.trim() : (tenantName || ''),
+      apartmentNumber: tenant?.apartmentNumber || apartment || ''
+    };
+    await addReading(readingPayload);
     existingSet.add(key);
     success++;
   }
@@ -2365,7 +2434,9 @@ document.getElementById('payments-list')?.addEventListener('change', async e => 
   const tenantId = Number(select.value);
   if (!tenantId) return;
   const paymentId = Number(select.dataset.paymentId);
-  const tenant = await getTenantById(tenantId);
+  const tenant = isRemoteApp()
+    ? await getTenantByIdRemote(tenantId)
+    : await getTenantById(tenantId);
   if (!tenant) return;
   await updatePayment(paymentId, {
     tenantId: tenant.id,
@@ -3095,7 +3166,9 @@ document.getElementById('export-timeline-csv')?.addEventListener('click', async 
 let currentEditingTenantId = null;
 
 async function openTenantDateEditor(tenantId) {
-  const tenant = await getTenantById(tenantId);
+  const tenant = isRemoteApp()
+    ? await getTenantByIdRemote(tenantId)
+    : await getTenantById(tenantId);
   if (!tenant) {
     alert('לא נמצא דייר');
     return;
@@ -3133,11 +3206,16 @@ document.getElementById('edit-dates-save')?.addEventListener('click', async () =
   }
   
   try {
-    await updateTenant(currentEditingTenantId, {
+    const payload = {
       startDate,
       endDate: endDate || null,
       moveOutDate: moveOutDate || null
-    });
+    };
+    if (isRemoteApp()) {
+      await updateTenantRemote(currentEditingTenantId, payload);
+    } else {
+      await updateTenant(currentEditingTenantId, payload);
+    }
     
     // Close modal and refresh timeline
     document.getElementById('edit-dates-modal').classList.add('hidden');
