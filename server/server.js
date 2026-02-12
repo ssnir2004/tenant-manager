@@ -1,5 +1,6 @@
 const express = require('express');
 const cors = require('cors');
+const path = require('path');
 const { initDb } = require('./db');
 
 const PORT = process.env.PORT || 3001;
@@ -15,6 +16,9 @@ function toBooleanInt(value) {
   const app = express();
   app.use(cors());
   app.use(express.json({ limit: '2mb' }));
+  
+  // Serve static files from parent directory (the app files)
+  app.use(express.static(path.join(__dirname, '..')));
 
   app.get('/health', (req, res) => {
     res.json({ ok: true });

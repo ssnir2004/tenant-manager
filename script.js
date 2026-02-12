@@ -2,9 +2,19 @@
 const DB_NAME = 'tenant_mgmt_v1';
 const DB_VERSION = 3;
 const STORES = ['tenants', 'readings', 'bills', 'payments', 'settings'];
-const API_BASE = window.API_BASE_URL || 'http://localhost:3001';
+
+// Get API base URL - auto-detect or use saved settings
+function getApiBase() {
+  // If accessed via Cloudflare (not localhost), use same origin for API
+  if (window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
+    return window.location.origin;
+  }
+  // Otherwise use saved server URL or localhost
+  return window.CURRENT_SERVER_URL || 'http://localhost:3001';
+}
 
 async function apiRequest(path, options = {}) {
+  const API_BASE = getApiBase();
   const res = await fetch(`${API_BASE}${path}`, {
     headers: { 'Content-Type': 'application/json' },
     ...options
@@ -51,58 +61,134 @@ async function getTx(store, mode = 'readonly') {
   return db.transaction(store, mode);
 }
 
-// Tenants
+// Tenants (local IndexedDB)
 async function addTenant(data) {
-  const payload = {
-    ...data,
-    archived: data.archived ?? false,
-    active: data.active ?? true
+  const tx = await getTx('tenants', 'readwrite');
+  data.createdAt = new Date().toISOString();
+  if (data.archived === undefined) data.archived = false;
+  return new Promise((res, rej) => {
+    const r = tx.objectStore('tenants').add(data);
+    r.onsuccess = () => res(r.result);
+    r.onerror = () => rej(r.error);
+  });
+}
+
+async function updateTenant(id, patch) {
+  const tx = await getTx('tenants', 'readwrite');
+  const store = tx.objectStore('tenants');
+  return new Promise((res, rej) => {
+    const getReq = store.get(id);
+    getReq.onsuccess = () => {
+      const rec = getReq.result;
+      if (!rec) return rej(new Error('Not found'));
+      Object.assign(rec, patch);
+      const putReq = store.put(rec);
+      putReq.onsuccess = () => res();
+      putReq.onerror = () => rej(putReq.error);
+    };
+    getReq.onerror = () => rej(getReq.error);
+  });
+}
+
+async function deleteTenant(id) {
+  const tx = await getTx('tenants', 'readwrite');
+  return new Promise((res, rej) => {
+    const r = tx.objectStore('tenants').delete(id);
+    r.onsuccess = () => res();
+    r.onerror = () => rej(r.error);
+  });
+}
+
+async function getAllTenants(includeArchived = false) {
+  // If accessing via Cloudflare (not localhost), read from server
+  if (window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
+    return await getAllTenantsRemote(includeArchived);
+  }
+  
+  // Otherwise read from local IndexedDB
+  const tx = await getTx('tenants', 'readonly');
+  return new Promise((res, rej) => {
+    const r = tx.objectStore('tenants').getAll();
+    r.onsuccess = () => {
+      const all = r.result || [];
+      res(all.filter(t => (includeArchived ? true : !t.archived)));
+    };
+    r.onerror = () => rej(r.error);
+  });
+}
+
+async function getTenantById(id) {
+  const tx = await getTx('tenants', 'readonly');
+  return new Promise((res, rej) => {
+    const r = tx.objectStore('tenants').get(id);
+    r.onsuccess = () => res(r.result || null);
+    r.onerror = () => rej(r.error);
+  });
+}
+
+async function clearAllTenants() {
+  const tx = await getTx('tenants', 'readwrite');
+  return new Promise((res, rej) => {
+    const r = tx.objectStore('tenants').clear();
+    r.onsuccess = () => res();
+    r.onerror = () => rej(r.error);
+  });
+}
+
+// Tenants (remote API for sync)
+function extractTenantFields(t) {
+  return {
+    firstName: t.firstName || '',
+    lastName: t.lastName || '',
+    nationalId: t.nationalId || '',
+    phone: t.phone || '',
+    startDate: t.startDate || '',
+    endDate: t.endDate || '',
+    moveOutDate: t.moveOutDate || '',
+    rentAmount: t.rentAmount ?? null,
+    arnonaAmount: t.arnonaAmount ?? null,
+    apartmentNumber: t.apartmentNumber || '',
+    electricityMeter: t.electricityMeter || '',
+    waterMeter: t.waterMeter || '',
+    notes: t.notes || '',
+    archived: t.archived ?? false,
+    active: t.active ?? true
   };
+}
+
+async function addTenantRemote(data) {
+  const payload = extractTenantFields(data);
   const row = await apiRequest('/api/tenants', {
     method: 'POST',
     body: JSON.stringify(payload)
   });
-  return row.id;
+  return normalizeTenantRow(row);
 }
 
-async function updateTenant(id, patch) {
-  const existing = await getTenantById(id);
-  if (!existing) throw new Error('Not found');
-  const payload = {
-    ...existing,
-    ...patch,
-    archived: patch.archived ?? existing.archived ?? false,
-    active: patch.active ?? existing.active ?? true
-  };
+async function updateTenantRemote(id, data) {
+  const payload = extractTenantFields(data);
   await apiRequest(`/api/tenants/${id}`, {
     method: 'PUT',
     body: JSON.stringify(payload)
   });
 }
 
-async function deleteTenant(id) {
+async function deleteTenantRemote(id) {
   await apiRequest(`/api/tenants/${id}`, { method: 'DELETE' });
 }
 
-async function getAllTenants(includeArchived = false) {
+async function getAllTenantsRemote(includeArchived = false) {
   const rows = await apiRequest(`/api/tenants?includeArchived=${includeArchived ? 'true' : 'false'}`);
   return (rows || []).map(normalizeTenantRow);
 }
 
-async function getTenantById(id) {
+async function getTenantByIdRemote(id) {
   try {
     const row = await apiRequest(`/api/tenants/${id}`);
     return normalizeTenantRow(row);
   } catch (err) {
     if (String(err.message || '').includes('404')) return null;
     throw err;
-  }
-}
-
-async function clearAllTenants() {
-  const tenants = await getAllTenants(true);
-  for (const t of tenants) {
-    await deleteTenant(t.id);
   }
 }
 
@@ -1504,7 +1590,17 @@ const showBalanceBtn = document.getElementById('show-balance');
 
 showAddBtn?.addEventListener('click', async () => { show(tenantForm); tenantForm.editId = null; document.getElementById('form-title').textContent = 'הוספת דייר'; tenantForm.reset(); await renderTenantsTable(); });
 showArchiveBtn?.addEventListener('click', async () => { await renderArchive(); show(archiveView); });
-showSettingsBtn?.addEventListener('click', async () => { const e = await getSetting('electricityPrice'); const w = await getSetting('waterPrice'); const t = await getSetting('appTitle'); document.getElementById('electricity-price').value = e ?? ''; document.getElementById('water-price').value = w ?? ''; document.getElementById('app-title').value = t ?? ''; show(settingsView); });
+showSettingsBtn?.addEventListener('click', async () => { 
+  const e = await getSetting('electricityPrice'); 
+  const w = await getSetting('waterPrice'); 
+  const t = await getSetting('appTitle'); 
+  const serverUrl = await getSetting('serverUrl');
+  document.getElementById('electricity-price').value = e ?? ''; 
+  document.getElementById('water-price').value = w ?? ''; 
+  document.getElementById('app-title').value = t ?? ''; 
+  document.getElementById('server-url').value = serverUrl ?? '';
+  show(settingsView); 
+});
 showPaymentsBtn?.addEventListener('click', async () => { await populateTenantSelects(); await renderPayments(); show(paymentsView); });
 showBalanceBtn?.addEventListener('click', async () => { await renderBalance(); show(balanceView); });
 
@@ -1685,10 +1781,17 @@ saveSettingsBtn?.addEventListener('click', async () => {
   const e = Number(document.getElementById('electricity-price').value);
   const w = Number(document.getElementById('water-price').value);
   const t = document.getElementById('app-title').value || '';
+  const serverUrl = document.getElementById('server-url').value.trim();
+  
   if (isNaN(e) || isNaN(w)) { alert('הזן מספרים'); return; }
+  
   await setSetting('electricityPrice', e);
   await setSetting('waterPrice', w);
   await setSetting('appTitle', t);
+  await setSetting('serverUrl', serverUrl);
+  
+  // Update global server URL
+  window.CURRENT_SERVER_URL = serverUrl || 'http://localhost:3001';
   
   // Update page title
   const titleElement = document.querySelector('header h1');
@@ -1697,6 +1800,231 @@ saveSettingsBtn?.addEventListener('click', async () => {
   
   alert('שמור');
   show(tenantForm);
+});
+
+// Manual tenant sync
+const syncPushBtn = document.getElementById('sync-tenants-push');
+const syncPullBtn = document.getElementById('sync-tenants-pull');
+const syncStatusEl = document.getElementById('sync-status');
+
+const TENANT_SYNC_FIELDS = [
+  'firstName', 'lastName', 'nationalId', 'phone', 'startDate', 'endDate', 'moveOutDate',
+  'rentAmount', 'arnonaAmount', 'apartmentNumber', 'electricityMeter', 'waterMeter',
+  'notes', 'archived', 'active'
+];
+
+function setSyncStatus(message, isError = false) {
+  if (!syncStatusEl) return;
+  syncStatusEl.textContent = message;
+  syncStatusEl.style.color = isError ? '#e74c3c' : '#27ae60';
+}
+
+function normalizeTenantKeyValue(value) {
+  return String(value ?? '').trim().toLowerCase();
+}
+
+function tenantKey(t) {
+  return [
+    normalizeTenantKeyValue(t.apartmentNumber),
+    normalizeTenantKeyValue(t.firstName),
+    normalizeTenantKeyValue(t.lastName),
+    normalizeTenantKeyValue(t.startDate)
+  ].join('|');
+}
+
+function tenantValue(field, tenant) {
+  const value = tenant?.[field];
+  if (value === null || value === undefined) return '';
+  if (field === 'archived' || field === 'active') return value ? 'true' : 'false';
+  return String(value);
+}
+
+function tenantsEqual(local, remote) {
+  return TENANT_SYNC_FIELDS.every(field => tenantValue(field, local) === tenantValue(field, remote));
+}
+
+function buildTenantDiffs(local, remote) {
+  return TENANT_SYNC_FIELDS
+    .map(field => ({
+      field,
+      local: tenantValue(field, local),
+      remote: tenantValue(field, remote)
+    }))
+    .filter(item => item.local !== item.remote);
+}
+
+let pendingTenantConflicts = [];
+let resolveTenantConflictsPromise = null;
+
+function renderTenantConflicts() {
+  const list = document.getElementById('sync-conflict-list');
+  if (!list) return;
+  if (pendingTenantConflicts.length === 0) {
+    list.innerHTML = '<p style="color:#666;">אין התנגשויות פתוחות.</p>';
+    return;
+  }
+
+  list.innerHTML = pendingTenantConflicts.map((conflict, index) => {
+    const name = `${conflict.local.firstName || ''} ${conflict.local.lastName || ''}`.trim();
+    const title = `דירה ${conflict.local.apartmentNumber || '-'} - ${name || 'ללא שם'}`;
+    const diffs = conflict.diffs.map(diff => `
+      <div class="sync-diff-row">
+        <div class="sync-diff-field">${diff.field}</div>
+        <div class="sync-diff-value">${diff.local || '-'}</div>
+        <div class="sync-diff-value">${diff.remote || '-'}</div>
+      </div>
+    `).join('');
+
+    return `
+      <div class="sync-conflict-item">
+        <div class="sync-conflict-title">${title}</div>
+        <div class="sync-diff-grid">
+          <div class="sync-diff-row sync-diff-header">
+            <div class="sync-diff-field">שדה</div>
+            <div class="sync-diff-value">מקומי</div>
+            <div class="sync-diff-value">שרת</div>
+          </div>
+          ${diffs}
+        </div>
+        <div class="sync-conflict-actions">
+          <button class="sync-choice-local" data-index="${index}" data-choice="local">השאר מקומי</button>
+          <button class="sync-choice-server" data-index="${index}" data-choice="server">החלף מהשרת</button>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+function openTenantConflictModal(conflicts) {
+  pendingTenantConflicts = conflicts;
+  renderTenantConflicts();
+  const modal = document.getElementById('sync-conflict-modal');
+  if (modal) {
+    modal.classList.remove('hidden');
+    modal.style.display = 'flex';
+  }
+}
+
+function closeTenantConflictModal() {
+  const modal = document.getElementById('sync-conflict-modal');
+  if (modal) {
+    modal.classList.add('hidden');
+    modal.style.display = 'none';
+  }
+}
+
+function resolveTenantConflicts(conflicts) {
+  return new Promise(resolve => {
+    resolveTenantConflictsPromise = resolve;
+    openTenantConflictModal(conflicts);
+  });
+}
+
+document.getElementById('sync-conflict-close')?.addEventListener('click', () => {
+  closeTenantConflictModal();
+  if (resolveTenantConflictsPromise) {
+    resolveTenantConflictsPromise();
+    resolveTenantConflictsPromise = null;
+  }
+});
+
+document.getElementById('sync-conflict-list')?.addEventListener('click', async e => {
+  const btn = e.target.closest('button[data-choice]');
+  if (!btn) return;
+  const index = Number(btn.dataset.index);
+  const choice = btn.dataset.choice;
+  const conflict = pendingTenantConflicts[index];
+  if (!conflict) return;
+
+  try {
+    if (choice === 'local') {
+      await updateTenantRemote(conflict.remote.id, conflict.local);
+    } else {
+      await updateTenant(conflict.local.id, extractTenantFields(conflict.remote));
+    }
+  } catch (err) {
+    alert(`שגיאה בסנכרון: ${err.message}`);
+    return;
+  }
+
+  pendingTenantConflicts.splice(index, 1);
+  if (pendingTenantConflicts.length === 0) {
+    closeTenantConflictModal();
+    if (resolveTenantConflictsPromise) {
+      resolveTenantConflictsPromise();
+      resolveTenantConflictsPromise = null;
+    }
+  } else {
+    renderTenantConflicts();
+  }
+});
+
+async function syncTenantsPush() {
+  try {
+    setSyncStatus('מסנכרן לשרת...');
+    const local = await getAllTenants(true);
+    const remote = await getAllTenantsRemote(true);
+    const remoteByKey = new Map(remote.map(t => [tenantKey(t), t]));
+    const conflicts = [];
+
+    for (const t of local) {
+      const key = tenantKey(t);
+      const remoteTenant = remoteByKey.get(key);
+      if (!remoteTenant) {
+        await addTenantRemote(t);
+      } else if (!tenantsEqual(t, remoteTenant)) {
+        conflicts.push({ local: t, remote: remoteTenant, diffs: buildTenantDiffs(t, remoteTenant) });
+      }
+    }
+
+    if (conflicts.length > 0) {
+      setSyncStatus('נמצאו התנגשויות, יש לבחור עבור כל דייר.');
+      await resolveTenantConflicts(conflicts);
+    }
+
+    setSyncStatus('סנכרון לשרת הושלם ✓');
+  } catch (err) {
+    setSyncStatus(`שגיאה בסנכרון: ${err.message}`, true);
+  }
+}
+
+async function syncTenantsPull() {
+  try {
+    setSyncStatus('מושך מהשרת...');
+    const local = await getAllTenants(true);
+    const remote = await getAllTenantsRemote(true);
+    const localByKey = new Map(local.map(t => [tenantKey(t), t]));
+    const conflicts = [];
+
+    for (const r of remote) {
+      const key = tenantKey(r);
+      const localTenant = localByKey.get(key);
+      if (!localTenant) {
+        await addTenant(extractTenantFields(r));
+      } else if (!tenantsEqual(localTenant, r)) {
+        conflicts.push({ local: localTenant, remote: r, diffs: buildTenantDiffs(localTenant, r) });
+      }
+    }
+
+    if (conflicts.length > 0) {
+      setSyncStatus('נמצאו התנגשויות, יש לבחור עבור כל דייר.');
+      await resolveTenantConflicts(conflicts);
+    }
+
+    await renderTenants();
+    await renderArchive();
+    setSyncStatus('משיכה מהשרת הושלמה ✓');
+  } catch (err) {
+    setSyncStatus(`שגיאה במשיכה: ${err.message}`, true);
+  }
+}
+
+syncPushBtn?.addEventListener('click', async () => {
+  await syncTenantsPush();
+});
+
+syncPullBtn?.addEventListener('click', async () => {
+  await syncTenantsPull();
 });
 
 
@@ -2833,6 +3161,12 @@ window.addEventListener('DOMContentLoaded', async () => {
   if (savedTitle) {
     document.querySelector('header h1').textContent = savedTitle;
     document.title = savedTitle;
+  }
+  
+  // Load server URL if saved
+  const savedServerUrl = await getSetting('serverUrl');
+  if (savedServerUrl) {
+    window.CURRENT_SERVER_URL = savedServerUrl;
   }
   
   await renderTenants(); 

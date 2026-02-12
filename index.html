@@ -148,6 +148,23 @@
           <button id="save-settings">שמור</button>
           <button id="close-settings" type="button">סגור</button>
         </div>
+        <hr style="margin: 20px 0; border: none; border-top: 1px solid #ddd;">
+        <h3>כתובת שרת (Server URL)</h3>
+        <div class="row">
+          <label>URL של Cloudflare Tunnel
+            <input id="server-url" type="url" placeholder="https://your-tunnel.trycloudflare.com" style="direction: ltr; text-align: left;">
+          </label>
+          <small style="display: block; color: #666; margin-top: 5px;">
+            הרץ את start-tunnel.ps1 והעתק את ה-URL שמתקבל
+          </small>
+        </div>
+        <hr style="margin: 20px 0; border: none; border-top: 1px solid #ddd;">
+        <h3>סנכרון דיירים</h3>
+        <div class="actions">
+          <button id="sync-tenants-push" type="button">סנכרון לשרת</button>
+          <button id="sync-tenants-pull" type="button">משיכה מהשרת</button>
+        </div>
+        <div id="sync-status" style="margin-top: 10px; color: #27ae60;"></div>
       </div>
 
       <!-- Payments View -->
@@ -258,6 +275,17 @@
       <div class="modal-actions">
         <button id="edit-dates-save">שמור</button>
         <button id="edit-dates-cancel">בטל</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Sync Conflict Modal -->
+  <div id="sync-conflict-modal" class="modal hidden">
+    <div class="modal-content sync-modal-content">
+      <h2>התנגשויות בסנכרון</h2>
+      <div id="sync-conflict-list" class="sync-conflict-list"></div>
+      <div class="modal-actions">
+        <button id="sync-conflict-close">סגור</button>
       </div>
     </div>
   </div>
