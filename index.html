@@ -130,6 +130,11 @@
       <div id="settings-view" class="card hidden">
         <h2>הגדרות</h2>
         <div class="row">
+          <label>כותרת האפליקציה
+            <input id="app-title" type="text">
+          </label>
+        </div>
+        <div class="row">
           <label>מחיר חשמל (₪/קוט"ש)
             <input id="electricity-price" type="number" step="0.01">
           </label>
@@ -227,6 +232,32 @@
       <div class="modal-actions">
         <button id="confirm-yes">כן</button>
         <button id="confirm-no">לא</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Edit Tenant Dates Modal -->
+  <div id="edit-dates-modal" class="modal hidden">
+    <div class="modal-content">
+      <h2 id="edit-dates-tenant-name">עריכת תאריכים</h2>
+      <div class="row">
+        <label>תאריך התחלה
+          <input id="edit-dates-start" type="date">
+        </label>
+      </div>
+      <div class="row">
+        <label>תאריך סיום
+          <input id="edit-dates-end" type="date">
+        </label>
+      </div>
+      <div class="row">
+        <label>תאריך יציאה
+          <input id="edit-dates-moveout" type="date">
+        </label>
+      </div>
+      <div class="modal-actions">
+        <button id="edit-dates-save">שמור</button>
+        <button id="edit-dates-cancel">בטל</button>
       </div>
     </div>
   </div>

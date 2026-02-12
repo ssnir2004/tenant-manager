@@ -2,6 +2,29 @@
 const DB_NAME = 'tenant_mgmt_v1';
 const DB_VERSION = 3;
 const STORES = ['tenants', 'readings', 'bills', 'payments', 'settings'];
+const API_BASE = window.API_BASE_URL || 'http://localhost:3001';
+
+async function apiRequest(path, options = {}) {
+  const res = await fetch(`${API_BASE}${path}`, {
+    headers: { 'Content-Type': 'application/json' },
+    ...options
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    const message = text ? `HTTP ${res.status} ${text}` : `HTTP ${res.status}`;
+    throw new Error(message);
+  }
+  return res.json();
+}
+
+function normalizeTenantRow(row) {
+  if (!row) return row;
+  return {
+    ...row,
+    archived: !!row.archived,
+    active: row.active === undefined ? true : !!row.active
+  };
+}
 
 function openDB() {
   return new Promise((res, rej) => {
@@ -30,70 +53,57 @@ async function getTx(store, mode = 'readonly') {
 
 // Tenants
 async function addTenant(data) {
-  const tx = await getTx('tenants', 'readwrite');
-  data.createdAt = new Date().toISOString();
-  if (data.archived === undefined) data.archived = false;
-  return new Promise((res, rej) => {
-    const r = tx.objectStore('tenants').add(data);
-    r.onsuccess = () => res(r.result);
-    r.onerror = () => rej(r.error);
+  const payload = {
+    ...data,
+    archived: data.archived ?? false,
+    active: data.active ?? true
+  };
+  const row = await apiRequest('/api/tenants', {
+    method: 'POST',
+    body: JSON.stringify(payload)
   });
+  return row.id;
 }
 
 async function updateTenant(id, patch) {
-  const tx = await getTx('tenants', 'readwrite');
-  const store = tx.objectStore('tenants');
-  return new Promise((res, rej) => {
-    const getReq = store.get(id);
-    getReq.onsuccess = () => {
-      const rec = getReq.result;
-      if (!rec) return rej(new Error('Not found'));
-      Object.assign(rec, patch);
-      const putReq = store.put(rec);
-      putReq.onsuccess = () => res();
-      putReq.onerror = () => rej(putReq.error);
-    };
-    getReq.onerror = () => rej(getReq.error);
+  const existing = await getTenantById(id);
+  if (!existing) throw new Error('Not found');
+  const payload = {
+    ...existing,
+    ...patch,
+    archived: patch.archived ?? existing.archived ?? false,
+    active: patch.active ?? existing.active ?? true
+  };
+  await apiRequest(`/api/tenants/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(payload)
   });
 }
 
 async function deleteTenant(id) {
-  const tx = await getTx('tenants', 'readwrite');
-  return new Promise((res, rej) => {
-    const r = tx.objectStore('tenants').delete(id);
-    r.onsuccess = () => res();
-    r.onerror = () => rej(r.error);
-  });
+  await apiRequest(`/api/tenants/${id}`, { method: 'DELETE' });
 }
 
 async function getAllTenants(includeArchived = false) {
-  const tx = await getTx('tenants', 'readonly');
-  return new Promise((res, rej) => {
-    const r = tx.objectStore('tenants').getAll();
-    r.onsuccess = () => {
-      const all = r.result || [];
-      res(all.filter(t => (includeArchived ? true : !t.archived)));
-    };
-    r.onerror = () => rej(r.error);
-  });
+  const rows = await apiRequest(`/api/tenants?includeArchived=${includeArchived ? 'true' : 'false'}`);
+  return (rows || []).map(normalizeTenantRow);
 }
 
 async function getTenantById(id) {
-  const tx = await getTx('tenants', 'readonly');
-  return new Promise((res, rej) => {
-    const r = tx.objectStore('tenants').get(id);
-    r.onsuccess = () => res(r.result || null);
-    r.onerror = () => rej(r.error);
-  });
+  try {
+    const row = await apiRequest(`/api/tenants/${id}`);
+    return normalizeTenantRow(row);
+  } catch (err) {
+    if (String(err.message || '').includes('404')) return null;
+    throw err;
+  }
 }
 
 async function clearAllTenants() {
-  const tx = await getTx('tenants', 'readwrite');
-  return new Promise((res, rej) => {
-    const r = tx.objectStore('tenants').clear();
-    r.onsuccess = () => res();
-    r.onerror = () => rej(r.error);
-  });
+  const tenants = await getAllTenants(true);
+  for (const t of tenants) {
+    await deleteTenant(t.id);
+  }
 }
 
 // Readings
@@ -1494,7 +1504,7 @@ const showBalanceBtn = document.getElementById('show-balance');
 
 showAddBtn?.addEventListener('click', async () => { show(tenantForm); tenantForm.editId = null; document.getElementById('form-title').textContent = 'הוספת דייר'; tenantForm.reset(); await renderTenantsTable(); });
 showArchiveBtn?.addEventListener('click', async () => { await renderArchive(); show(archiveView); });
-showSettingsBtn?.addEventListener('click', async () => { const e = await getSetting('electricityPrice'); const w = await getSetting('waterPrice'); document.getElementById('electricity-price').value = e ?? ''; document.getElementById('water-price').value = w ?? ''; show(settingsView); });
+showSettingsBtn?.addEventListener('click', async () => { const e = await getSetting('electricityPrice'); const w = await getSetting('waterPrice'); const t = await getSetting('appTitle'); document.getElementById('electricity-price').value = e ?? ''; document.getElementById('water-price').value = w ?? ''; document.getElementById('app-title').value = t ?? ''; show(settingsView); });
 showPaymentsBtn?.addEventListener('click', async () => { await populateTenantSelects(); await renderPayments(); show(paymentsView); });
 showBalanceBtn?.addEventListener('click', async () => { await renderBalance(); show(balanceView); });
 
@@ -1674,9 +1684,17 @@ const saveSettingsBtn = document.getElementById('save-settings');
 saveSettingsBtn?.addEventListener('click', async () => {
   const e = Number(document.getElementById('electricity-price').value);
   const w = Number(document.getElementById('water-price').value);
+  const t = document.getElementById('app-title').value || '';
   if (isNaN(e) || isNaN(w)) { alert('הזן מספרים'); return; }
   await setSetting('electricityPrice', e);
   await setSetting('waterPrice', w);
+  await setSetting('appTitle', t);
+  
+  // Update page title
+  const titleElement = document.querySelector('header h1');
+  if (titleElement && t) titleElement.textContent = t;
+  document.title = t || 'ניהול דיירים — טרומפלדור 31, נהריה';
+  
   alert('שמור');
   show(tenantForm);
 });
@@ -2463,13 +2481,19 @@ async function renderTimeline() {
       }
     });
 
-    // Default: show past 2 years
-    if (!minDate) {
-      minDate = new Date(today.getFullYear() - 2, today.getMonth(), 1);
+    // Default minimum date: October 2022
+    const defaultMinDate = new Date(2022, 9, 1); // October 2022, day 1
+    
+    // If no tenants or earliest tenant is after default, use default
+    if (!minDate || minDate > defaultMinDate) {
+      minDate = defaultMinDate;
+    } else {
+      // Go to first of that month
+      minDate = new Date(minDate.getFullYear(), minDate.getMonth(), 1);
     }
-
-    // Go to first of that month
-    minDate = new Date(minDate.getFullYear(), minDate.getMonth(), 1);
+    
+    // Ensure minDate is at midnight (00:00:00)
+    minDate = new Date(minDate.getFullYear(), minDate.getMonth(), minDate.getDate(), 0, 0, 0, 0);
     
     // Show at least 24 months
     if ((maxDate - minDate) / (1000 * 60 * 60 * 24 * 30.44) < 24) {
@@ -2480,6 +2504,10 @@ async function renderTimeline() {
     
     console.log('Timeline - Date range:', minDate, 'to', maxDate, 'total days:', totalDays);
 
+    // Build year/month axis
+    const yearAxis = buildYearAxis(minDate, maxDate, totalDays);
+    const monthTicks = buildMonthTicks(minDate, maxDate, totalDays);
+    
     // Build apartment rows
     const rows = apartmentsSorted.map(apt => {
       const tenantsList = byApartment[apt];
@@ -2511,15 +2539,95 @@ async function renderTimeline() {
     `;
 
     container.innerHTML = `
+      <div class="timeline-axis">
+        <div class="timeline-axis-spacer"></div>
+        <div class="timeline-axis-content">
+          ${yearAxis}
+          ${monthTicks}
+        </div>
+      </div>
       <div class="timeline-chart">
         ${rows}
       </div>
       ${legend}
     `;
+    
+    // Add click handlers for timeline bars
+    document.querySelectorAll('.tenant-timeline-bar').forEach(bar => {
+      bar.style.cursor = 'pointer';
+      bar.addEventListener('click', async () => {
+        const tenantId = Number(bar.dataset.tenantId);
+        await openTenantDateEditor(tenantId);
+      });
+    });
   } catch (err) {
     console.error('Timeline render error:', err);
     container.innerHTML = `<p style="padding: 16px; color: red;">שגיאה בעריכת קו הזמן: ${err.message}</p>`;
   }
+}
+
+function buildYearAxis(minDate, maxDate, totalDays) {
+  let html = '<div class="timeline-years">';
+  
+  let currentDate = new Date(minDate.getFullYear(), minDate.getMonth(), 1);
+  let startPos = 0;
+  
+  while (currentDate <= maxDate) {
+    const year = currentDate.getFullYear();
+    const nextYear = new Date(year + 1, 0, 1);
+    const yearStartDate = new Date(year, 0, 1);
+    const yearEndDate = new Date(year, 11, 31);
+    
+    // חתוך לטווח הנתונים
+    const displayStart = yearStartDate < minDate ? minDate : yearStartDate;
+    const displayEnd = yearEndDate > maxDate ? maxDate : yearEndDate;
+    
+    const daysFromMin = Math.floor((displayStart - minDate) / (1000 * 60 * 60 * 24));
+    const yearDays = Math.floor((displayEnd - displayStart) / (1000 * 60 * 60 * 24)) + 1;
+    
+    const leftPercent = (daysFromMin / totalDays) * 100;
+    const widthPercent = (yearDays / totalDays) * 100;
+    
+    html += `
+      <div class="timeline-year-label" style="left: ${leftPercent}%; width: ${widthPercent}%;">
+        ${year}
+      </div>
+    `;
+    
+    currentDate = nextYear;
+  }
+  
+  html += '</div>';
+  return html;
+}
+
+function buildMonthTicks(minDate, maxDate, totalDays) {
+  let html = '<div class="timeline-months">';
+  
+  let currentDate = new Date(minDate.getFullYear(), minDate.getMonth(), 1);
+  
+  const monthNames = ['ינו', 'פבר', 'מרץ', 'אפר', 'מאי', 'יוני', 'יולי', 'אוג', 'ספט', 'אוק', 'נוב', 'דצמ'];
+  
+  while (currentDate <= maxDate) {
+    const daysFromMin = Math.floor((currentDate - minDate) / (1000 * 60 * 60 * 24));
+    const leftPercent = (daysFromMin / totalDays) * 100;
+    
+    const month = currentDate.getMonth();
+    const monthName = monthNames[month];
+    
+    html += `
+      <div class="timeline-month-tick" style="left: ${leftPercent}%;">
+        <div class="month-label">${monthName}</div>
+        <div class="month-line"></div>
+      </div>
+    `;
+    
+    // עברי לחודש הבא
+    currentDate = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 1);
+  }
+  
+  html += '</div>';
+  return html;
 }
 
 function buildTimelineBars(tenantsList, minDate, maxDate, totalDays) {
@@ -2543,14 +2651,43 @@ function buildTimelineBars(tenantsList, minDate, maxDate, totalDays) {
   });
 
   let bars = '';
+  let gaps = '';
   
-  sortedTenants.forEach(t => {
+  sortedTenants.forEach((t, index) => {
     const startDate = parseDate(t.startDate);
     const endDate = parseDate(t.moveOutDate || t.endDate);
     
     if (!startDate) {
       console.warn('No start date for tenant:', t);
       return;
+    }
+    
+    // Check for gap from previous tenant
+    if (index > 0) {
+      const prevTenant = sortedTenants[index - 1];
+      const prevEndDate = parseDate(prevTenant.moveOutDate || prevTenant.endDate);
+      
+      if (prevEndDate && prevEndDate < startDate) {
+        // There's a gap!
+        const gapStartDays = Math.floor((prevEndDate - minDate) / (1000 * 60 * 60 * 24));
+        const gapEndDays = Math.floor((startDate - minDate) / (1000 * 60 * 60 * 24));
+        const gapDays = gapEndDays - gapStartDays;
+        
+        const gapLeft = (gapStartDays / totalDays) * 100;
+        const gapWidth = (gapDays / totalDays) * 100;
+        
+        if (gapDays > 0) {
+          gaps += `
+            <div 
+              class="timeline-gap" 
+              style="left: ${gapLeft}%; width: ${gapWidth}%;"
+              title="${gapDays} ימים ריקים"
+            >
+              <span class="gap-label">${gapDays} ימים</span>
+            </div>
+          `;
+        }
+      }
     }
     
     // Calculate position and width
@@ -2592,8 +2729,9 @@ function buildTimelineBars(tenantsList, minDate, maxDate, totalDays) {
 
     bars += `
       <div 
-        class="timeline-bar ${barClass}" 
-        style="left: ${left}%; width: ${width}%; min-width: 40px;"
+        class="timeline-bar ${barClass} tenant-timeline-bar" 
+        data-tenant-id="${t.id}"
+        style="left: ${left}%; width: ${width}%;"
         title="${tooltip}"
       >
         ${name}
@@ -2601,13 +2739,13 @@ function buildTimelineBars(tenantsList, minDate, maxDate, totalDays) {
     `;
   });
 
-  if (!bars) {
+  if (!bars && !gaps) {
     console.log('No bars generated, showing empty message');
     bars = '<div style="position: absolute; left: 0; top: 50%; width: 100%; text-align: center; transform: translateY(-50%); color: #ccc; font-size: 12px;">אין דיירים בתקופה זו</div>';
   }
 
   console.log('Generated bars HTML:', bars);
-  return bars;
+  return gaps + bars;
 }
 
 // Dashboard button handlers
@@ -2625,5 +2763,77 @@ document.getElementById('export-timeline-csv')?.addEventListener('click', async 
   await exportTimelineCSV();
 });
 
+// Tenant date editor modal handlers
+let currentEditingTenantId = null;
+
+async function openTenantDateEditor(tenantId) {
+  const tenant = await getTenantById(tenantId);
+  if (!tenant) {
+    alert('לא נמצא דייר');
+    return;
+  }
+  
+  currentEditingTenantId = tenantId;
+  
+  // Set modal title and form values
+  document.getElementById('edit-dates-tenant-name').textContent = `עריכת תאריכים - ${tenant.firstName} ${tenant.lastName}`;
+  document.getElementById('edit-dates-start').value = tenant.startDate || '';
+  document.getElementById('edit-dates-end').value = tenant.endDate || '';
+  document.getElementById('edit-dates-moveout').value = tenant.moveOutDate || '';
+  
+  // Show modal
+  document.getElementById('edit-dates-modal').classList.remove('hidden');
+  document.getElementById('edit-dates-modal').style.display = 'flex';
+}
+
+document.getElementById('edit-dates-cancel')?.addEventListener('click', () => {
+  document.getElementById('edit-dates-modal').classList.add('hidden');
+  document.getElementById('edit-dates-modal').style.display = 'none';
+  currentEditingTenantId = null;
+});
+
+document.getElementById('edit-dates-save')?.addEventListener('click', async () => {
+  if (!currentEditingTenantId) return;
+  
+  const startDate = document.getElementById('edit-dates-start').value;
+  const endDate = document.getElementById('edit-dates-end').value;
+  const moveOutDate = document.getElementById('edit-dates-moveout').value;
+  
+  if (!startDate) {
+    alert('תאריך התחלה הוא חובה');
+    return;
+  }
+  
+  try {
+    await updateTenant(currentEditingTenantId, {
+      startDate,
+      endDate: endDate || null,
+      moveOutDate: moveOutDate || null
+    });
+    
+    // Close modal and refresh timeline
+    document.getElementById('edit-dates-modal').classList.add('hidden');
+    document.getElementById('edit-dates-modal').style.display = 'none';
+    currentEditingTenantId = null;
+    
+    // Re-render dashboard
+    await renderDashboard();
+    
+    alert('תאריכים עודכנו בהצלחה');
+  } catch (err) {
+    console.error('Error updating tenant dates:', err);
+    alert('שגיאה בעדכון תאריכים: ' + err.message);
+  }
+});
+
 // Init
-window.addEventListener('DOMContentLoaded', async () => { await renderTenants(); });
+window.addEventListener('DOMContentLoaded', async () => { 
+  // Load app title if saved
+  const savedTitle = await getSetting('appTitle');
+  if (savedTitle) {
+    document.querySelector('header h1').textContent = savedTitle;
+    document.title = savedTitle;
+  }
+  
+  await renderTenants(); 
+});
