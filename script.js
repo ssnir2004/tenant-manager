@@ -861,6 +861,7 @@ async function importDepositsFromCsv(csvText, accountValue) {
 async function generateBills(asOfDate) {
   const elecPrice = await getSetting('electricityPrice') ?? 1.5;
   const waterPrice = await getSetting('waterPrice') ?? 6;
+  const kvaCon = await getSetting('kvaCon') ?? 0;
   const tenants = await getAllTenants(false);
   const created = [];
   const tx = await getTx('bills', 'readwrite');
@@ -873,7 +874,16 @@ async function generateBills(asOfDate) {
       if (relevant.length < 2) continue;
       const [prev, curr] = relevant;
       const consumption = Number(curr.value) - Number(prev.value);
-      const amount = Math.max(0, consumption) * (meterType === 'electricity' ? elecPrice : waterPrice);
+      let amount = 0;
+      if (meterType === 'electricity') {
+        // עלות חשמל = (KVA+CON / 4) + (0.65 * הפרש מונים)
+        const kvaCost = kvaCon / 4;
+        const consumptionCost = Math.max(0, consumption) * 0.65;
+        amount = kvaCost + consumptionCost;
+      } else {
+        // עלות מים = תעריף * הפרש מונים
+        amount = Math.max(0, consumption) * waterPrice;
+      }
       const bill = { tenantId: t.id, apartmentNumber: t.apartmentNumber, meterType, prevReading: prev.value, prevDate: prev.date, currReading: curr.value, currDate: curr.date, consumption, amount, date: asOfDate, paid: false, createdAt: new Date().toISOString() };
       billStore.add(bill);
       created.push(bill);
@@ -1021,13 +1031,30 @@ function calculateMeterReportFromPair(prevReading, currentReading, unitPrice) {
   };
 }
 
+function calculateElectricityReportFromPair(prevReading, currentReading, kvaCon) {
+  if (!prevReading || !currentReading) return null;
+  const consumption = Number(currentReading.value) - Number(prevReading.value);
+  // עלות חשמל = (KVA+CON / 4) + (0.65 * הפרש מונים)
+  const kvaCost = kvaCon / 4;
+  const consumptionCost = Math.max(0, consumption) * 0.65;
+  const cost = kvaCost + consumptionCost;
+  return {
+    startValue: Number(prevReading.value),
+    startDate: prevReading.date,
+    endValue: Number(currentReading.value),
+    endDate: currentReading.date,
+    consumption,
+    cost
+  };
+}
+
 async function buildMonthlyReport(monthValue) {
   const parsed = parseMonthValue(monthValue);
   if (!parsed) throw new Error('בחר חודש תקין');
   const { year, month } = parsed;
 
   const waterPrice = Number(await getSetting('waterPrice') ?? 0);
-  const elecPrice = Number(await getSetting('electricityPrice') ?? 0);
+  const kvaCon = Number(await getSetting('kvaCon') ?? 0);
   const tenants = await getAllTenants(false);
   const allReadings = await getAllReadings();
 
@@ -1042,7 +1069,7 @@ async function buildMonthlyReport(monthValue) {
     const elecPrev = elecCurrent ? getClosestBefore(elecAll, elecCurrent.date) : null;
 
     const waterReport = calculateMeterReportFromPair(waterPrev, waterCurrent, waterPrice);
-    const elecReport = calculateMeterReportFromPair(elecPrev, elecCurrent, elecPrice);
+    const elecReport = calculateElectricityReportFromPair(elecPrev, elecCurrent, kvaCon);
 
     const total = (waterReport?.cost || 0) + (elecReport?.cost || 0);
 
@@ -1634,10 +1661,12 @@ showArchiveBtn?.addEventListener('click', async () => { await renderArchive(); s
 showSettingsBtn?.addEventListener('click', async () => { 
   const e = await getSetting('electricityPrice'); 
   const w = await getSetting('waterPrice'); 
+  const kva = await getSetting('kvaCon');
   const t = await getSetting('appTitle'); 
   const serverUrl = await getSetting('serverUrl');
   document.getElementById('electricity-price').value = e ?? ''; 
   document.getElementById('water-price').value = w ?? ''; 
+  document.getElementById('kva-con').value = kva ?? '';
   document.getElementById('app-title').value = t ?? ''; 
   document.getElementById('server-url').value = serverUrl ?? '';
   show(settingsView); 
@@ -1834,13 +1863,15 @@ const saveSettingsBtn = document.getElementById('save-settings');
 saveSettingsBtn?.addEventListener('click', async () => {
   const e = Number(document.getElementById('electricity-price').value);
   const w = Number(document.getElementById('water-price').value);
+  const kva = Number(document.getElementById('kva-con').value);
   const t = document.getElementById('app-title').value || '';
   const serverUrl = document.getElementById('server-url').value.trim();
   
-  if (isNaN(e) || isNaN(w)) { alert('הזן מספרים'); return; }
+  if (isNaN(e) || isNaN(w) || isNaN(kva)) { alert('הזן מספרים'); return; }
   
   await setSetting('electricityPrice', e);
   await setSetting('waterPrice', w);
+  await setSetting('kvaCon', kva);
   await setSetting('appTitle', t);
   await setSetting('serverUrl', serverUrl);
   
