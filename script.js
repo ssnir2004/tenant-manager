@@ -1321,7 +1321,7 @@ const dashboardView = document.getElementById('dashboard-view');
 const confirmModal = document.getElementById('confirm-modal');
 
 // UI Helpers
-function hideAll() { [tenantForm, archiveView, readingsView, settingsView, paymentsView, balanceView, dashboardView].forEach(x => x?.classList.add('hidden')); }
+function hideAll() { [tenantForm, archiveView, readingsView, settingsView, paymentsView, expensesView, balanceView, dashboardView].forEach(x => x?.classList.add('hidden')); }
 function show(el) { hideAll(); el?.classList.remove('hidden'); }
 function confirmDialog(msg) {
   return new Promise(res => {
@@ -1885,7 +1885,20 @@ document.getElementById('close-payments')?.addEventListener('click', () => {
   resetPaymentFormMode();
   show(tenantForm);
 });
-document.getElementById('close-expenses')?.addEventListener('click', () => {\n  delete expensesView?.dataset?.editId;\n  document.getElementById('expense-arnona1').value = '';\n  document.getElementById('expense-arnona1-frequency').value = 'bimonthly';\n  document.getElementById('expense-arnona1-period').value = '';\n  document.getElementById('expense-arnona2').value = '';\n  document.getElementById('expense-arnona2-frequency').value = 'bimonthly';\n  document.getElementById('expense-arnona2-period').value = '';\n  document.getElementById('expense-water').value = '';\n  document.getElementById('expense-water-period').value = '';\n  document.getElementById('expense-electricity').value = '';\n  document.getElementById('expense-electricity-period').value = '';\n  show(tenantForm);\n});
+document.getElementById('close-expenses')?.addEventListener('click', () => {
+  delete expensesView?.dataset?.editId;
+  document.getElementById('expense-arnona1').value = '';
+  document.getElementById('expense-arnona1-frequency').value = 'bimonthly';
+  document.getElementById('expense-arnona1-period').value = '';
+  document.getElementById('expense-arnona2').value = '';
+  document.getElementById('expense-arnona2-frequency').value = 'bimonthly';
+  document.getElementById('expense-arnona2-period').value = '';
+  document.getElementById('expense-water').value = '';
+  document.getElementById('expense-water-period').value = '';
+  document.getElementById('expense-electricity').value = '';
+  document.getElementById('expense-electricity-period').value = '';
+  show(tenantForm);
+});
 
 // Expenses form
 document.getElementById('save-expense')?.addEventListener('click', async () => {
