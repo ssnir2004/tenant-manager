@@ -36,8 +36,8 @@
         <div class="row">
           <label><input type="checkbox" name="active" checked> דייר פעיל</label>
         </div>
-        <div class="row"><label>תאריך התחלה<input type="date" name="startDate"></label></div>
-        <div class="row"><label>תאריך סיום<input type="date" name="endDate"></label></div>
+        <div class="row"><label>תאריך התחלה<input type="text" name="startDate" placeholder="DD/MM/YYYY"></label></div>
+        <div class="row"><label>תאריך סיום<input type="text" name="endDate" placeholder="DD/MM/YYYY"></label></div>
         <div class="row"><input name="rentAmount" type="number" placeholder="סכום שכירות"></div>
         <div class="row"><input name="arnonaAmount" type="number" placeholder="ארנונה"></div>
         <div class="row"><input name="apartmentNumber" placeholder="מספר דירה"></div>
@@ -77,7 +77,7 @@
             <h3>קריאות חשמל</h3>
             <div class="row">
               <label>תאריך קריאה
-                <input id="bulk-electricity-date" type="date">
+                <input id="bulk-electricity-date" type="text" placeholder="DD/MM/YYYY">
               </label>
             </div>
             <div id="bulk-electricity-list" class="bulk-list"></div>
@@ -92,7 +92,7 @@
             <h3>קריאות מים</h3>
             <div class="row">
               <label>תאריך קריאה
-                <input id="bulk-water-date" type="date">
+                <input id="bulk-water-date" type="text" placeholder="DD/MM/YYYY">
               </label>
             </div>
             <div id="bulk-water-list" class="bulk-list"></div>
@@ -104,7 +104,7 @@
         </div>
         <div class="row" style="margin-top: 12px;">
           <label>בחר חודש לחיוב
-            <input id="bill-month" type="month">
+            <input id="bill-month" type="text" placeholder="MM/YYYY">
           </label>
         </div>
         <div class="actions">
@@ -199,7 +199,7 @@
               <option value="grandma">חשבון אסתר ומיכאל</option>
             </select>
           </div>
-          <div class="row"><input name="date" type="date" required></div>
+          <div class="row"><input name="date" type="text" placeholder="DD/MM/YYYY" required></div>
           <div class="row"><textarea name="notes" placeholder="הערות"></textarea></div>
           <div class="actions">
             <button type="submit">הכנס</button>
@@ -267,17 +267,17 @@
       <h2 id="edit-dates-tenant-name">עריכת תאריכים</h2>
       <div class="row">
         <label>תאריך התחלה
-          <input id="edit-dates-start" type="date">
+          <input id="edit-dates-start" type="text" placeholder="DD/MM/YYYY">
         </label>
       </div>
       <div class="row">
         <label>תאריך סיום
-          <input id="edit-dates-end" type="date">
+          <input id="edit-dates-end" type="text" placeholder="DD/MM/YYYY">
         </label>
       </div>
       <div class="row">
         <label>תאריך יציאה
-          <input id="edit-dates-moveout" type="date">
+          <input id="edit-dates-moveout" type="text" placeholder="DD/MM/YYYY">
         </label>
       </div>
       <div class="modal-actions">

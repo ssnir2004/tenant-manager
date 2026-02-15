@@ -104,18 +104,14 @@ async function deleteTenant(id) {
 }
 
 async function getAllTenants(includeArchived = false) {
-  // If accessing via Cloudflare (not localhost), read from server
-  if (window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
-    return await getAllTenantsRemote(includeArchived);
-  }
-  
-  // Otherwise read from local IndexedDB
+  // Always read from local IndexedDB
   const tx = await getTx('tenants', 'readonly');
   return new Promise((res, rej) => {
     const r = tx.objectStore('tenants').getAll();
     r.onsuccess = () => {
       const all = r.result || [];
-      res(all.filter(t => (includeArchived ? true : !t.archived)));
+      const filtered = all.filter(t => (includeArchived ? true : !t.archived));
+      res(filtered);
     };
     r.onerror = () => rej(r.error);
   });
@@ -467,6 +463,34 @@ function comparePayments(a, b, tenantMap, key) {
     default:
       return 0;
   }
+}
+
+function formatDateEu(value) {
+  if (!value) return '';
+  const raw = String(value).trim();
+  if (/^\d{2}\/\d{2}\/\d{4}$/.test(raw)) return raw;
+  const isoMatch = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (isoMatch) return `${isoMatch[3]}/${isoMatch[2]}/${isoMatch[1]}`;
+  const d = new Date(raw);
+  if (Number.isNaN(d.getTime())) return raw;
+  const dd = String(d.getDate()).padStart(2, '0');
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const yyyy = d.getFullYear();
+  return `${dd}/${mm}/${yyyy}`;
+}
+
+function parseDateToIso(value) {
+  if (!value) return '';
+  const raw = String(value).trim();
+  const euMatch = raw.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+  if (euMatch) return `${euMatch[3]}-${euMatch[2]}-${euMatch[1]}`;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+  const d = new Date(raw);
+  if (Number.isNaN(d.getTime())) return '';
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
 }
 
 function accountLabel(accountValue) {
@@ -993,9 +1017,32 @@ let lastMonthlyReport = null;
 
 function parseMonthValue(value) {
   if (!value) return null;
-  const parts = value.split('-').map(Number);
-  if (parts.length !== 2 || !parts[0] || !parts[1]) return null;
-  return { year: parts[0], month: parts[1] };
+  const raw = String(value).trim();
+  if (!raw) return null;
+
+  const ymdMatch = raw.match(/^(\d{4})-(\d{1,2})$/);
+  if (ymdMatch) {
+    const year = Number(ymdMatch[1]);
+    const month = Number(ymdMatch[2]);
+    if (!year || month < 1 || month > 12) return null;
+    return { year, month, normalized: `${year}-${String(month).padStart(2, '0')}` };
+  }
+
+  const euMatch = raw.match(/^(\d{1,2})\/(\d{4})$/);
+  if (euMatch) {
+    const month = Number(euMatch[1]);
+    const year = Number(euMatch[2]);
+    if (!year || month < 1 || month > 12) return null;
+    return { year, month, normalized: `${year}-${String(month).padStart(2, '0')}` };
+  }
+
+  return null;
+}
+
+function formatMonthEu(value) {
+  const parsed = parseMonthValue(value);
+  if (!parsed) return String(value || '');
+  return `${String(parsed.month).padStart(2, '0')}/${parsed.year}`;
 }
 
 function isInMonth(dateStr, year, month) {
@@ -1050,8 +1097,8 @@ function calculateElectricityReportFromPair(prevReading, currentReading, kvaCon)
 
 async function buildMonthlyReport(monthValue) {
   const parsed = parseMonthValue(monthValue);
-  if (!parsed) throw new Error('בחר חודש תקין');
-  const { year, month } = parsed;
+  if (!parsed) throw new Error('בחר חודש תקין (MM/YYYY)');
+  const { year, month, normalized } = parsed;
 
   const waterPrice = Number(await getSetting('waterPrice') ?? 0);
   const kvaCon = Number(await getSetting('kvaCon') ?? 0);
@@ -1084,7 +1131,7 @@ async function buildMonthlyReport(monthValue) {
     };
   });
 
-  return { monthValue, rows };
+  return { monthValue: normalized, rows };
 }
 
 function renderBillsReport(report) {
@@ -1095,7 +1142,7 @@ function renderBillsReport(report) {
     return;
   }
 
-  const header = `<div style="margin-bottom:8px;font-weight:600;">דוח חשבונות לחודש ${report.monthValue}</div>`;
+  const header = `<div style="margin-bottom:8px;font-weight:600;">דוח חשבונות לחודש ${formatMonthEu(report.monthValue)}</div>`;
 
   const tableHeader = `
     <table class="report-table">
@@ -1132,15 +1179,15 @@ function renderBillsReport(report) {
         <td><button class="btn-pdf" data-tenant="${r.apartment}">PDF</button></td>
         <td>${r.waterMeter || '-'}</td>
         <td>${w.startValue ?? '-'}</td>
-        <td>${w.startDate ?? '-'}</td>
+        <td>${formatDateEu(w.startDate ?? '') || '-'}</td>
         <td>${w.endValue ?? '-'}</td>
-        <td>${w.endDate ?? '-'}</td>
+        <td>${formatDateEu(w.endDate ?? '') || '-'}</td>
         <td>${(w.cost ?? 0).toFixed(2)}</td>
         <td>${r.electricMeter || '-'}</td>
         <td>${e.startValue ?? '-'}</td>
-        <td>${e.startDate ?? '-'}</td>
+        <td>${formatDateEu(e.startDate ?? '') || '-'}</td>
         <td>${e.endValue ?? '-'}</td>
-        <td>${e.endDate ?? '-'}</td>
+        <td>${formatDateEu(e.endDate ?? '') || '-'}</td>
         <td>${(e.cost ?? 0).toFixed(2)}</td>
         <td>${(r.total ?? 0).toFixed(2)}</td>
       </tr>
@@ -1163,15 +1210,15 @@ function reportToCsv(report) {
       r.apartment || '',
       r.waterMeter || '',
       w.startValue ?? '',
-      w.startDate ?? '',
+      formatDateEu(w.startDate ?? ''),
       w.endValue ?? '',
-      w.endDate ?? '',
+      formatDateEu(w.endDate ?? ''),
       (w.cost ?? 0).toFixed(2),
       r.electricMeter || '',
       e.startValue ?? '',
-      e.startDate ?? '',
+      formatDateEu(e.startDate ?? ''),
       e.endValue ?? '',
-      e.endDate ?? '',
+      formatDateEu(e.endDate ?? ''),
       (e.cost ?? 0).toFixed(2),
       (r.total ?? 0).toFixed(2)
     ]);
@@ -1212,7 +1259,7 @@ function buildTenantPdfHtml(row, monthValue) {
         </style>
       </head>
       <body>
-        <h1>דוח חשבונות לחודש ${monthValue}</h1>
+        <h1>דוח חשבונות לחודש ${formatMonthEu(monthValue)}</h1>
         <div>דייר: ${row.tenantName || '-'}</div>
         <div>דירה: ${row.apartment || '-'}</div>
 
@@ -1223,9 +1270,9 @@ function buildTenantPdfHtml(row, monthValue) {
             <tr>
               <td>${row.waterMeter || '-'}</td>
               <td>${w.startValue ?? '-'}</td>
-              <td>${w.startDate ?? '-'}</td>
+              <td>${formatDateEu(w.startDate ?? '') || '-'}</td>
               <td>${w.endValue ?? '-'}</td>
-              <td>${w.endDate ?? '-'}</td>
+              <td>${formatDateEu(w.endDate ?? '') || '-'}</td>
               <td>${(w.cost ?? 0).toFixed(2)}</td>
             </tr>
           </table>
@@ -1238,9 +1285,9 @@ function buildTenantPdfHtml(row, monthValue) {
             <tr>
               <td>${row.electricMeter || '-'}</td>
               <td>${e.startValue ?? '-'}</td>
-              <td>${e.startDate ?? '-'}</td>
+              <td>${formatDateEu(e.startDate ?? '') || '-'}</td>
               <td>${e.endValue ?? '-'}</td>
-              <td>${e.endDate ?? '-'}</td>
+              <td>${formatDateEu(e.endDate ?? '') || '-'}</td>
               <td>${(e.cost ?? 0).toFixed(2)}</td>
             </tr>
           </table>
@@ -1336,6 +1383,8 @@ function buildTenantSelectOptions(tenants, selectedId = '') {
 async function saveBulkReadings(meterType, dateInputId, listId, statusId) {
   const date = document.getElementById(dateInputId)?.value;
   if (!date) { alert('נא להזין תאריך קריאה'); return; }
+  const parsedDate = parseDateToIso(date);
+  if (!parsedDate) { alert('תאריך לא תקין'); return; }
 
   const inputs = Array.from(document.querySelectorAll(`#${listId} input[data-tenant-id]`));
   let total = 0, success = 0, skipped = 0, failed = 0;
@@ -1346,7 +1395,7 @@ async function saveBulkReadings(meterType, dateInputId, listId, statusId) {
     total++;
     const tenantId = Number(input.dataset.tenantId);
     try {
-      const payload = { tenantId, meterType, value: Number(valueRaw), date };
+      const payload = { tenantId, meterType, value: Number(valueRaw), date: parsedDate };
       await addReading(payload);
       success++;
       input.value = '';
@@ -1402,9 +1451,9 @@ async function renderTenantsTable() {
         <td>${arnona}</td>
         <td>${t.electricityMeter || '-'}</td>
         <td>${t.waterMeter || '-'}</td>
-        <td>${t.startDate || '-'}</td>
-        <td>${t.endDate || '-'}</td>
-        <td><input type="date" class="moveout-input" data-id="${t.id}" value="${t.moveOutDate || ''}"></td>
+        <td>${formatDateEu(t.startDate || '') || '-'}</td>
+        <td>${formatDateEu(t.endDate || '') || '-'}</td>
+        <td><input type="text" class="moveout-input" data-id="${t.id}" value="${formatDateEu(t.moveOutDate || '')}" placeholder="DD/MM/YYYY"></td>
         <td>${t.notes || '-'}</td>
       </tr>
     `;
@@ -1434,7 +1483,8 @@ async function renderTenantsTable() {
 }
 
 async function renderArchive() {
-  const archived = (await getAllTenants(true)).filter(t => t.archived);
+  const allTenants = await getAllTenants(true);
+  const archived = allTenants.filter(t => t.archived);
   const list = document.getElementById('archive-list');
   if (archived.length === 0) {
     list.innerHTML = '<p>אין בארכיון</p>';
@@ -1457,9 +1507,9 @@ async function renderArchive() {
         <td>${arnona}</td>
         <td>${t.electricityMeter || '-'}</td>
         <td>${t.waterMeter || '-'}</td>
-        <td>${t.startDate || '-'}</td>
-        <td>${t.endDate || '-'}</td>
-        <td><input type="date" class="moveout-input" data-id="${t.id}" value="${t.moveOutDate || ''}"></td>
+        <td>${formatDateEu(t.startDate || '') || '-'}</td>
+        <td>${formatDateEu(t.endDate || '') || '-'}</td>
+        <td><input type="text" class="moveout-input" data-id="${t.id}" value="${formatDateEu(t.moveOutDate || '')}" placeholder="DD/MM/YYYY"></td>
         <td>${t.notes || '-'}</td>
         <td>
           <button data-id="${t.id}" class="btn-restore">↩️</button>
@@ -1519,7 +1569,7 @@ async function renderReadings() {
       ` : '—';
       return `
         <tr class="${missing ? 'row-missing' : ''}">
-          <td>${r.date || ''}</td>
+          <td>${formatDateEu(r.date)}</td>
           <td>${apartment || '-'}</td>
           <td>${name || '-'}</td>
           <td>${meterTypeLabel(r.meterType)}</td>
@@ -1585,7 +1635,7 @@ async function renderPayments() {
     ` : '—';
     return `
       <tr class="${missing ? 'row-missing' : ''}">
-        <td>${p.date || ''}</td>
+        <td>${formatDateEu(p.date)}</td>
         <td>${apartment || '-'}</td>
         <td>${name || '-'}</td>
         <td>₪${Number(p.amount).toFixed(2)}</td>
@@ -1648,6 +1698,15 @@ async function populateTenantSelects() {
   });
 }
 
+const paymentForm = document.getElementById('payment-form');
+const paymentSubmitBtn = paymentForm?.querySelector('button[type="submit"]');
+
+function resetPaymentFormMode() {
+  if (!paymentForm) return;
+  paymentForm.editId = null;
+  if (paymentSubmitBtn) paymentSubmitBtn.textContent = 'הכנס';
+}
+
 // Actions
 const showAddBtn = document.getElementById('show-add');
 const showArchiveBtn = document.getElementById('show-archive');
@@ -1671,7 +1730,13 @@ showSettingsBtn?.addEventListener('click', async () => {
   document.getElementById('server-url').value = serverUrl ?? '';
   show(settingsView); 
 });
-showPaymentsBtn?.addEventListener('click', async () => { await populateTenantSelects(); await renderPayments(); show(paymentsView); });
+showPaymentsBtn?.addEventListener('click', async () => {
+  await populateTenantSelects();
+  if (paymentForm) paymentForm.reset();
+  resetPaymentFormMode();
+  await renderPayments();
+  show(paymentsView);
+});
 showBalanceBtn?.addEventListener('click', async () => { await renderBalance(); show(balanceView); });
 
 showReadingsBtn?.addEventListener('click', async () => {
@@ -1684,9 +1749,9 @@ showReadingsBtn?.addEventListener('click', async () => {
   const monthInput = document.getElementById('bill-month');
   if (monthInput && !monthInput.value) {
     const now = new Date();
-    monthInput.value = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    monthInput.value = `${String(now.getMonth() + 1).padStart(2, '0')}/${now.getFullYear()}`;
   }
-  const today = new Date().toISOString().slice(0, 10);
+  const today = formatDateEu(new Date().toISOString().slice(0, 10));
   const elecDate = document.getElementById('bulk-electricity-date');
   const waterDate = document.getElementById('bulk-water-date');
   if (elecDate && !elecDate.value) elecDate.value = today;
@@ -1701,7 +1766,11 @@ document.getElementById('cancel')?.addEventListener('click', () => show(tenantFo
 document.getElementById('close-archive')?.addEventListener('click', () => show(tenantForm));
 document.getElementById('cancel-reading')?.addEventListener('click', () => show(tenantForm));
 document.getElementById('close-settings')?.addEventListener('click', () => show(tenantForm));
-document.getElementById('close-payments')?.addEventListener('click', () => show(tenantForm));
+document.getElementById('close-payments')?.addEventListener('click', () => {
+  if (paymentForm) paymentForm.reset();
+  resetPaymentFormMode();
+  show(tenantForm);
+});
 
 // Tenant form
 tenantForm?.addEventListener('submit', async e => {
@@ -1711,6 +1780,16 @@ tenantForm?.addEventListener('submit', async e => {
   for (const el of f.elements) if (el.name) data[el.name] = el.value;
   const isActive = f.elements['active'] ? f.elements['active'].checked : true;
   data.archived = !isActive;
+  if (data.startDate) {
+    const parsedStart = parseDateToIso(data.startDate);
+    if (!parsedStart) { alert('תאריך התחלה לא תקין'); return; }
+    data.startDate = parsedStart;
+  }
+  if (data.endDate) {
+    const parsedEnd = parseDateToIso(data.endDate);
+    if (!parsedEnd) { alert('תאריך סיום לא תקין'); return; }
+    data.endDate = parsedEnd;
+  }
   if (f.editId) await updateTenant(Number(f.editId), data); else await addTenant(data);
   show(tenantForm);
   await renderTenants();
@@ -1792,12 +1871,12 @@ document.getElementById('bulk-water-save')?.addEventListener('click', async () =
 });
 
 // Payments form
-document.getElementById('payment-form')?.addEventListener('submit', async e => {
+paymentForm?.addEventListener('submit', async e => {
   e.preventDefault();
   const f = e.target;
   const tenantId = f.elements['tenantId'].value ? Number(f.elements['tenantId'].value) : null;
   const tenant = tenantId ? await getTenantById(tenantId) : null;
-  await addPayment({
+  const payload = {
     tenantId,
     tenantName: tenant ? `${tenant.firstName || ''} ${tenant.lastName || ''}`.trim() : '',
     apartmentNumber: tenant?.apartmentNumber || '',
@@ -1806,7 +1885,32 @@ document.getElementById('payment-form')?.addEventListener('submit', async e => {
     account: f.elements['account'].value,
     date: f.elements['date'].value,
     notes: f.elements['notes'].value || ''
-  });
+  };
+
+  if (payload.date) {
+    const parsedDate = parseDateToIso(payload.date);
+    if (!parsedDate) { alert('תאריך לא תקין'); return; }
+    payload.date = parsedDate;
+  }
+
+  if (f.editId) {
+    const existing = await new Promise((res, rej) => {
+      getTx('payments', 'readonly').then(tx => {
+        const r = tx.objectStore('payments').get(Number(f.editId));
+        r.onsuccess = () => res(r.result);
+        r.onerror = () => rej(r.error);
+      }).catch(rej);
+    });
+    if (!tenant) {
+      payload.tenantName = existing?.tenantName || '';
+      payload.apartmentNumber = existing?.apartmentNumber || '';
+    }
+    await updatePayment(Number(f.editId), payload);
+    resetPaymentFormMode();
+  } else {
+    await addPayment(payload);
+  }
+
   f.reset();
   await renderPayments();
   await renderBalance();
@@ -2129,7 +2233,8 @@ generateBillsBtn?.addEventListener('click', async () => {
 document.getElementById('export-bills-report')?.addEventListener('click', async () => {
   try {
     const monthValue = document.getElementById('bill-month')?.value;
-    if (!lastMonthlyReport || lastMonthlyReport.monthValue !== monthValue) {
+    const normalized = parseMonthValue(monthValue)?.normalized || '';
+    if (!lastMonthlyReport || lastMonthlyReport.monthValue !== normalized) {
       lastMonthlyReport = await buildMonthlyReport(monthValue);
     }
     const csv = reportToCsv(lastMonthlyReport);
@@ -2210,9 +2315,11 @@ document.getElementById('readings-list')?.addEventListener('click', async e => {
       if (!rec) return alert('לא נמצא רישום');
       const newVal = prompt('ערוך ערך קריאה (ללא יחידות):', String(rec.value));
       if (newVal === null) return;
-      const newDate = prompt('ערוך תאריך (YYYY-MM-DD):', String(rec.date));
+      const newDate = prompt('ערוך תאריך (DD/MM/YYYY):', formatDateEu(rec.date));
       if (newDate === null) return;
-      await updateReading(id, { value: Number(newVal), date: newDate });
+      const parsedDate = parseDateToIso(newDate);
+      if (!parsedDate) return alert('תאריך לא תקין');
+      await updateReading(id, { value: Number(newVal), date: parsedDate });
       await renderReadings();
       alert('קריאה עודכנה');
     } catch (err) { console.error(err); alert('שגיאה בעדכון: ' + err.message); }
@@ -2426,18 +2533,24 @@ document.getElementById('payments-list')?.addEventListener('click', async e => {
     const id = Number(editBtn.dataset.id);
     try {
       const tx = await getTx('payments', 'readonly');
-      const rec = await new Promise((res, rej) => { const r = tx.objectStore('payments').get(id); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); });
+      const rec = await new Promise((res, rej) => {
+        const r = tx.objectStore('payments').get(id);
+        r.onsuccess = () => res(r.result);
+        r.onerror = () => rej(r.error);
+      });
       if (!rec) return alert('לא נמצא רישום');
-      const newAmount = prompt('ערוך סכום:', String(rec.amount));
-      if (newAmount === null) return;
-      const newDate = prompt('ערוך תאריך (YYYY-MM-DD):', String(rec.date));
-      if (newDate === null) return;
-      const newNotes = prompt('ערוך הערה:', String(rec.notes || ''));
-      if (newNotes === null) return;
-      await updatePayment(id, { amount: Number(newAmount), date: newDate, notes: newNotes });
-      await renderPayments();
-      await renderBalance();
-      alert('הפקדה עודכנה');
+
+      await populateTenantSelects();
+      if (!paymentForm) return;
+      paymentForm.editId = rec.id;
+      if (paymentSubmitBtn) paymentSubmitBtn.textContent = 'עדכן';
+
+      paymentForm.elements['tenantId'].value = rec.tenantId ? String(rec.tenantId) : '';
+      paymentForm.elements['amount'].value = Number(rec.amount || 0);
+      paymentForm.elements['method'].value = rec.method || 'cash';
+      paymentForm.elements['account'].value = rec.account || 'my';
+      paymentForm.elements['date'].value = formatDateEu(rec.date || '');
+      paymentForm.elements['notes'].value = rec.notes || '';
     } catch (err) {
       console.error(err);
       alert('שגיאה בעדכון: ' + err.message);
@@ -2480,8 +2593,14 @@ document.getElementById('payments-list')?.addEventListener('change', async e => 
 
 // Tenant list handlers
 tenantList?.addEventListener('click', async e => {
-  const id = Number(e.target.dataset.id);
-  if (e.target.classList.contains('btn-edit')) {
+  const editBtn = e.target.closest('.btn-edit');
+  const archiveBtn = e.target.closest('.btn-archive');
+  const deleteBtn = e.target.closest('.btn-delete');
+  
+  const id = Number(editBtn?.dataset.id || archiveBtn?.dataset.id || deleteBtn?.dataset.id);
+  if (!id) return;
+  
+  if (editBtn) {
     const tx = await getTx('tenants', 'readonly');
     const store = tx.objectStore('tenants');
     const rec = await new Promise((res, rej) => { const r = store.get(id); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); });
@@ -2489,19 +2608,27 @@ tenantList?.addEventListener('click', async e => {
     show(tenantForm);
     tenantForm.editId = tenant.id;
     document.getElementById('form-title').textContent = 'ערוך דייר';
-    for (const k of ['firstName', 'lastName', 'nationalId', 'phone', 'startDate', 'endDate', 'rentAmount', 'arnonaAmount', 'apartmentNumber', 'electricityMeter', 'waterMeter', 'notes'])
+    for (const k of ['firstName', 'lastName', 'nationalId', 'phone', 'rentAmount', 'arnonaAmount', 'apartmentNumber', 'electricityMeter', 'waterMeter', 'notes'])
       tenantForm.elements[k].value = tenant[k] || '';
+    tenantForm.elements['startDate'].value = formatDateEu(tenant.startDate || '');
+    tenantForm.elements['endDate'].value = formatDateEu(tenant.endDate || '');
     if (tenantForm.elements['active']) tenantForm.elements['active'].checked = !tenant.archived;
+    return;
   }
-  if (e.target.classList.contains('btn-archive')) { await updateTenant(id, { archived: true }); await renderTenants(); }
-  if (e.target.classList.contains('btn-delete')) { if (await confirmDialog('מחק?')) { await detachTenantData(id); await deleteTenant(id); await renderTenants(); } }
+  if (archiveBtn) { await updateTenant(id, { archived: true }); await renderTenants(); }
+  if (deleteBtn) { if (await confirmDialog('מחק?')) { await detachTenantData(id); await deleteTenant(id); await renderTenants(); } }
 });
 
 // Archive list handlers
 document.getElementById('archive-list')?.addEventListener('click', async e => {
-  const id = Number(e.target.dataset.id);
-  if (e.target.classList.contains('btn-restore')) { await updateTenant(id, { archived: false }); await renderArchive(); await renderTenants(); }
-  if (e.target.classList.contains('btn-delete')) { if (await confirmDialog('מחק לצמיתות?')) { await detachTenantData(id); await deleteTenant(id); await renderArchive(); } }
+  const restoreBtn = e.target.closest('.btn-restore');
+  const deleteBtn = e.target.closest('.btn-delete');
+  
+  const id = Number(restoreBtn?.dataset.id || deleteBtn?.dataset.id);
+  if (!id) return;
+  
+  if (restoreBtn) { await updateTenant(id, { archived: false }); await renderArchive(); await renderTenants(); }
+  if (deleteBtn) { if (await confirmDialog('מחק לצמיתות?')) { await detachTenantData(id); await deleteTenant(id); await renderArchive(); } }
 });
 
 document.getElementById('archive-list')?.addEventListener('change', async e => {
@@ -2509,7 +2636,14 @@ document.getElementById('archive-list')?.addEventListener('change', async e => {
   if (!input) return;
   const id = Number(input.dataset.id);
   if (!id) return;
-  await updateTenant(id, { moveOutDate: input.value });
+  const raw = input.value.trim();
+  if (!raw) {
+    await updateTenant(id, { moveOutDate: null });
+    return;
+  }
+  const parsedDate = parseDateToIso(raw);
+  if (!parsedDate) { alert('תאריך עזיבה לא תקין'); return; }
+  await updateTenant(id, { moveOutDate: parsedDate });
 });
 
 document.getElementById('tenants-table')?.addEventListener('change', async e => {
@@ -2517,7 +2651,14 @@ document.getElementById('tenants-table')?.addEventListener('change', async e => 
   if (!input) return;
   const id = Number(input.dataset.id);
   if (!id) return;
-  await updateTenant(id, { moveOutDate: input.value });
+  const raw = input.value.trim();
+  if (!raw) {
+    await updateTenant(id, { moveOutDate: null });
+    return;
+  }
+  const parsedDate = parseDateToIso(raw);
+  if (!parsedDate) { alert('תאריך עזיבה לא תקין'); return; }
+  await updateTenant(id, { moveOutDate: parsedDate });
 });
 
 document.getElementById('tenants-table')?.addEventListener('change', async e => {
@@ -2525,7 +2666,14 @@ document.getElementById('tenants-table')?.addEventListener('change', async e => 
   if (!input) return;
   const id = Number(input.dataset.id);
   if (!id) return;
-  await updateTenant(id, { moveOutDate: input.value });
+  const raw = input.value.trim();
+  if (!raw) {
+    await updateTenant(id, { moveOutDate: null });
+    return;
+  }
+  const parsedDate = parseDateToIso(raw);
+  if (!parsedDate) { alert('תאריך עזיבה לא תקין'); return; }
+  await updateTenant(id, { moveOutDate: parsedDate });
 });
 
 // Helper function to parse YYYY-MM-DD strings safely
@@ -2688,8 +2836,8 @@ async function exportTimelineCSV() {
       rows.push([
         apt,
         name,
-        tenant.startDate,
-        endStr,
+        formatDateEu(tenant.startDate),
+        endStr === 'עד היום' ? endStr : formatDateEu(endStr),
         months.join(', ')
       ]);
     });
@@ -3209,9 +3357,9 @@ async function openTenantDateEditor(tenantId) {
   
   // Set modal title and form values
   document.getElementById('edit-dates-tenant-name').textContent = `עריכת תאריכים - ${tenant.firstName} ${tenant.lastName}`;
-  document.getElementById('edit-dates-start').value = tenant.startDate || '';
-  document.getElementById('edit-dates-end').value = tenant.endDate || '';
-  document.getElementById('edit-dates-moveout').value = tenant.moveOutDate || '';
+  document.getElementById('edit-dates-start').value = formatDateEu(tenant.startDate || '');
+  document.getElementById('edit-dates-end').value = formatDateEu(tenant.endDate || '');
+  document.getElementById('edit-dates-moveout').value = formatDateEu(tenant.moveOutDate || '');
   
   // Show modal
   document.getElementById('edit-dates-modal').classList.remove('hidden');
@@ -3235,12 +3383,19 @@ document.getElementById('edit-dates-save')?.addEventListener('click', async () =
     alert('תאריך התחלה הוא חובה');
     return;
   }
+
+  const parsedStart = parseDateToIso(startDate);
+  const parsedEnd = endDate ? parseDateToIso(endDate) : '';
+  const parsedMoveout = moveOutDate ? parseDateToIso(moveOutDate) : '';
+  if (!parsedStart) { alert('תאריך התחלה לא תקין'); return; }
+  if (endDate && !parsedEnd) { alert('תאריך סיום לא תקין'); return; }
+  if (moveOutDate && !parsedMoveout) { alert('תאריך יציאה לא תקין'); return; }
   
   try {
     const payload = {
-      startDate,
-      endDate: endDate || null,
-      moveOutDate: moveOutDate || null
+      startDate: parsedStart,
+      endDate: parsedEnd || null,
+      moveOutDate: parsedMoveout || null
     };
     if (isRemoteApp()) {
       await updateTenantRemote(currentEditingTenantId, payload);
@@ -3276,6 +3431,34 @@ window.addEventListener('DOMContentLoaded', async () => {
   const savedServerUrl = await getSetting('serverUrl');
   if (savedServerUrl) {
     window.CURRENT_SERVER_URL = savedServerUrl;
+  }
+  
+  // If accessing via remote (Cloudflare), sync remote tenants to local IndexedDB
+  if (isRemoteApp()) {
+    console.log('Remote app detected - syncing tenants from server to local IndexedDB');
+    try {
+      const remoteTenantsData = await apiRequest('/api/tenants?includeArchived=true');
+      const remoteTenants = (remoteTenantsData || []).map(normalizeTenantRow);
+      console.log(`Retrieved ${remoteTenants.length} tenants from server`);
+      
+      // Replace local IndexedDB tenants with remote
+      const db = await openDB();
+      const tx = db.transaction('tenants', 'readwrite');
+      const store = tx.objectStore('tenants');
+      
+      // Clear and repopulate
+      store.clear();
+      remoteTenants.forEach(tenant => store.add(tenant));
+      
+      await new Promise((res, rej) => {
+        tx.oncomplete = () => res();
+        tx.onerror = () => rej(tx.error);
+      });
+      
+      console.log(`Synced ${remoteTenants.length} tenants to local IndexedDB`);
+    } catch(err) {
+      console.error('Failed to sync tenants from server:', err);
+    }
   }
   
   await renderTenants(); 
