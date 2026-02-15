@@ -1736,6 +1736,16 @@ async function getAllExpenses() {
   });
 }
 
+async function expenseExists(expense) {
+  const expenses = await getAllExpenses();
+  return expenses.some(e => 
+    e.type === expense.type &&
+    e.period === (expense.period || '') &&
+    e.amount === expense.amount &&
+    e.frequency === (expense.frequency || '')
+  );
+}
+
 async function renderExpenses() {
   const expenses = await getAllExpenses();
   const listEl = document.getElementById('expenses-list');
@@ -1889,35 +1899,56 @@ document.getElementById('save-expense')?.addEventListener('click', async () => {
   }
   
   // Save each expense separately
+  let saved = 0;
   if (arnona1 > 0) {
-    await addExpense({
+    const expense1 = {
       period: arnona1Period,
       type: 'arnona1',
       amount: arnona1,
       frequency: arnona1Freq
-    });
+    };
+    if (!(await expenseExists(expense1))) {
+      await addExpense(expense1);
+      saved++;
+    }
   }
   if (arnona2 > 0) {
-    await addExpense({
+    const expense2 = {
       period: arnona2Period,
       type: 'arnona2',
       amount: arnona2,
       frequency: arnona2Freq
-    });
+    };
+    if (!(await expenseExists(expense2))) {
+      await addExpense(expense2);
+      saved++;
+    }
   }
   if (water > 0) {
-    await addExpense({
+    const expenseWater = {
       period: waterPeriod,
       type: 'water',
       amount: water
-    });
+    };
+    if (!(await expenseExists(expenseWater))) {
+      await addExpense(expenseWater);
+      saved++;
+    }
   }
   if (electricity > 0) {
-    await addExpense({
+    const expenseElec = {
       period: electricityPeriod,
       type: 'electricity',
       amount: electricity
-    });
+    };
+    if (!(await expenseExists(expenseElec))) {
+      await addExpense(expenseElec);
+      saved++;
+    }
+  }
+  
+  if (saved === 0) {
+    alert('כל ההוצאות שלא הוכנסו - כבר קיימות בנתונים');
   }
   
   document.getElementById('expense-arnona1').value = '';
@@ -1967,20 +1998,27 @@ document.getElementById('expenses-import-csv')?.addEventListener('click', async 
     const text = await readCsvWithEncoding(file);
     const lines = text.trim().split('\n');
     let imported = 0;
+    let skipped = 0;
     for (let i = 1; i < lines.length; i++) {
       const parts = lines[i].split(',');
       if (parts.length >= 2 && parts[0]) {
         const [type, period, amount, frequency] = parts;
-        await addExpense({
+        const expenseData = {
           type: type.trim(),
-          period: period.trim() || undefined,
+          period: period.trim() || '',
           amount: parseFloat(amount) || 0,
-          frequency: frequency ? frequency.trim() : undefined
-        });
-        imported++;
+          frequency: frequency ? frequency.trim() : ''
+        };
+        if (!(await expenseExists(expenseData))) {
+          await addExpense(expenseData);
+          imported++;
+        } else {
+          skipped++;
+        }
       }
     }
-    if (statusEl) statusEl.textContent = `יובאו ${imported} הוצאות ✓`;
+    const msg = `יובאו ${imported} הוצאות ✓${skipped > 0 ? ` (${skipped} כפילויות התעלמו)` : ''}`;
+    if (statusEl) statusEl.textContent = msg;
   } catch(err) {
     if (statusEl) statusEl.textContent = `שגיאה: ${err.message}`;
   }
