@@ -224,10 +224,17 @@
       <!-- Expenses View -->
       <div id="expenses-view" class="card hidden">
         <h2>💸 הוצאות</h2>
-        <div class="row">
-          <label>תאריך הוצאה
-            <input id="expense-date" type="text" placeholder="DD/MM/YYYY">
-          </label>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 20px;">
+          <div class="row">
+            <label>מתאריך
+              <input id="expense-start-date" type="text" placeholder="DD/MM/YYYY">
+            </label>
+          </div>
+          <div class="row">
+            <label>עד תאריך
+              <input id="expense-end-date" type="text" placeholder="DD/MM/YYYY">
+            </label>
+          </div>
         </div>
         <div class="bulk-expenses" style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 20px;">
           <div class="expense-block" style="border: 1px solid #ddd; padding: 15px; border-radius: 5px; background-color: #f9f9f9;">

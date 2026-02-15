@@ -1755,9 +1755,12 @@ async function renderExpenses() {
   const rows = expenses.map(e => {
     total += e.amount || 0;
     const frequency = e.frequency ? ` [${e.frequency === 'yearly' ? 'שנתי' : 'דו-חודשי'}]` : '';
+    const dateRange = e.startDate && e.endDate 
+      ? `${formatDateEu(e.startDate)} - ${formatDateEu(e.endDate)}`
+      : formatDateEu(e.date || '');
     return `
       <tr>
-        <td>${formatDateEu(e.date || '')}</td>
+        <td>${dateRange}</td>
         <td>${typeLabels[e.type] || e.type}${frequency}</td>
         <td>₪${(e.amount || 0).toFixed(2)}</td>
         <td><button class="btn-delete-expense" data-id="${e.id}">🗑️</button></td>
@@ -1769,7 +1772,7 @@ async function renderExpenses() {
     <table class="payments-table">
       <thead>
         <tr>
-          <th>תאריך</th>
+          <th>טווח תאריכים</th>
           <th>סוג</th>
           <th>סכום</th>
           <th>פעולות</th>
@@ -1863,7 +1866,8 @@ document.getElementById('close-expenses')?.addEventListener('click', () => show(
 
 // Expenses form
 document.getElementById('save-expense')?.addEventListener('click', async () => {
-  const date = document.getElementById('expense-date').value;
+  const startDate = document.getElementById('expense-start-date').value;
+  const endDate = document.getElementById('expense-end-date').value;
   const arnona1 = parseFloat(document.getElementById('expense-arnona1').value) || 0;
   const arnona1Freq = document.getElementById('expense-arnona1-frequency').value;
   const arnona2 = parseFloat(document.getElementById('expense-arnona2').value) || 0;
@@ -1871,7 +1875,7 @@ document.getElementById('save-expense')?.addEventListener('click', async () => {
   const water = parseFloat(document.getElementById('expense-water').value) || 0;
   const electricity = parseFloat(document.getElementById('expense-electricity').value) || 0;
   
-  if (!date) { alert('הזן תאריך'); return; }
+  if (!startDate || !endDate) { alert('הזן תאריך התחלה וסיום'); return; }
   if (arnona1 === 0 && arnona2 === 0 && water === 0 && electricity === 0) { 
     alert('הזן לפחות הוצאה אחת'); 
     return; 
@@ -1885,13 +1889,15 @@ document.getElementById('save-expense')?.addEventListener('click', async () => {
     return; 
   }
   
-  const parsedDate = parseDateToIso(date);
-  if (!parsedDate) { alert('תאריך לא תקין'); return; }
+  const parsedStartDate = parseDateToIso(startDate);
+  const parsedEndDate = parseDateToIso(endDate);
+  if (!parsedStartDate || !parsedEndDate) { alert('תאריך לא תקין'); return; }
   
   // Save each expense separately
   if (arnona1 > 0) {
     await addExpense({
-      date: parsedDate,
+      startDate: parsedStartDate,
+      endDate: parsedEndDate,
       type: 'arnona1',
       amount: arnona1,
       frequency: arnona1Freq
@@ -1899,7 +1905,8 @@ document.getElementById('save-expense')?.addEventListener('click', async () => {
   }
   if (arnona2 > 0) {
     await addExpense({
-      date: parsedDate,
+      startDate: parsedStartDate,
+      endDate: parsedEndDate,
       type: 'arnona2',
       amount: arnona2,
       frequency: arnona2Freq
@@ -1907,20 +1914,23 @@ document.getElementById('save-expense')?.addEventListener('click', async () => {
   }
   if (water > 0) {
     await addExpense({
-      date: parsedDate,
+      startDate: parsedStartDate,
+      endDate: parsedEndDate,
       type: 'water',
       amount: water
     });
   }
   if (electricity > 0) {
     await addExpense({
-      date: parsedDate,
+      startDate: parsedStartDate,
+      endDate: parsedEndDate,
       type: 'electricity',
       amount: electricity
     });
   }
   
-  document.getElementById('expense-date').value = '';
+  document.getElementById('expense-start-date').value = '';
+  document.getElementById('expense-end-date').value = '';
   document.getElementById('expense-arnona1').value = '';
   document.getElementById('expense-arnona1-frequency').value = '';
   document.getElementById('expense-arnona2').value = '';
@@ -1944,8 +1954,8 @@ document.getElementById('expenses-list')?.addEventListener('click', async e => {
 // Expenses CSV
 document.getElementById('expenses-export-csv')?.addEventListener('click', async () => {
   const expenses = await getAllExpenses();
-  const csv = 'Date,Type,Amount,Frequency\n' + 
-    expenses.map(e => `${e.date},${e.type},${e.amount||0},${e.frequency||''}`).join('\n');
+  const csv = 'StartDate,EndDate,Type,Amount,Frequency\n' + 
+    expenses.map(e => `${e.startDate||e.date||''},${e.endDate||e.date||''},${e.type},${e.amount||0},${e.frequency||''}`).join('\n');
   const blob = new Blob([csv], { type: 'text/csv' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
@@ -1967,9 +1977,10 @@ document.getElementById('expenses-import-csv')?.addEventListener('click', async 
     for (let i = 1; i < lines.length; i++) {
       const parts = lines[i].split(',');
       if (parts.length >= 3 && parts[0]) {
-        const [date, type, amount, frequency] = parts;
+        const [startDate, endDate, type, amount, frequency] = parts;
         await addExpense({
-          date: date.trim(),
+          startDate: startDate.trim() || undefined,
+          endDate: endDate.trim() || undefined,
           type: type.trim(),
           amount: parseFloat(amount) || 0,
           frequency: frequency ? frequency.trim() : undefined
