@@ -1,7 +1,7 @@
 // Tenant Management App - Vanilla JS + IndexedDB
 const DB_NAME = 'tenant_mgmt_v1';
-const DB_VERSION = 3;
-const STORES = ['tenants', 'readings', 'bills', 'payments', 'settings'];
+const DB_VERSION = 4;
+const STORES = ['tenants', 'readings', 'bills', 'payments', 'expenses', 'settings'];
 
 function isRemoteApp() {
   return window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1';
@@ -1707,12 +1707,100 @@ function resetPaymentFormMode() {
   if (paymentSubmitBtn) paymentSubmitBtn.textContent = 'הכנס';
 }
 
+// Expenses functions
+async function addExpense(data) {
+  const tx = await getTx('expenses', 'readwrite');
+  data.createdAt = new Date().toISOString();
+  return new Promise((res, rej) => {
+    const r = tx.objectStore('expenses').add(data);
+    r.onsuccess = () => res(r.result);
+    r.onerror = () => rej(r.error);
+  });
+}
+
+async function deleteExpense(id) {
+  const tx = await getTx('expenses', 'readwrite');
+  return new Promise((res, rej) => {
+    const r = tx.objectStore('expenses').delete(id);
+    r.onsuccess = () => res();
+    r.onerror = () => rej(r.error);
+  });
+}
+
+async function getAllExpenses() {
+  const tx = await getTx('expenses', 'readonly');
+  return new Promise((res, rej) => {
+    const r = tx.objectStore('expenses').getAll();
+    r.onsuccess = () => res((r.result || []).sort((a, b) => new Date(b.date) - new Date(a.date)));
+    r.onerror = () => rej(r.error);
+  });
+}
+
+async function renderExpenses() {
+  const expenses = await getAllExpenses();
+  const listEl = document.getElementById('expenses-list');
+  if (expenses.length === 0) {
+    listEl.innerHTML = '<p>אין הוצאות</p>';
+    return;
+  }
+  
+  let total = { arnona1: 0, arnona2: 0, water: 0, electricity: 0 };
+  const rows = expenses.map(e => {
+    total.arnona1 += e.arnona1 || 0;
+    total.arnona2 += e.arnona2 || 0;
+    total.water += e.water || 0;
+    total.electricity += e.electricity || 0;
+    return `
+      <tr>
+        <td>${formatDateEu(e.date || '')}</td>
+        <td>₪${(e.arnona1 || 0).toFixed(2)}</td>
+        <td>₪${(e.arnona2 || 0).toFixed(2)}</td>
+        <td>₪${(e.water || 0).toFixed(2)}</td>
+        <td>₪${(e.electricity || 0).toFixed(2)}</td>
+        <td>₪${((e.arnona1 || 0) + (e.arnona2 || 0) + (e.water || 0) + (e.electricity || 0)).toFixed(2)}</td>
+        <td><button class="btn-delete-expense" data-id="${e.id}">🗑️</button></td>
+      </tr>
+    `;
+  }).join('');
+  
+  listEl.innerHTML = `
+    <table class="payments-table">
+      <thead>
+        <tr>
+          <th>תאריך</th>
+          <th>ארנונה 1</th>
+          <th>ארנונה 2</th>
+          <th>מים</th>
+          <th>חשמל</th>
+          <th>סה"כ</th>
+          <th>פעולות</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${rows}
+        <tr style="font-weight: bold; border-top: 2px solid #333;">
+          <td>סה"כ:</td>
+          <td>₪${total.arnona1.toFixed(2)}</td>
+          <td>₪${total.arnona2.toFixed(2)}</td>
+          <td>₪${total.water.toFixed(2)}</td>
+          <td>₪${total.electricity.toFixed(2)}</td>
+          <td>₪${(total.arnona1 + total.arnona2 + total.water + total.electricity).toFixed(2)}</td>
+          <td></td>
+        </tr>
+      </tbody>
+    </table>
+  `;
+}
+
+const expensesView = document.getElementById('expenses-view');
+
 // Actions
 const showAddBtn = document.getElementById('show-add');
 const showArchiveBtn = document.getElementById('show-archive');
 const showSettingsBtn = document.getElementById('show-settings');
 const showReadingsBtn = document.getElementById('show-readings');
 const showPaymentsBtn = document.getElementById('show-payments');
+const showExpensesBtn = document.getElementById('show-expenses');
 const showBalanceBtn = document.getElementById('show-balance');
 
 showAddBtn?.addEventListener('click', async () => { show(tenantForm); tenantForm.editId = null; document.getElementById('form-title').textContent = 'הוספת דייר'; tenantForm.reset(); await renderTenantsTable(); });
@@ -1738,6 +1826,11 @@ showPaymentsBtn?.addEventListener('click', async () => {
   show(paymentsView);
 });
 showBalanceBtn?.addEventListener('click', async () => { await renderBalance(); show(balanceView); });
+
+showExpensesBtn?.addEventListener('click', async () => { 
+  await renderExpenses();
+  show(expensesView);
+});
 
 showReadingsBtn?.addEventListener('click', async () => {
   const tenants = await getAllTenants(false);
@@ -1770,6 +1863,99 @@ document.getElementById('close-payments')?.addEventListener('click', () => {
   if (paymentForm) paymentForm.reset();
   resetPaymentFormMode();
   show(tenantForm);
+});
+document.getElementById('close-expenses')?.addEventListener('click', () => show(tenantForm));
+
+// Expenses form
+document.getElementById('save-expense')?.addEventListener('click', async () => {
+  const date = document.getElementById('expense-date').value;
+  const arnona1 = parseFloat(document.getElementById('expense-arnona1').value) || 0;
+  const arnona2 = parseFloat(document.getElementById('expense-arnona2').value) || 0;
+  const water = parseFloat(document.getElementById('expense-water').value) || 0;
+  const electricity = parseFloat(document.getElementById('expense-electricity').value) || 0;
+  
+  if (!date) { alert('הזן תאריך'); return; }
+  if (arnona1 === 0 && arnona2 === 0 && water === 0 && electricity === 0) { 
+    alert('הזן לפחות הוצאה אחת'); 
+    return; 
+  }
+  
+  const parsedDate = parseDateToIso(date);
+  if (!parsedDate) { alert('תאריך לא תקין'); return; }
+  
+  await addExpense({
+    date: parsedDate,
+    arnona1, arnona2, water, electricity
+  });
+  
+  document.getElementById('expense-date').value = '';
+  document.getElementById('expense-arnona1').value = '';
+  document.getElementById('expense-arnona2').value = '';
+  document.getElementById('expense-water').value = '';
+  document.getElementById('expense-electricity').value = '';
+  
+  await renderExpenses();
+});
+
+document.getElementById('expenses-list')?.addEventListener('click', async e => {
+  const delBtn = e.target.closest('.btn-delete-expense');
+  if (!delBtn) return;
+  const id = Number(delBtn.dataset.id);
+  if (await confirmDialog('מחק את ההוצאה?')) {
+    await deleteExpense(id);
+    await renderExpenses();
+  }
+});
+
+// Expenses CSV
+document.getElementById('expenses-export-csv')?.addEventListener('click', async () => {
+  const expenses = await getAllExpenses();
+  const csv = 'Date,Arnona1,Arnona2,Water,Electricity\n' + 
+    expenses.map(e => `${e.date},${e.arnona1||0},${e.arnona2||0},${e.water||0},${e.electricity||0}`).join('\n');
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'expenses.csv';
+  a.click();
+  URL.revokeObjectURL(url);
+});
+
+document.getElementById('expenses-import-csv')?.addEventListener('click', async () => {
+  const file = document.getElementById('expenses-csv-upload').files[0];
+  if (!file) { alert('בחר קובץ'); return; }
+  const statusEl = document.getElementById('expenses-csv-status');
+  if (statusEl) statusEl.textContent = 'מעבד...';
+  try {
+    const text = await readCsvWithEncoding(file);
+    const lines = text.trim().split('\n');
+    let imported = 0;
+    for (let i = 1; i < lines.length; i++) {
+      const [date, a1, a2, w, e] = lines[i].split(',');
+      if (date) {
+        await addExpense({
+          date: date.trim(),
+          arnona1: parseFloat(a1) || 0,
+          arnona2: parseFloat(a2) || 0,
+          water: parseFloat(w) || 0,
+          electricity: parseFloat(e) || 0
+        });
+        imported++;
+      }
+    }
+    if (statusEl) statusEl.textContent = `יובאו ${imported} הוצאות ✓`;
+  } catch(err) {
+    if (statusEl) statusEl.textContent = `שגיאה: ${err.message}`;
+  }
+  await renderExpenses();
+});
+
+document.getElementById('expenses-clear-all')?.addEventListener('click', async () => {
+  if (await confirmDialog('מחק את כל ההוצאות?')) {
+    const expenses = await getAllExpenses();
+    for (const e of expenses) await deleteExpense(e.id);
+    await renderExpenses();
+  }
 });
 
 // Tenant form
