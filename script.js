@@ -1727,6 +1727,19 @@ async function deleteExpense(id) {
   });
 }
 
+async function updateExpense(id, data) {
+  const tx = await getTx('expenses', 'readwrite');
+  data.id = id;
+  data.createdAt = new Date().toISOString();
+  if (!data.period) data.period = '';
+  if (!data.frequency) data.frequency = '';
+  return new Promise((res, rej) => {
+    const r = tx.objectStore('expenses').put(data);
+    r.onsuccess = () => res(r.result);
+    r.onerror = () => rej(r.error);
+  });
+}
+
 async function getAllExpenses() {
   const tx = await getTx('expenses', 'readonly');
   return new Promise((res, rej) => {
@@ -1764,14 +1777,15 @@ async function renderExpenses() {
   
   const rows = expenses.map(e => {
     total += e.amount || 0;
-    const frequency = e.frequency ? ` [${e.frequency === 'yearly' ? 'שנתי' : 'דו-חודשי'}]` : '';
-    const period = e.period ? ` (${e.period})` : '';
+    const frequency = e.frequency ? `${e.frequency === 'yearly' ? 'שנתי' : 'דו-חודשי'}` : '';
+    const period = e.period || '';
     return `
       <tr>
-        <td>${typeLabels[e.type] || e.type}${period}</td>
+        <td>${typeLabels[e.type] || e.type}</td>
+        <td>${period}</td>
         <td>${frequency}</td>
         <td>₪${(e.amount || 0).toFixed(2)}</td>
-        <td><button class="btn-delete-expense" data-id="${e.id}">🗑️</button></td>
+        <td><button class="btn-edit-expense" data-id="${e.id}" style="margin-right: 5px;">✏️</button><button class="btn-delete-expense" data-id="${e.id}">🗑️</button></td>
       </tr>
     `;
   }).join('');
@@ -1780,7 +1794,8 @@ async function renderExpenses() {
     <table class="payments-table">
       <thead>
         <tr>
-          <th>סוג ותקופה</th>
+          <th>סוג</th>
+          <th>תקופה</th>
           <th>תדירות</th>
           <th>סכום</th>
           <th>פעולות</th>
@@ -1789,7 +1804,7 @@ async function renderExpenses() {
       <tbody>
         ${rows}
         <tr style="font-weight: bold; border-top: 2px solid #333;">
-          <td colspan="2">סה"כ:</td>
+          <td colspan="3">סה"כ:</td>
           <td>₪${total.toFixed(2)}</td>
           <td></td>
         </tr>
@@ -1870,10 +1885,11 @@ document.getElementById('close-payments')?.addEventListener('click', () => {
   resetPaymentFormMode();
   show(tenantForm);
 });
-document.getElementById('close-expenses')?.addEventListener('click', () => show(tenantForm));
+document.getElementById('close-expenses')?.addEventListener('click', () => {\n  delete expensesView?.dataset?.editId;\n  document.getElementById('expense-arnona1').value = '';\n  document.getElementById('expense-arnona1-frequency').value = 'bimonthly';\n  document.getElementById('expense-arnona1-period').value = '';\n  document.getElementById('expense-arnona2').value = '';\n  document.getElementById('expense-arnona2-frequency').value = 'bimonthly';\n  document.getElementById('expense-arnona2-period').value = '';\n  document.getElementById('expense-water').value = '';\n  document.getElementById('expense-water-period').value = '';\n  document.getElementById('expense-electricity').value = '';\n  document.getElementById('expense-electricity-period').value = '';\n  show(tenantForm);\n});
 
 // Expenses form
 document.getElementById('save-expense')?.addEventListener('click', async () => {
+  const editId = expensesView?.dataset?.editId;
   const arnona1 = parseFloat(document.getElementById('expense-arnona1').value) || 0;
   const arnona1Freq = document.getElementById('expense-arnona1-frequency').value;
   const arnona1Period = document.getElementById('expense-arnona1-period').value.trim();
@@ -1898,57 +1914,94 @@ document.getElementById('save-expense')?.addEventListener('click', async () => {
     return; 
   }
   
-  // Save each expense separately
-  let saved = 0;
-  if (arnona1 > 0) {
-    const expense1 = {
-      period: arnona1Period,
-      type: 'arnona1',
-      amount: arnona1,
-      frequency: arnona1Freq
-    };
-    if (!(await expenseExists(expense1))) {
-      await addExpense(expense1);
-      saved++;
+  if (editId) {
+    // Edit mode - update single expense
+    const id = Number(editId);
+    if (arnona1 > 0) {
+      const expense1 = {
+        period: arnona1Period,
+        type: 'arnona1',
+        amount: arnona1,
+        frequency: arnona1Freq
+      };
+      await updateExpense(id, expense1);
+    } else if (arnona2 > 0) {
+      const expense2 = {
+        period: arnona2Period,
+        type: 'arnona2',
+        amount: arnona2,
+        frequency: arnona2Freq
+      };
+      await updateExpense(id, expense2);
+    } else if (water > 0) {
+      const expenseWater = {
+        period: waterPeriod,
+        type: 'water',
+        amount: water
+      };
+      await updateExpense(id, expenseWater);
+    } else if (electricity > 0) {
+      const expenseElec = {
+        period: electricityPeriod,
+        type: 'electricity',
+        amount: electricity
+      };
+      await updateExpense(id, expenseElec);
     }
-  }
-  if (arnona2 > 0) {
-    const expense2 = {
-      period: arnona2Period,
-      type: 'arnona2',
-      amount: arnona2,
-      frequency: arnona2Freq
-    };
-    if (!(await expenseExists(expense2))) {
-      await addExpense(expense2);
-      saved++;
+    delete expensesView.dataset.editId;
+  } else {
+    // Add mode - save each expense separately
+    let saved = 0;
+    if (arnona1 > 0) {
+      const expense1 = {
+        period: arnona1Period,
+        type: 'arnona1',
+        amount: arnona1,
+        frequency: arnona1Freq
+      };
+      if (!(await expenseExists(expense1))) {
+        await addExpense(expense1);
+        saved++;
+      }
     }
-  }
-  if (water > 0) {
-    const expenseWater = {
-      period: waterPeriod,
-      type: 'water',
-      amount: water
-    };
-    if (!(await expenseExists(expenseWater))) {
-      await addExpense(expenseWater);
-      saved++;
+    if (arnona2 > 0) {
+      const expense2 = {
+        period: arnona2Period,
+        type: 'arnona2',
+        amount: arnona2,
+        frequency: arnona2Freq
+      };
+      if (!(await expenseExists(expense2))) {
+        await addExpense(expense2);
+        saved++;
+      }
     }
-  }
-  if (electricity > 0) {
-    const expenseElec = {
-      period: electricityPeriod,
-      type: 'electricity',
-      amount: electricity
-    };
-    if (!(await expenseExists(expenseElec))) {
-      await addExpense(expenseElec);
-      saved++;
+    if (water > 0) {
+      const expenseWater = {
+        period: waterPeriod,
+        type: 'water',
+        amount: water
+      };
+      if (!(await expenseExists(expenseWater))) {
+        await addExpense(expenseWater);
+        saved++;
+      }
     }
-  }
-  
-  if (saved === 0) {
-    alert('כל ההוצאות שלא הוכנסו - כבר קיימות בנתונים');
+    if (electricity > 0) {
+      const expenseElec = {
+        period: electricityPeriod,
+        type: 'electricity',
+        amount: electricity
+      };
+      if (!(await expenseExists(expenseElec))) {
+        await addExpense(expenseElec);
+        saved++;
+      }
+    }
+    
+    if (saved === 0) {
+      alert('כל ההוצאות שלא הוכנסו - כבר קיימות בנתונים');
+    }
   }
   
   document.getElementById('expense-arnona1').value = '';
@@ -1966,12 +2019,43 @@ document.getElementById('save-expense')?.addEventListener('click', async () => {
 });
 
 document.getElementById('expenses-list')?.addEventListener('click', async e => {
+  const editBtn = e.target.closest('.btn-edit-expense');
   const delBtn = e.target.closest('.btn-delete-expense');
-  if (!delBtn) return;
-  const id = Number(delBtn.dataset.id);
-  if (await confirmDialog('מחק את ההוצאה?')) {
-    await deleteExpense(id);
-    await renderExpenses();
+  
+  if (editBtn) {
+    const id = Number(editBtn.dataset.id);
+    const expenses = await getAllExpenses();
+    const expense = expenses.find(ex => ex.id === id);
+    if (!expense) return;
+    
+    // Load data into form
+    if (expense.type === 'arnona1') {
+      document.getElementById('expense-arnona1').value = expense.amount;
+      document.getElementById('expense-arnona1-frequency').value = expense.frequency || 'bimonthly';
+      document.getElementById('expense-arnona1-period').value = expense.period || '';
+    } else if (expense.type === 'arnona2') {
+      document.getElementById('expense-arnona2').value = expense.amount;
+      document.getElementById('expense-arnona2-frequency').value = expense.frequency || 'bimonthly';
+      document.getElementById('expense-arnona2-period').value = expense.period || '';
+    } else if (expense.type === 'water') {
+      document.getElementById('expense-water').value = expense.amount;
+      document.getElementById('expense-water-period').value = expense.period || '';
+    } else if (expense.type === 'electricity') {
+      document.getElementById('expense-electricity').value = expense.amount;
+      document.getElementById('expense-electricity-period').value = expense.period || '';
+    }
+    
+    // Set edit mode
+    expensesView.dataset.editId = id;
+    return;
+  }
+  
+  if (delBtn) {
+    const id = Number(delBtn.dataset.id);
+    if (await confirmDialog('מחק את ההוצאה?')) {
+      await deleteExpense(id);
+      await renderExpenses();
+    }
   }
 });
 
