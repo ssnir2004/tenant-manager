@@ -1867,6 +1867,7 @@ document.getElementById('save-expense')?.addEventListener('click', async () => {
   const arnona1 = parseFloat(document.getElementById('expense-arnona1').value) || 0;
   const arnona1Freq = document.getElementById('expense-arnona1-frequency').value;
   const arnona2 = parseFloat(document.getElementById('expense-arnona2').value) || 0;
+  const arnona2Freq = document.getElementById('expense-arnona2-frequency').value;
   const water = parseFloat(document.getElementById('expense-water').value) || 0;
   const electricity = parseFloat(document.getElementById('expense-electricity').value) || 0;
   
@@ -1877,6 +1878,10 @@ document.getElementById('save-expense')?.addEventListener('click', async () => {
   }
   if (arnona1 > 0 && !arnona1Freq) { 
     alert('בחר תדירות לארנונה 1'); 
+    return; 
+  }
+  if (arnona2 > 0 && !arnona2Freq) { 
+    alert('בחר תדירות לארנונה 2'); 
     return; 
   }
   
@@ -1896,7 +1901,8 @@ document.getElementById('save-expense')?.addEventListener('click', async () => {
     await addExpense({
       date: parsedDate,
       type: 'arnona2',
-      amount: arnona2
+      amount: arnona2,
+      frequency: arnona2Freq
     });
   }
   if (water > 0) {
@@ -1918,6 +1924,7 @@ document.getElementById('save-expense')?.addEventListener('click', async () => {
   document.getElementById('expense-arnona1').value = '';
   document.getElementById('expense-arnona1-frequency').value = '';
   document.getElementById('expense-arnona2').value = '';
+  document.getElementById('expense-arnona2-frequency').value = '';
   document.getElementById('expense-water').value = '';
   document.getElementById('expense-electricity').value = '';
   
