@@ -1755,13 +1755,11 @@ async function renderExpenses() {
   const rows = expenses.map(e => {
     total += e.amount || 0;
     const frequency = e.frequency ? ` [${e.frequency === 'yearly' ? 'שנתי' : 'דו-חודשי'}]` : '';
-    const dateRange = e.startDate && e.endDate 
-      ? `${formatDateEu(e.startDate)} - ${formatDateEu(e.endDate)}`
-      : formatDateEu(e.date || '');
+    const period = e.period ? ` (${e.period})` : '';
     return `
       <tr>
-        <td>${dateRange}</td>
-        <td>${typeLabels[e.type] || e.type}${frequency}</td>
+        <td>${typeLabels[e.type] || e.type}${period}</td>
+        <td>${frequency}</td>
         <td>₪${(e.amount || 0).toFixed(2)}</td>
         <td><button class="btn-delete-expense" data-id="${e.id}">🗑️</button></td>
       </tr>
@@ -1772,8 +1770,8 @@ async function renderExpenses() {
     <table class="payments-table">
       <thead>
         <tr>
-          <th>טווח תאריכים</th>
-          <th>סוג</th>
+          <th>סוג ותקופה</th>
+          <th>תדירות</th>
           <th>סכום</th>
           <th>פעולות</th>
         </tr>
@@ -1866,16 +1864,17 @@ document.getElementById('close-expenses')?.addEventListener('click', () => show(
 
 // Expenses form
 document.getElementById('save-expense')?.addEventListener('click', async () => {
-  const startDate = document.getElementById('expense-start-date').value;
-  const endDate = document.getElementById('expense-end-date').value;
   const arnona1 = parseFloat(document.getElementById('expense-arnona1').value) || 0;
   const arnona1Freq = document.getElementById('expense-arnona1-frequency').value;
+  const arnona1Period = document.getElementById('expense-arnona1-period').value.trim();
   const arnona2 = parseFloat(document.getElementById('expense-arnona2').value) || 0;
   const arnona2Freq = document.getElementById('expense-arnona2-frequency').value;
+  const arnona2Period = document.getElementById('expense-arnona2-period').value.trim();
   const water = parseFloat(document.getElementById('expense-water').value) || 0;
+  const waterPeriod = document.getElementById('expense-water-period').value.trim();
   const electricity = parseFloat(document.getElementById('expense-electricity').value) || 0;
+  const electricityPeriod = document.getElementById('expense-electricity-period').value.trim();
   
-  if (!startDate || !endDate) { alert('הזן תאריך התחלה וסיום'); return; }
   if (arnona1 === 0 && arnona2 === 0 && water === 0 && electricity === 0) { 
     alert('הזן לפחות הוצאה אחת'); 
     return; 
@@ -1889,15 +1888,10 @@ document.getElementById('save-expense')?.addEventListener('click', async () => {
     return; 
   }
   
-  const parsedStartDate = parseDateToIso(startDate);
-  const parsedEndDate = parseDateToIso(endDate);
-  if (!parsedStartDate || !parsedEndDate) { alert('תאריך לא תקין'); return; }
-  
   // Save each expense separately
   if (arnona1 > 0) {
     await addExpense({
-      startDate: parsedStartDate,
-      endDate: parsedEndDate,
+      period: arnona1Period,
       type: 'arnona1',
       amount: arnona1,
       frequency: arnona1Freq
@@ -1905,8 +1899,7 @@ document.getElementById('save-expense')?.addEventListener('click', async () => {
   }
   if (arnona2 > 0) {
     await addExpense({
-      startDate: parsedStartDate,
-      endDate: parsedEndDate,
+      period: arnona2Period,
       type: 'arnona2',
       amount: arnona2,
       frequency: arnona2Freq
@@ -1914,29 +1907,29 @@ document.getElementById('save-expense')?.addEventListener('click', async () => {
   }
   if (water > 0) {
     await addExpense({
-      startDate: parsedStartDate,
-      endDate: parsedEndDate,
+      period: waterPeriod,
       type: 'water',
       amount: water
     });
   }
   if (electricity > 0) {
     await addExpense({
-      startDate: parsedStartDate,
-      endDate: parsedEndDate,
+      period: electricityPeriod,
       type: 'electricity',
       amount: electricity
     });
   }
   
-  document.getElementById('expense-start-date').value = '';
-  document.getElementById('expense-end-date').value = '';
   document.getElementById('expense-arnona1').value = '';
   document.getElementById('expense-arnona1-frequency').value = '';
+  document.getElementById('expense-arnona1-period').value = '';
   document.getElementById('expense-arnona2').value = '';
   document.getElementById('expense-arnona2-frequency').value = '';
+  document.getElementById('expense-arnona2-period').value = '';
   document.getElementById('expense-water').value = '';
+  document.getElementById('expense-water-period').value = '';
   document.getElementById('expense-electricity').value = '';
+  document.getElementById('expense-electricity-period').value = '';
   
   await renderExpenses();
 });
@@ -1954,8 +1947,8 @@ document.getElementById('expenses-list')?.addEventListener('click', async e => {
 // Expenses CSV
 document.getElementById('expenses-export-csv')?.addEventListener('click', async () => {
   const expenses = await getAllExpenses();
-  const csv = 'StartDate,EndDate,Type,Amount,Frequency\n' + 
-    expenses.map(e => `${e.startDate||e.date||''},${e.endDate||e.date||''},${e.type},${e.amount||0},${e.frequency||''}`).join('\n');
+  const csv = 'Type,Period,Amount,Frequency\n' + 
+    expenses.map(e => `${e.type},${e.period||''},${e.amount||0},${e.frequency||''}`).join('\n');
   const blob = new Blob([csv], { type: 'text/csv' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
@@ -1976,12 +1969,11 @@ document.getElementById('expenses-import-csv')?.addEventListener('click', async 
     let imported = 0;
     for (let i = 1; i < lines.length; i++) {
       const parts = lines[i].split(',');
-      if (parts.length >= 3 && parts[0]) {
-        const [startDate, endDate, type, amount, frequency] = parts;
+      if (parts.length >= 2 && parts[0]) {
+        const [type, period, amount, frequency] = parts;
         await addExpense({
-          startDate: startDate.trim() || undefined,
-          endDate: endDate.trim() || undefined,
           type: type.trim(),
+          period: period.trim() || undefined,
           amount: parseFloat(amount) || 0,
           frequency: frequency ? frequency.trim() : undefined
         });
