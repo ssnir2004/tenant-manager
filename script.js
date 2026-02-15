@@ -1921,10 +1921,10 @@ document.getElementById('save-expense')?.addEventListener('click', async () => {
   }
   
   document.getElementById('expense-arnona1').value = '';
-  document.getElementById('expense-arnona1-frequency').value = '';
+  document.getElementById('expense-arnona1-frequency').value = 'bimonthly';
   document.getElementById('expense-arnona1-period').value = '';
   document.getElementById('expense-arnona2').value = '';
-  document.getElementById('expense-arnona2-frequency').value = '';
+  document.getElementById('expense-arnona2-frequency').value = 'bimonthly';
   document.getElementById('expense-arnona2-period').value = '';
   document.getElementById('expense-water').value = '';
   document.getElementById('expense-water-period').value = '';
