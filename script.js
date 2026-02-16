@@ -1,10 +1,19 @@
 // Tenant Management App - Vanilla JS + IndexedDB
 const DB_NAME = 'tenant_mgmt_v1';
-const DB_VERSION = 4;
-const STORES = ['tenants', 'readings', 'bills', 'payments', 'expenses', 'settings'];
+const DB_VERSION = 5;
+const STORES = ['tenants', 'readings', 'bills', 'payments', 'expenses', 'solar', 'settings'];
 
 function isRemoteApp() {
-  return window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1';
+  // Check if accessing via file:// protocol - always treat as local
+  if (window.location.protocol === 'file:') {
+    return false;
+  }
+  // Check if localhost or loopback
+  if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+    return false;
+  }
+  // Otherwise it's remote (e.g., Cloudflare tunnel)
+  return true;
 }
 
 // Get API base URL - auto-detect or use saved settings
@@ -124,6 +133,57 @@ async function getTenantById(id) {
     r.onsuccess = () => res(r.result || null);
     r.onerror = () => rej(r.error);
   });
+}
+
+// Find tenant by partial name match (fuzzy matching)
+function findTenantByNameMatch(tenants, name) {
+  if (!name || !tenants.length) return null;
+  
+  const normalizedSearch = name.toLowerCase().trim();
+  let bestMatch = null;
+  let bestScore = 0;
+  
+  tenants.forEach(t => {
+    const fullName = `${t.firstName || ''} ${t.lastName || ''}`.toLowerCase().trim();
+    if (!fullName) return;
+    
+    // Exact match
+    if (fullName === normalizedSearch) {
+      bestScore = 1000;
+      bestMatch = t;
+      return;
+    }
+    
+    // Check if search is contained in fullName or vice versa
+    if (fullName.includes(normalizedSearch) || normalizedSearch.includes(fullName)) {
+      const score = 500;
+      if (score > bestScore) {
+        bestScore = score;
+        bestMatch = t;
+      }
+    }
+    
+    // Check if first or last name matches
+    const firstName = (t.firstName || '').toLowerCase();
+    const lastName = (t.lastName || '').toLowerCase();
+    if (firstName && normalizedSearch.includes(firstName)) {
+      const score = 300;
+      if (score > bestScore) {
+        bestScore = score;
+        bestMatch = t;
+      }
+    }
+    if (lastName && normalizedSearch.includes(lastName)) {
+      const score = 300;
+      if (score > bestScore) {
+        bestScore = score;
+        bestMatch = t;
+      }
+    }
+  });
+  
+  // Only return match if score is decent
+  return bestScore >= 300 ? bestMatch : null;
 }
 
 async function clearAllTenants() {
@@ -288,6 +348,9 @@ async function clearAllReadings() {
 }
 
 async function updateReading(id, patch) {
+  if (isRemoteApp()) {
+    return await updateReadingRemote(id, patch);
+  }
   const tx = await getTx('readings', 'readwrite');
   const store = tx.objectStore('readings');
   return new Promise((res, rej) => {
@@ -479,6 +542,80 @@ function formatDateEu(value) {
   return `${dd}/${mm}/${yyyy}`;
 }
 
+const currencyFormatter = new Intl.NumberFormat('en-US', {
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2
+});
+
+function formatCurrency(value) {
+  const num = Number(value);
+  if (Number.isNaN(num)) return '';
+  return currencyFormatter.format(num);
+}
+
+function formatPeriodDisplay(period) {
+  const raw = String(period || '').trim();
+  if (!raw) return '';
+  const parts = raw.match(/\d+/g) || [];
+  if (parts.length === 0) return raw;
+
+  const yearPart = parts.find(p => p.length === 4) || parts[parts.length - 1];
+  const year = Number(yearPart);
+  if (Number.isNaN(year) || String(yearPart).length !== 4) return raw;
+
+  const monthParts = parts.filter(p => p !== yearPart).map(n => Number(n)).filter(n => !Number.isNaN(n));
+  let startMonth = 1;
+  let endMonth = 12;
+  if (monthParts.length >= 1) startMonth = monthParts[0];
+  if (monthParts.length >= 2) endMonth = monthParts[1];
+  if (startMonth < 1 || startMonth > 12 || endMonth < 1 || endMonth > 12) return raw;
+  if (endMonth < startMonth) [startMonth, endMonth] = [endMonth, startMonth];
+  const startStr = String(startMonth).padStart(2, '0');
+  const endStr = String(endMonth).padStart(2, '0');
+  return `${startStr}-${endStr}/${year}`;
+}
+
+function parsePeriodMonths(period) {
+  const raw = String(period || '').trim();
+  if (!raw) return null;
+  const parts = raw.match(/\d+/g) || [];
+  if (parts.length === 0) return null;
+
+  const yearPart = parts.find(p => p.length === 4) || parts[parts.length - 1];
+  const year = Number(yearPart);
+  if (Number.isNaN(year) || String(yearPart).length !== 4) return null;
+
+  const monthParts = parts.filter(p => p !== yearPart).map(n => Number(n)).filter(n => !Number.isNaN(n));
+  if (monthParts.length === 0) {
+    return { months: Array.from({ length: 12 }, (_, i) => i + 1), year };
+  }
+
+  let startMonth = monthParts[0];
+  let endMonth = monthParts.length > 1 ? monthParts[1] : monthParts[0];
+  if (startMonth < 1 || startMonth > 12 || endMonth < 1 || endMonth > 12) return null;
+  if (endMonth < startMonth) [startMonth, endMonth] = [endMonth, startMonth];
+  const months = [];
+  for (let m = startMonth; m <= endMonth; m++) months.push(m);
+  return { months, year };
+}
+
+function parseParentPaymentPeriods(text) {
+  const lines = String(text || '').split('\n');
+  const periods = [];
+  lines.forEach(line => {
+    const trimmed = line.trim();
+    if (!trimmed) return;
+    const parts = trimmed.split(',');
+    if (parts.length < 2) return;
+    const periodText = parts[0].trim();
+    const amount = Number(parts.slice(1).join(',').trim());
+    const parsed = parsePeriodMonths(periodText);
+    if (!parsed || Number.isNaN(amount)) return;
+    periods.push({ year: parsed.year, months: parsed.months, amount });
+  });
+  return periods;
+}
+
 function parseDateToIso(value) {
   if (!value) return '';
   const raw = String(value).trim();
@@ -514,8 +651,8 @@ function meterTypeFromCsv(value) {
 
 function accountValueFromCsv(value) {
   const raw = String(value || '').trim();
-  if (raw === 'חשבון אסתר ומיכאל') return 'grandma';
-  if (raw === 'חשבון ניר וליאור') return 'my';
+  if (raw === 'חשבון אסתר ומיכאל' || raw === 'אסתר ומיכאל') return 'grandma';
+  if (raw === 'חשבון ניר וליאור' || raw === 'ניר וליאור') return 'my';
   return accountValueFromEnglish(raw);
 }
 
@@ -1318,10 +1455,11 @@ const settingsView = document.getElementById('settings-view');
 const paymentsView = document.getElementById('payments-view');
 const balanceView = document.getElementById('balance-view');
 const dashboardView = document.getElementById('dashboard-view');
+const momView = document.getElementById('mom-view');
 const confirmModal = document.getElementById('confirm-modal');
 
 // UI Helpers
-function hideAll() { [tenantForm, archiveView, readingsView, settingsView, paymentsView, expensesView, balanceView, dashboardView].forEach(x => x?.classList.add('hidden')); }
+function hideAll() { [tenantForm, archiveView, readingsView, settingsView, paymentsView, expensesView, solarView, balanceView, dashboardView, momView].forEach(x => x?.classList.add('hidden')); }
 function show(el) { hideAll(); el?.classList.remove('hidden'); }
 function confirmDialog(msg) {
   return new Promise(res => {
@@ -1436,9 +1574,9 @@ async function renderTenantsTable() {
 
   const rows = tenants.slice().sort((a, b) => Number(a.apartmentNumber || 0) - Number(b.apartmentNumber || 0)).map(t => {
     const rentNum = Number(t.rentAmount);
-    const rent = !Number.isNaN(rentNum) && String(t.rentAmount).trim() !== '' ? `₪${rentNum.toFixed(2)}` : '-';
+    const rent = !Number.isNaN(rentNum) && String(t.rentAmount).trim() !== '' ? `<span style="direction: ltr; display: inline-block;">₪${formatCurrency(rentNum)}</span>` : '-';
     const arnonaNum = Number(t.arnonaAmount);
-    const arnona = !Number.isNaN(arnonaNum) && String(t.arnonaAmount).trim() !== '' ? `₪${arnonaNum.toFixed(2)}` : '-';
+    const arnona = !Number.isNaN(arnonaNum) && String(t.arnonaAmount).trim() !== '' ? `<span style="direction: ltr; display: inline-block;">₪${formatCurrency(arnonaNum)}</span>` : '-';
     const name = `${t.firstName || ''} ${t.lastName || ''}`.trim();
     const status = t.archived ? 'לא פעיל' : 'פעיל';
     return `
@@ -1493,9 +1631,9 @@ async function renderArchive() {
 
   const rows = archived.slice().sort((a, b) => Number(a.apartmentNumber || 0) - Number(b.apartmentNumber || 0)).map(t => {
     const rentNum = Number(t.rentAmount);
-    const rent = !Number.isNaN(rentNum) && String(t.rentAmount).trim() !== '' ? `₪${rentNum.toFixed(2)}` : '-';
+    const rent = !Number.isNaN(rentNum) && String(t.rentAmount).trim() !== '' ? `<span style="direction: ltr; display: inline-block;">₪${formatCurrency(rentNum)}</span>` : '-';
     const arnonaNum = Number(t.arnonaAmount);
-    const arnona = !Number.isNaN(arnonaNum) && String(t.arnonaAmount).trim() !== '' ? `₪${arnonaNum.toFixed(2)}` : '-';
+    const arnona = !Number.isNaN(arnonaNum) && String(t.arnonaAmount).trim() !== '' ? `<span style="direction: ltr; display: inline-block;">₪${formatCurrency(arnonaNum)}</span>` : '-';
     const name = `${t.firstName || ''} ${t.lastName || ''}`.trim();
     return `
       <tr>
@@ -1555,6 +1693,25 @@ async function renderReadings() {
     if (all.length === 0) { list.innerHTML = '<p>אין קריאות</p>'; return; }
 
     const tenantMap = new Map(tenants.map(t => [t.id, t]));
+    
+    // Try to auto-link readings without tenantId to matching tenants by name
+    for (const r of all) {
+      if (!r.tenantId && r.tenantName) {
+        const matchedTenant = findTenantByNameMatch(tenants, r.tenantName);
+        if (matchedTenant) {
+          await updateReading(r.id, {
+            tenantId: matchedTenant.id,
+            tenantName: `${matchedTenant.firstName || ''} ${matchedTenant.lastName || ''}`.trim(),
+            apartmentNumber: matchedTenant.apartmentNumber || ''
+          });
+          tenantMap.set(matchedTenant.id, matchedTenant);
+          r.tenantId = matchedTenant.id;
+          r.tenantName = `${matchedTenant.firstName || ''} ${matchedTenant.lastName || ''}`.trim();
+          r.apartmentNumber = matchedTenant.apartmentNumber || '';
+        }
+      }
+    }
+    
     const sorted = all.slice().sort((a, b) => new Date(b.date) - new Date(a.date));
 
     const rows = sorted.map(r => {
@@ -1615,6 +1772,25 @@ async function renderPayments() {
 
   const tenants = await getAllTenants(true);
   const tenantMap = new Map(tenants.map(t => [t.id, t]));
+  
+  // Try to auto-link payments without tenantId to matching tenants by name
+  for (const p of all) {
+    if (!p.tenantId && p.tenantName) {
+      const matchedTenant = findTenantByNameMatch(tenants, p.tenantName);
+      if (matchedTenant) {
+        await updatePayment(p.id, {
+          tenantId: matchedTenant.id,
+          tenantName: `${matchedTenant.firstName || ''} ${matchedTenant.lastName || ''}`.trim(),
+          apartmentNumber: matchedTenant.apartmentNumber || ''
+        });
+        tenantMap.set(matchedTenant.id, matchedTenant);
+        p.tenantId = matchedTenant.id;
+        p.tenantName = `${matchedTenant.firstName || ''} ${matchedTenant.lastName || ''}`.trim();
+        p.apartmentNumber = matchedTenant.apartmentNumber || '';
+      }
+    }
+  }
+  
   const sorted = all.slice();
   if (paymentsSort.key) {
     const dir = paymentsSort.dir === 'asc' ? 1 : -1;
@@ -1638,7 +1814,7 @@ async function renderPayments() {
         <td>${formatDateEu(p.date)}</td>
         <td>${apartment || '-'}</td>
         <td>${name || '-'}</td>
-        <td>₪${Number(p.amount).toFixed(2)}</td>
+        <td style="direction: ltr; text-align: left;">₪${formatCurrency(p.amount)}</td>
         <td>${accountLabel(p.account)}</td>
         <td>${p.method || ''}</td>
         <td>${p.notes || ''}</td>
@@ -1672,22 +1848,1055 @@ async function renderPayments() {
 }
 
 async function renderBalance() {
-  const tenants = await getAllTenants(false);
-  const bills = await getAllBills();
   const payments = await getAllPayments();
+  const expenses = await getAllExpenses();
+  const includeSolarCheckbox = document.getElementById('balance-include-solar');
+  const includeSolar = includeSolarCheckbox
+    ? includeSolarCheckbox.checked
+    : (await getSetting('balanceIncludeSolar')) !== false;
+  const solarIncome = includeSolar ? await getAllSolarIncome() : [];
+  const parentDefaultRaw = await getSetting('parentPaymentDefault');
+  const parentPeriodsText = await getSetting('parentPaymentPeriods');
+  const parentExempt = await getSetting('parentPaymentExemptMonths');
+  const parentReductionsRaw = await getSetting('parentPaymentReductions');
+  const parentDefault = Number(parentDefaultRaw ?? 4400) || 0;
+  const parentPeriods = parseParentPaymentPeriods(parentPeriodsText || '');
+  const parentExemptSet = new Set(Array.isArray(parentExempt) ? parentExempt : []);
+  const parentReductions = parentReductionsRaw || {};
   const list = document.getElementById('balance-list');
+  if (!list) return;
   list.innerHTML = '';
 
-  tenants.forEach(t => {
-    const billSum = bills.filter(b => b.tenantId === t.id).reduce((s, x) => s + x.amount, 0);
-    const paySum = payments.filter(p => p.tenantId === t.id).reduce((s, x) => s + x.amount, 0);
-    const balance = billSum - paySum;
-    const el = document.createElement('div');
-    el.className = 'tenant-item';
-    el.innerHTML = `<div><strong>${t.apartmentNumber || '-'}: ${t.firstName} ${t.lastName}</strong><div class="muted">חשבונות: ₪${billSum.toFixed(2)} | תשלומים: ₪${paySum.toFixed(2)}</div><div style="color:${balance > 0 ? '#e74c3c' : '#27ae60'};font-weight:bold;margin-top:4px;">${balance > 0 ? 'חוב' : 'זכות'}: ₪${Math.abs(balance).toFixed(2)}</div></div>`;
-    list.appendChild(el);
+  function parseExpensePeriod(period) {
+    const raw = String(period || '').trim();
+    if (!raw) return null;
+    const parts = raw.match(/\d+/g) || [];
+    if (parts.length === 0) return null;
+
+    const yearPart = parts.find(p => p.length === 4) || parts[parts.length - 1];
+    const year = Number(yearPart);
+    if (Number.isNaN(year) || String(yearPart).length !== 4) return null;
+
+    const monthParts = parts.filter(p => p !== yearPart).map(n => Number(n)).filter(n => !Number.isNaN(n));
+    if (monthParts.length === 0) {
+      return { months: Array.from({ length: 12 }, (_, i) => i + 1), year };
+    }
+
+    let startMonth = monthParts[0];
+    let endMonth = monthParts.length > 1 ? monthParts[1] : monthParts[0];
+    if (startMonth < 1 || startMonth > 12 || endMonth < 1 || endMonth > 12) return null;
+    if (endMonth < startMonth) [startMonth, endMonth] = [endMonth, startMonth];
+    const months = [];
+    for (let m = startMonth; m <= endMonth; m++) months.push(m);
+    return { months, year };
+  }
+
+  const monthly = new Map();
+  const monthlyDetails = new Map();
+  const ensureMonth = key => {
+    if (!monthly.has(key)) monthly.set(key, { income: 0, expense: 0 });
+    return monthly.get(key);
+  };
+  const ensureDetails = key => {
+    if (!monthlyDetails.has(key)) monthlyDetails.set(key, { incomes: [], expenses: [] });
+    return monthlyDetails.get(key);
+  };
+
+  payments.forEach(p => {
+    const iso = parseDateToIso(p.date);
+    if (!iso) return;
+    const key = iso.slice(0, 7);
+    const rec = ensureMonth(key);
+    rec.income += Number(p.amount || 0);
+    const details = ensureDetails(key);
+    details.incomes.push({
+      date: p.date,
+      tenantName: p.tenantName || '',
+      account: p.account || '',
+      method: p.method || '',
+      amount: Number(p.amount || 0)
+    });
+  });
+
+  solarIncome.forEach(item => {
+    const amount = Number(item.amount || 0);
+    if (!amount) return;
+    const period = String(item.period || '').trim();
+    const periodParts = parseExpensePeriod(period);
+
+    if (periodParts) {
+      const months = periodParts.months || [];
+      const year = periodParts.year;
+      const monthsCount = months.length || 1;
+      const perMonth = amount / monthsCount;
+      months.forEach(m => {
+        const key = `${year}-${String(m).padStart(2, '0')}`;
+        const rec = ensureMonth(key);
+        rec.income += perMonth;
+        const details = ensureDetails(key);
+        details.incomes.push({
+          date: `${String(m).padStart(2, '0')}/${year}`,
+          tenantName: 'גג סולרי',
+          account: '',
+          method: '',
+          amount: perMonth
+        });
+      });
+      return;
+    }
+
+    const fallbackDate = item.createdAt || item.date;
+    const iso = parseDateToIso(fallbackDate);
+    if (!iso) return;
+    const key = iso.slice(0, 7);
+    const rec = ensureMonth(key);
+    rec.income += amount;
+    const details = ensureDetails(key);
+    details.incomes.push({
+      date: formatPeriodDisplay(item.period || '') || formatDateEu(iso),
+      tenantName: 'גג סולרי',
+      account: '',
+      method: '',
+      amount
+    });
+  });
+
+  expenses.forEach(e => {
+    const amount = Number(e.amount || 0);
+    if (!amount) return;
+    const period = String(e.period || '').trim();
+    const periodParts = parseExpensePeriod(period);
+
+    if (periodParts) {
+      const months = periodParts.months || [];
+      const year = periodParts.year;
+      const monthsCount = months.length || 1;
+      const perMonth = amount / monthsCount;
+      months.forEach(m => {
+        const key = `${year}-${String(m).padStart(2, '0')}`;
+        const rec = ensureMonth(key);
+        rec.expense += perMonth;
+        const details = ensureDetails(key);
+        details.expenses.push({
+          type: e.type,
+          period: e.period || '',
+          amount: perMonth
+        });
+      });
+      return;
+    }
+
+    const fallbackDate = e.createdAt || e.date;
+    const iso = parseDateToIso(fallbackDate);
+    if (!iso) return;
+    const key = iso.slice(0, 7);
+    const rec = ensureMonth(key);
+    rec.expense += amount;
+    const details = ensureDetails(key);
+    details.expenses.push({
+      type: e.type,
+      period: e.period || '',
+      amount
+    });
+  });
+
+  const keys = Array.from(monthly.keys()).sort();
+  const hasMonthly = keys.length > 0;
+
+  const parentPaymentsByMonth = new Map();
+  payments
+    .filter(p => accountValueFromCsv(p.account) === 'grandma')
+    .forEach(p => {
+      const iso = parseDateToIso(p.date);
+      if (!iso) return;
+      const key = iso.slice(0, 7);
+      parentPaymentsByMonth.set(key, (parentPaymentsByMonth.get(key) || 0) + Number(p.amount || 0));
+    });
+
+  // Find the earliest and latest months
+  const allMonths = [];
+  
+  // Add months from parentPeriods
+  parentPeriods.forEach(p => {
+    p.months.forEach(m => {
+      allMonths.push(`${p.year}-${String(m).padStart(2, '0')}`);
+    });
+  });
+  
+  // Add months with actual payments
+  parentPaymentsByMonth.forEach((_, key) => allMonths.push(key));
+  
+  // Add exempt months
+  parentExemptSet.forEach(key => allMonths.push(key));
+  
+  let parentMonths = [];
+  
+  if (allMonths.length > 0) {
+    allMonths.sort();
+    const firstMonth = allMonths[0];
+    
+    // Calculate last month: one month after today's month
+    const today = new Date();
+    let todayYear = today.getFullYear();
+    let todayMonth = today.getMonth() + 1; // getMonth() is 0-indexed
+    
+    // Add one month
+    let lastMonthNum = todayMonth + 1;
+    let lastYear = todayYear;
+    if (lastMonthNum > 12) {
+      lastMonthNum = 1;
+      lastYear++;
+    }
+    
+    const lastMonth = `${lastYear}-${String(lastMonthNum).padStart(2, '0')}`;
+    
+    // Generate all months between first and last
+    const parentMonthSet = new Set();
+    let [iterYear, iterMonth] = firstMonth.split('-').map(Number);
+    const [endYear, endMonth] = lastMonth.split('-').map(Number);
+    
+    while (iterYear < endYear || (iterYear === endYear && iterMonth <= endMonth)) {
+      parentMonthSet.add(`${iterYear}-${String(iterMonth).padStart(2, '0')}`);
+      iterMonth++;
+      if (iterMonth > 12) {
+        iterMonth = 1;
+        iterYear++;
+      }
+    }
+    
+    parentMonths = Array.from(parentMonthSet).sort();
+  }
+
+  let totalIncome = 0;
+  let totalExpense = 0;
+
+  // Use all months in the range (first to last month) instead of only months with data
+  const displayMonths = keys.length > 0 ? keys : [];
+  
+  // Also ensure we display months up to lastMonth even if they have no data
+  if (allMonths.length > 0 && hasMonthly) {
+    // Generate full range of months between first and last
+    const today = new Date();
+    let todayYear = today.getFullYear();
+    let todayMonth = today.getMonth() + 1;
+    
+    let lastMonthNum = todayMonth + 1;
+    let lastYear = todayYear;
+    if (lastMonthNum > 12) {
+      lastMonthNum = 1;
+      lastYear++;
+    }
+    
+    const lastMonthForRange = `${lastYear}-${String(lastMonthNum).padStart(2, '0')}`;
+    const firstMonthForRange = keys[0] || allMonths[0];
+    
+    const fullMonthRange = [];
+    let [rangeYear, rangeMonth] = firstMonthForRange.split('-').map(Number);
+    const [endRangeYear, endRangeMonth] = lastMonthForRange.split('-').map(Number);
+    
+    while (rangeYear < endRangeYear || (rangeYear === endRangeYear && rangeMonth <= endRangeMonth)) {
+      fullMonthRange.push(`${rangeYear}-${String(rangeMonth).padStart(2, '0')}`);
+      rangeMonth++;
+      if (rangeMonth > 12) {
+        rangeMonth = 1;
+        rangeYear++;
+      }
+    }
+    
+    displayMonths.length = 0;
+    displayMonths.push(...fullMonthRange);
+  }
+
+  const rows = displayMonths.length > 0 ? displayMonths.map(key => {
+    const rec = monthly.get(key) || { income: 0, expense: 0 };
+    const details = monthlyDetails.get(key) || { incomes: [], expenses: [] };
+    const income = rec.income || 0;
+    const expense = rec.expense || 0;
+    const net = income - expense;
+    totalIncome += income;
+    totalExpense += expense;
+    const monthLabel = `${key.slice(5, 7)}/${key.slice(0, 4)}`;
+    const netColor = net >= 0 ? '#27ae60' : '#e74c3c';
+    const typeLabels = {
+      arnona1: 'ארנונה 1 (31/1)',
+      arnona2: 'ארנונה 2 (31/2)',
+      water: 'מים/ביוב',
+      electricity: 'חשמל'
+    };
+    const incomeRows = details.incomes.length
+      ? details.incomes.map(i => `
+          <tr>
+            <td>${formatDateEu(i.date)}</td>
+            <td>${i.tenantName || '-'}</td>
+            <td>${accountLabel(i.account) || '-'}</td>
+            <td>${i.method || '-'}</td>
+            <td style="direction: ltr; text-align: left;">₪${formatCurrency(i.amount)}</td>
+          </tr>
+        `).join('')
+      : '<tr><td colspan="5" style="text-align:center;color:#999;">אין הכנסות</td></tr>';
+    const expenseRows = details.expenses.length
+      ? details.expenses.map(ex => `
+          <tr>
+            <td>${typeLabels[ex.type] || ex.type || '-'}</td>
+            <td>${formatPeriodDisplay(ex.period) || '-'}</td>
+            <td style="direction: ltr; text-align: left;">₪${formatCurrency(ex.amount)}</td>
+          </tr>
+        `).join('')
+      : '<tr><td colspan="3" style="text-align:center;color:#999;">אין הוצאות</td></tr>';
+    return `
+      <tr class="balance-month-row" data-month="${key}" style="cursor:pointer;">
+        <td>${monthLabel}</td>
+        <td style="direction: ltr; text-align: left;">₪${formatCurrency(income)}</td>
+        <td style="direction: ltr; text-align: left;">₪${formatCurrency(expense)}</td>
+        <td style="color:${netColor};font-weight:bold;direction: ltr; text-align: left;">₪${formatCurrency(net)}</td>
+      </tr>
+      <tr class="balance-detail-row hidden" data-month="${key}">
+        <td colspan="4" style="padding: 12px 8px;">
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+            <div>
+              <div style="font-weight: bold; margin-bottom: 6px;">הכנסות</div>
+              <table class="payments-table">
+                <thead>
+                  <tr>
+                    <th>תאריך</th>
+                    <th>דייר</th>
+                    <th>חשבון</th>
+                    <th>אמצעי</th>
+                    <th>סכום</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${incomeRows}
+                </tbody>
+              </table>
+            </div>
+            <div>
+              <div style="font-weight: bold; margin-bottom: 6px;">הוצאות</div>
+              <table class="payments-table">
+                <thead>
+                  <tr>
+                    <th>סוג</th>
+                    <th>תקופה</th>
+                    <th>סכום</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${expenseRows}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </td>
+      </tr>
+    `;
+  }).join('') : '<tr><td colspan="4" style="text-align:center;color:#999;">אין נתונים למאזן חודשי</td></tr>';
+
+  const totalNet = totalIncome - totalExpense;
+  const totalNetColor = totalNet >= 0 ? '#27ae60' : '#e74c3c';
+
+  const maxIncome = displayMonths.reduce((max, key) => {
+    const rec = monthly.get(key) || { income: 0 };
+    return Math.max(max, rec.income || 0);
+  }, 0);
+
+  const chartBars = displayMonths.map(key => {
+    const rec = monthly.get(key) || { income: 0 };
+    const income = rec.income || 0;
+    const widthPct = maxIncome > 0 ? Math.round((income / maxIncome) * 100) : 0;
+    const label = `${key.slice(5, 7)}/${key.slice(0, 4)}`;
+    return `
+      <div style="display: grid; grid-template-columns: 80px 1fr 120px; gap: 12px; align-items: center;">
+        <div style="font-size: 12px; color: #666;">${label}</div>
+        <div style="height: 14px; background: #eef2f5; border-radius: 8px; overflow: hidden;">
+          <div style="height: 100%; width: ${widthPct}%; background: #2ecc71; border-radius: 8px;"></div>
+        </div>
+        <div style="font-size: 12px; color: #333; text-align: right; direction: ltr;">₪${formatCurrency(income)}</div>
+      </div>
+    `;
+  }).join('');
+
+  let cumulativeBalance = 0;
+  const parentRows = parentMonths.length ? parentMonths.map(key => {
+    const year = Number(key.slice(0, 4));
+    const month = Number(key.slice(5, 7));
+    let obligation = parentDefault;
+    parentPeriods.forEach(p => {
+      if (p.year === year && p.months.includes(month)) obligation = p.amount;
+    });
+    const isExempt = parentExemptSet.has(key);
+    if (isExempt) obligation = 0;
+    
+    const reduction = parentReductions[key] || {};
+    const reductionAmount = Number(reduction.amount || 0);
+    const reductionReason = reduction.reason || '';
+    
+    const finalObligation = obligation - reductionAmount;
+    const paid = parentPaymentsByMonth.get(key) || 0;
+    const balance = paid - finalObligation;
+    cumulativeBalance += balance;
+    const balanceColor = balance >= 0 ? '#27ae60' : '#e74c3c';
+    const cumulativeColor = cumulativeBalance >= 0 ? '#27ae60' : '#e74c3c';
+    const label = `${key.slice(5, 7)}/${key.slice(0, 4)}`;
+    const reasonWidth = Math.max(100, (reductionReason.length || 10) * 8);
+    return `
+      <tr>
+        <td style="white-space:nowrap;">${label}</td>
+        <td style="white-space:nowrap;">₪${formatCurrency(obligation)}</td>
+        <td><input type="number" class="parent-reduction-amount" data-month="${key}" value="${reductionAmount}" style="width:70px;font-size:13px;padding:2px 4px;" step="0.01"></td>
+        <td><input type="text" class="parent-reduction-reason" data-month="${key}" value="${reductionReason}" style="width:${reasonWidth}px;font-size:13px;padding:2px 4px;min-width:100px;"></td>
+        <td style="white-space:nowrap;">₪${formatCurrency(paid)}</td>
+        <td style="color:${balanceColor};font-weight:bold;white-space:nowrap;">₪${formatCurrency(balance)}</td>
+        <td style="color:${cumulativeColor};font-weight:bold;white-space:nowrap;">₪${formatCurrency(cumulativeBalance)}</td>
+        <td style="text-align:center;"><input class="parent-exempt-toggle" type="checkbox" data-month="${key}" ${isExempt ? 'checked' : ''}></td>
+      </tr>
+    `;
+  }).join('') : '<tr><td colspan="8" style="text-align:center;color:#999;">אין נתונים</td></tr>';
+
+  list.innerHTML = `
+    <table class="payments-table">
+      <thead>
+        <tr>
+          <th>חודש</th>
+          <th>הכנסות</th>
+          <th>הוצאות</th>
+          <th>נטו</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${rows}
+        <tr style="font-weight: bold; border-top: 2px solid #333;">
+          <td>סה"כ</td>
+          <td style="direction: ltr; text-align: left;">₪${formatCurrency(totalIncome)}</td>
+          <td style="direction: ltr; text-align: left;">₪${formatCurrency(totalExpense)}</td>
+          <td style="color:${totalNetColor};direction: ltr; text-align: left;">₪${formatCurrency(totalNet)}</td>
+        </tr>
+      </tbody>
+    </table>
+    <div style="margin-top: 20px;">
+      <div style="font-weight: bold; margin-bottom: 8px;">גרף הכנסות חודשי</div>
+      <div style="display: grid; gap: 8px; border-top: 1px solid #eee; padding-top: 12px;">
+        ${chartBars}
+      </div>
+    </div>
+  `;
+}
+
+document.getElementById('balance-list')?.addEventListener('click', e => {
+  const row = e.target.closest('.balance-month-row');
+  if (!row) return;
+  const key = row.dataset.month;
+  if (!key) return;
+  
+  // Remove selected class from all balance month rows
+  document.querySelectorAll('.balance-month-row.selected').forEach(r => {
+    r.classList.remove('selected');
+  });
+  
+  // Add selected class to clicked row
+  row.classList.add('selected');
+  
+  const detailRow = document.querySelector(`.balance-detail-row[data-month="${key}"]`);
+  if (!detailRow) return;
+  detailRow.classList.toggle('hidden');
+});
+
+document.getElementById('balance-list')?.addEventListener('change', async e => {
+  const checkbox = e.target.closest('.parent-exempt-toggle');
+  if (checkbox) {
+    const key = checkbox.dataset.month;
+    if (!key) return;
+    const current = await getSetting('parentPaymentExemptMonths');
+    const list = Array.isArray(current) ? current : [];
+    const set = new Set(list);
+    if (checkbox.checked) set.add(key); else set.delete(key);
+    await setSetting('parentPaymentExemptMonths', Array.from(set));
+    await renderBalance();
+    return;
+  }
+  
+  const reductionAmount = e.target.closest('.parent-reduction-amount');
+  const reductionReason = e.target.closest('.parent-reduction-reason');
+  
+  if (reductionAmount || reductionReason) {
+    const key = (reductionAmount || reductionReason).dataset.month;
+    if (!key) return;
+    const current = await getSetting('parentPaymentReductions');
+    const reductions = current || {};
+    if (!reductions[key]) reductions[key] = {};
+    
+    if (reductionAmount) {
+      const value = Number(reductionAmount.value || 0);
+      reductions[key].amount = value;
+    } else if (reductionReason) {
+      reductions[key].reason = reductionReason.value || '';
+      // Auto-resize the input field
+      const newWidth = Math.max(100, (reductionReason.value.length || 10) * 8);
+      reductionReason.style.width = newWidth + 'px';
+    }
+    
+    await setSetting('parentPaymentReductions', reductions);
+    await renderBalance();
+  }
+});
+
+// Render Mom View - separate view for parent payments
+async function renderMom() {
+  const momList = document.getElementById('mom-list');
+  if (!momList) return;
+  
+  const payments = await getAllPayments();
+  const parentDefaultRaw = await getSetting('parentPaymentDefault');
+  const parentPeriodsText = await getSetting('parentPaymentPeriods');
+  const parentExempt = await getSetting('parentPaymentExemptMonths');
+  const parentReductionsRaw = await getSetting('parentPaymentReductions');
+  
+  const parentDefault = Number(parentDefaultRaw ?? 4400) || 0;
+  const parentPeriods = parseParentPaymentPeriods(parentPeriodsText || '');
+  const parentExemptSet = new Set(Array.isArray(parentExempt) ? parentExempt : []);
+  const parentReductions = parentReductionsRaw || {};
+  
+  const parentPaymentsByMonth = new Map();
+  payments
+    .filter(p => accountValueFromCsv(p.account) === 'grandma')
+    .forEach(p => {
+      const iso = parseDateToIso(p.date);
+      if (!iso) return;
+      const key = iso.slice(0, 7);
+      parentPaymentsByMonth.set(key, (parentPaymentsByMonth.get(key) || 0) + Number(p.amount || 0));
+    });
+
+  // Find months for parent payments
+  const allMonths = [];
+  parentPeriods.forEach(p => {
+    p.months.forEach(m => {
+      allMonths.push(`${p.year}-${String(m).padStart(2, '0')}`);
+    });
+  });
+  parentPaymentsByMonth.forEach((_, key) => allMonths.push(key));
+  parentExemptSet.forEach(key => allMonths.push(key));
+
+  let parentMonths = [];
+  if (allMonths.length > 0) {
+    allMonths.sort();
+    const firstMonth = allMonths[0];
+    let lastMonth;
+    if (parentPaymentsByMonth.size > 0) {
+      const lastPaymentMonth = Array.from(parentPaymentsByMonth.keys()).sort().pop();
+      const [year, month] = lastPaymentMonth.split('-').map(Number);
+      const nextMonth = month === 12 ? 1 : month + 1;
+      const nextYear = month === 12 ? year + 1 : year;
+      lastMonth = `${nextYear}-${String(nextMonth).padStart(2, '0')}`;
+    } else {
+      lastMonth = allMonths[allMonths.length - 1];
+    }
+
+    const parentMonthSet = new Set();
+    let [currentYear, currentMonth] = firstMonth.split('-').map(Number);
+    const [endYear, endMonth] = lastMonth.split('-').map(Number);
+    while (currentYear < endYear || (currentYear === endYear && currentMonth <= endMonth)) {
+      parentMonthSet.add(`${currentYear}-${String(currentMonth).padStart(2, '0')}`);
+      currentMonth++;
+      if (currentMonth > 12) {
+        currentMonth = 1;
+        currentYear++;
+      }
+    }
+    parentMonths = Array.from(parentMonthSet).sort();
+  }
+
+  let cumulativeBalance = 0;
+  const parentRows = parentMonths.length ? parentMonths.map(key => {
+    const year = Number(key.slice(0, 4));
+    const month = Number(key.slice(5, 7));
+    let obligation = parentDefault;
+    parentPeriods.forEach(p => {
+      if (p.year === year && p.months.includes(month)) obligation = p.amount;
+    });
+    const isExempt = parentExemptSet.has(key);
+    if (isExempt) obligation = 0;
+    
+    const reduction = parentReductions[key] || {};
+    const reductionAmount = Number(reduction.amount || 0);
+    const reductionReason = reduction.reason || '';
+    
+    const finalObligation = obligation - reductionAmount;
+    const paid = parentPaymentsByMonth.get(key) || 0;
+    const balance = paid - finalObligation;
+    cumulativeBalance += balance;
+    const balanceColor = balance >= 0 ? '#27ae60' : '#e74c3c';
+    const cumulativeColor = cumulativeBalance >= 0 ? '#27ae60' : '#e74c3c';
+    const label = `${key.slice(5, 7)}/${key.slice(0, 4)}`;
+    const reasonWidth = Math.max(100, (reductionReason.length || 10) * 8);
+    return `
+      <tr>
+        <td style="white-space:nowrap;">${label}</td>
+        <td style="white-space:nowrap;direction: ltr; text-align: left;">₪${formatCurrency(obligation)}</td>
+        <td><input type="number" class="parent-reduction-amount" data-month="${key}" value="${reductionAmount}" style="width:70px;font-size:13px;padding:2px 4px;" step="0.01"></td>
+        <td><input type="text" class="parent-reduction-reason" data-month="${key}" value="${reductionReason}" style="width:${reasonWidth}px;font-size:13px;padding:2px 4px;min-width:100px;"></td>
+        <td style="white-space:nowrap;direction: ltr; text-align: left;">₪${formatCurrency(paid)}</td>
+        <td style="color:${balanceColor};font-weight:bold;white-space:nowrap;direction: ltr; text-align: left;">₪${formatCurrency(balance)}</td>
+        <td style="color:${cumulativeColor};font-weight:bold;white-space:nowrap;direction: ltr; text-align: left;">₪${formatCurrency(cumulativeBalance)}</td>
+        <td style="text-align:center;"><input class="parent-exempt-toggle" type="checkbox" data-month="${key}" ${isExempt ? 'checked' : ''}></td>
+      </tr>
+    `;
+  }).join('') : '<tr><td colspan="8" style="text-align:center;color:#999;">אין נתונים</td></tr>';
+
+  momList.innerHTML = `
+    <div style="margin-top: 24px;">
+      <div style="font-weight: bold; margin-bottom: 8px;">תשלום לאסתר ומיכאל</div>
+      <table class="payments-table">
+        <thead>
+          <tr>
+            <th>חודש</th>
+            <th>התחייבות</th>
+            <th>הפחתה</th>
+            <th>סיבה</th>
+            <th>שולם</th>
+            <th>מאזן</th>
+            <th>עודף מצטבר</th>
+            <th>פטור</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${parentRows}
+        </tbody>
+      </table>
+    </div>
+  `;
+  
+  // Setup button listeners for mom view and table interactions
+  setTimeout(() => {
+    setupMomButtonListeners();
+    setupParentPaymentTableListeners('mom-list');
+  }, 0);
+}
+
+function setupParentPaymentTableListeners(containerId) {
+  const container = document.getElementById(containerId);
+  if (!container) return;
+  
+  // Toggle exempt checkbox
+  container.querySelectorAll('.parent-exempt-toggle').forEach(checkbox => {
+    checkbox.onchange = async () => {
+      const month = checkbox.dataset.month;
+      let exempt = await getSetting('parentPaymentExemptMonths');
+      exempt = Array.isArray(exempt) ? exempt : [];
+      
+      if (checkbox.checked) {
+        if (!exempt.includes(month)) exempt.push(month);
+      } else {
+        exempt = exempt.filter(m => m !== month);
+      }
+      
+      await setSetting('parentPaymentExemptMonths', exempt);
+      await renderMom();
+    };
+  });
+  
+  // Save reductions
+  container.querySelectorAll('.parent-reduction-amount, .parent-reduction-reason').forEach(input => {
+    input.onchange = async () => {
+      const month = input.dataset.month;
+      let reductions = await getSetting('parentPaymentReductions');
+      reductions = reductions || {};
+      
+      const amountInput = container.querySelector(`.parent-reduction-amount[data-month="${month}"]`);
+      const reasonInput = container.querySelector(`.parent-reduction-reason[data-month="${month}"]`);
+      
+      if (amountInput && amountInput.value) {
+        if (!reductions[month]) reductions[month] = {};
+        reductions[month].amount = parseFloat(amountInput.value) || 0;
+      } else if (reasonInput && reasonInput.value) {
+        if (!reductions[month]) reductions[month] = {};
+        reductions[month].reason = reasonInput.value || '';
+        const newWidth = Math.max(100, (reasonInput.value.length || 10) * 8);
+        reasonInput.style.width = newWidth + 'px';
+      }
+      
+      await setSetting('parentPaymentReductions', reductions);
+      await renderMom();
+    };
   });
 }
+
+function setupMomButtonListeners() {
+  const exportCsvBtn = document.getElementById('mom-payments-export-csv');
+  const importCsvBtn = document.getElementById('mom-payments-import-csv');
+  const exportPdfBtn = document.getElementById('mom-payments-export-pdf');
+  const clearAllBtn = document.getElementById('mom-payments-clear-all');
+  
+  if (exportCsvBtn) {
+    exportCsvBtn.onclick = async () => {
+      const exemptMonths = await getSetting('parentPaymentExemptMonths');
+      const reductions = await getSetting('parentPaymentReductions');
+      
+      const exemptSet = new Set(Array.isArray(exemptMonths) ? exemptMonths : []);
+      const allMonths = new Set();
+      exemptSet.forEach(m => allMonths.add(m));
+      if (reductions) Object.keys(reductions).forEach(m => allMonths.add(m));
+      
+      const rows = Array.from(allMonths).sort().map(month => {
+        const isExempt = exemptSet.has(month);
+        const reduction = reductions?.[month] || {};
+        const amount = reduction.amount || 0;
+        const reason = reduction.reason || '';
+        return `${month},${isExempt ? 1 : 0},${amount},"${reason}"`;
+      });
+      
+      const csv = '\uFEFF' + 'Month,Exempt,ReductionAmount,ReductionReason\n' + rows.join('\n');
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'parent_payments.csv';
+      a.click();
+      URL.revokeObjectURL(url);
+    };
+  }
+  
+  if (importCsvBtn) {
+    importCsvBtn.onclick = async () => {
+      const file = document.getElementById('mom-payments-csv-upload').files[0];
+      if (!file) { alert('בחר קובץ'); return; }
+      
+      const statusEl = document.getElementById('mom-payments-csv-status');
+      if (statusEl) statusEl.textContent = 'מעבד...';
+      
+      try {
+        const text = await readCsvWithEncoding(file);
+        const lines = text.trim().split('\n');
+        
+        let imported = 0;
+        const exemptMonths = [];
+        const reductions = {};
+        
+        for (let i = 1; i < lines.length; i++) {
+          const line = lines[i].trim();
+          if (!line) continue;
+          
+          const match = line.match(/^(\d{4}-\d{2}),(\d+),([^,]*),(.*)$/);
+          if (!match) continue;
+          
+          const month = match[1];
+          const exempt = match[2] === '1';
+          const amount = parseFloat(match[3]) || 0;
+          const reason = match[4].replace(/^"|"$/g, '').trim();
+          
+          if (exempt) exemptMonths.push(month);
+          if (amount > 0 || reason) {
+            reductions[month] = { amount, reason };
+          }
+          imported++;
+        }
+        
+        await setSetting('parentPaymentExemptMonths', exemptMonths);
+        await setSetting('parentPaymentReductions', reductions);
+        
+        const msg = `יובאו ${imported} רשומות ✓`;
+        if (statusEl) statusEl.textContent = msg;
+        
+        document.getElementById('mom-payments-csv-upload').value = '';
+        await renderBalance();
+        await renderMom();
+      } catch (err) {
+        if (statusEl) statusEl.textContent = `שגיאה: ${err.message}`;
+      }
+    };
+  }
+  
+  if (exportPdfBtn) {
+    exportPdfBtn.onclick = async () => {
+      const statusEl = document.getElementById('mom-payments-csv-status');
+      if (statusEl) statusEl.textContent = 'מייצא PDF...';
+      try {
+        console.log('PDF export button clicked');
+        await exportParentPaymentsTableToPDF();
+        console.log('PDF export completed');
+        if (statusEl) statusEl.textContent = 'PDF נוצר בהצלחה ✓';
+        setTimeout(() => {
+          if (statusEl) statusEl.textContent = '';
+        }, 3000);
+      } catch (err) {
+        console.error('PDF export failed:', err);
+        if (statusEl) statusEl.textContent = `שגיאה: ${err.message}`;
+      }
+    };
+  }
+  
+  if (clearAllBtn) {
+    clearAllBtn.onclick = async () => {
+      if (await confirmDialog('מחק את כל הפטור והפחתות?')) {
+        await clearAllParentPaymentsData();
+      }
+    };
+  }
+}
+
+// Auto-resize reason field while typing
+document.getElementById('balance-list')?.addEventListener('input', e => {
+  const reductionReason = e.target.closest('.parent-reduction-reason');
+  if (reductionReason) {
+    const newWidth = Math.max(100, (reductionReason.value.length || 10) * 8);
+    reductionReason.style.width = newWidth + 'px';
+  }
+});
+
+// Bind parent payment export buttons after renderBalance completes
+// (Now done directly in renderBalance function above)
+
+// Async function to export parent payments table to PDF
+async function exportParentPaymentsTableToPDF() {
+  console.log('Starting PDF export...');
+  
+  // Find the parent payments table
+  let parentPaymentsTable = null;
+  
+  const momList = document.getElementById('mom-list');
+  if (momList) {
+    const tables = momList.querySelectorAll('table.payments-table');
+    if (tables.length > 0) {
+      parentPaymentsTable = tables[0];
+      console.log('Found parent payments table in mom-list');
+    }
+  }
+  
+  if (!parentPaymentsTable) {
+    const balanceList = document.getElementById('balance-list');
+    if (balanceList) {
+      const tables = balanceList.querySelectorAll('table.payments-table');
+      if (tables.length > 0) {
+        parentPaymentsTable = tables[tables.length - 1];
+        console.log('Found parent payments table in balance-list');
+      }
+    }
+  }
+  
+  if (!parentPaymentsTable) {
+    throw new Error('טבלה לא נמצאה בעמוד');
+  }
+  
+  const filename = `parent_payments_${new Date().toISOString().slice(0, 10)}.pdf`;
+  
+  try {
+    // Try html2pdf first (most reliable)
+    if (typeof html2pdf !== 'undefined' && html2pdf) {
+      console.log('Using html2pdf for PDF export');
+      
+      const element = document.createElement('div');
+      element.style.padding = '20px';
+      element.style.direction = 'rtl';
+      element.style.backgroundColor = 'white';
+      
+      // Add title
+      const title = document.createElement('h2');
+      title.textContent = 'דוח תשלומים';
+      title.style.textAlign = 'center';
+      title.style.marginBottom = '10px';
+      element.appendChild(title);
+      
+      // Add date
+      const dateP = document.createElement('p');
+      dateP.textContent = 'לאסתר ומיכאל';
+      dateP.style.textAlign = 'center';
+      dateP.style.color = '#666';
+      dateP.style.marginBottom = '5px';
+      element.appendChild(dateP);
+      
+      const addressP = document.createElement('p');
+      addressP.textContent = 'טרומפלדור 31, נהריה';
+      addressP.style.textAlign = 'center';
+      addressP.style.color = '#666';
+      addressP.style.marginBottom = '20px';
+      addressP.style.fontSize = '12px';
+      element.appendChild(addressP);
+      
+      // Clone and add table
+      const tableClone = parentPaymentsTable.cloneNode(true);
+      tableClone.style.width = '100%';
+      tableClone.style.borderCollapse = 'collapse';
+      element.appendChild(tableClone);
+      
+      html2pdf().set({
+        margin: [10, 10, 10, 10],
+        filename: filename,
+        image: { type: 'jpeg', quality: 0.98 },
+        html2canvas: { scale: 2, logging: false },
+        jsPDF: { orientation: 'landscape', unit: 'mm', format: 'a4' }
+      }).from(element).save();
+      
+      console.log('PDF export completed with html2pdf');
+      return;
+    }
+    
+    // Fallback: try jsPDF
+    console.log('html2pdf not available, trying jsPDF');
+    
+    if (typeof window.jsPDF === 'undefined') {
+      console.error('jsPDF not available, attempting alternative export');
+      throw new Error('לא ניתן לייצא PDF - אנא נסו שוב או טענו מחדש את הדף');
+    }
+    
+    const jsPDFClass = window.jsPDF.jsPDF || window.jsPDF;
+    if (!jsPDFClass) {
+      throw new Error('ספריית PDF לא זמינה');
+    }
+    
+    const pdf = new jsPDFClass('l', 'mm', 'a4');
+    
+    // Add formal header
+    pdf.setFontSize(18);
+    pdf.setFont(undefined, 'bold');
+    pdf.text('דוח תשלומים', pdf.internal.pageSize.getWidth() / 2, 20, { align: 'center' });
+    
+    pdf.setFontSize(12);
+    pdf.setFont(undefined, 'normal');
+    pdf.text('לאסתר ומיכאל', pdf.internal.pageSize.getWidth() / 2, 28, { align: 'center' });
+    
+    // Add date and company info
+    pdf.setFontSize(10);
+    pdf.text('טרומפלדור 31, נהריה', pdf.internal.pageSize.getWidth() / 2, 35, { align: 'center' });
+    pdf.text(`דו"ח משנת ${new Date().getFullYear()}`, pdf.internal.pageSize.getWidth() / 2, 41, { align: 'center' });
+    
+    // Extract table data
+    const headers = [];
+    const rows = [];
+    
+    // Get headers
+    const headerCells = parentPaymentsTable.querySelectorAll('thead th');
+    headerCells.forEach(th => {
+      headers.push(th.textContent.trim());
+    });
+    
+    // Get body rows
+    const bodyRows = parentPaymentsTable.querySelectorAll('tbody tr');
+    bodyRows.forEach(tr => {
+      const row = [];
+      const cells = tr.querySelectorAll('td');
+      cells.forEach(td => {
+        let text = td.textContent.trim();
+        text = text.replace(/\s+/g, ' ').trim();
+        row.push(text);
+      });
+      if (row.some(cell => cell.length > 0)) {
+        rows.push(row);
+      }
+    });
+    
+    console.log('Extracted', rows.length, 'rows');
+    
+    // Use autoTable if available
+    if (pdf.autoTable && typeof pdf.autoTable === 'function') {
+      console.log('Using autoTable for professional table');
+      pdf.autoTable({
+        head: [headers],
+        body: rows,
+        startY: 50,
+        theme: 'grid',
+        styles: {
+          fontSize: 9,
+          textColor: [0, 0, 0],
+          halign: 'right'
+        },
+        headStyles: {
+          fillColor: [43, 108, 176],
+          textColor: [255, 255, 255],
+          fontStyle: 'bold',
+          halign: 'right',
+          valign: 'middle'
+        },
+        bodyStyles: {
+          halign: 'right'
+        },
+        alternateRowStyles: {
+          fillColor: [245, 245, 245]
+        },
+        columnStyles: {
+          0: { halign: 'center' }
+        },
+        margin: { top: 50, right: 10, bottom: 20, left: 10 }
+      });
+    } else {
+      // Fallback: manual table rendering
+      console.log('Using manual table rendering (autoTable not available)');
+      
+      const pageWidth = pdf.internal.pageSize.getWidth();
+      const margin = 10;
+      const contentWidth = pageWidth - (2 * margin);
+      const colWidth = contentWidth / headers.length;
+      
+      let yPosition = 50;
+      const lineHeight = 7;
+      
+      // Draw headers
+      pdf.setFillColor(43, 108, 176);
+      pdf.setTextColor(255, 255, 255);
+      pdf.setFont(undefined, 'bold');
+      pdf.setFontSize(9);
+      
+      headers.forEach((header, col) => {
+        const x = margin + (col * colWidth);
+        pdf.rect(x, yPosition, colWidth, lineHeight, 'F');
+        pdf.text(header, x + 1, yPosition + lineHeight - 1.5, { maxWidth: colWidth - 2, align: 'right' });
+      });
+      
+      yPosition += lineHeight;
+      
+      // Draw rows
+      pdf.setTextColor(0, 0, 0);
+      pdf.setFont(undefined, 'normal');
+      let rowIndex = 0;
+      
+      rows.forEach(row => {
+        if (yPosition > pdf.internal.pageSize.getHeight() - margin) {
+          pdf.addPage();
+          yPosition = margin;
+        }
+        
+        // Alternate row colors
+        if (rowIndex % 2 === 1) {
+          pdf.setFillColor(245, 245, 245);
+          pdf.rect(margin, yPosition, contentWidth, lineHeight, 'F');
+        }
+        pdf.setDrawColor(200, 200, 200);
+        
+        row.forEach((cell, col) => {
+          const x = margin + (col * colWidth);
+          pdf.rect(x, yPosition, colWidth, lineHeight);
+          pdf.text(String(cell), x + 1, yPosition + lineHeight - 1.5, { 
+            maxWidth: colWidth - 2,
+            align: 'right'
+          });
+        });
+        
+        yPosition += lineHeight;
+        rowIndex++;
+      });
+    }
+    
+    // Add footer
+    const pageCount = pdf.internal.pages.length - 1;
+    for (let i = 1; i <= pageCount; i++) {
+      pdf.setPage(i);
+      pdf.setFontSize(8);
+      pdf.setTextColor(150, 150, 150);
+      pdf.text(
+        `עמוד ${i} מתוך ${pageCount}`,
+        pdf.internal.pageSize.getWidth() / 2,
+        pdf.internal.pageSize.getHeight() - 5,
+        { align: 'center' }
+      );
+    }
+    
+    pdf.save(filename);
+    console.log('PDF export completed with jsPDF');
+    
+  } catch (err) {
+    console.error('PDF export error:', err);
+    throw err;
+  }
+}
+
+// Keep this comment for reference - event listeners moved to renderBalance()
 
 async function populateTenantSelects() {
   const tenants = await getAllTenants(false);
@@ -1778,13 +2987,13 @@ async function renderExpenses() {
   const rows = expenses.map(e => {
     total += e.amount || 0;
     const frequency = e.frequency ? `${e.frequency === 'yearly' ? 'שנתי' : 'דו-חודשי'}` : '';
-    const period = e.period || '';
+    const period = formatPeriodDisplay(e.period || '');
     return `
       <tr>
         <td>${typeLabels[e.type] || e.type}</td>
         <td>${period}</td>
         <td>${frequency}</td>
-        <td>₪${(e.amount || 0).toFixed(2)}</td>
+        <td style="direction: ltr; text-align: left;">₪${formatCurrency(e.amount || 0)}</td>
         <td><button class="btn-edit-expense" data-id="${e.id}" style="margin-right: 5px;">✏️</button><button class="btn-delete-expense" data-id="${e.id}">🗑️</button></td>
       </tr>
     `;
@@ -1805,7 +3014,7 @@ async function renderExpenses() {
         ${rows}
         <tr style="font-weight: bold; border-top: 2px solid #333;">
           <td colspan="3">סה"כ:</td>
-          <td>₪${total.toFixed(2)}</td>
+          <td style="direction: ltr; text-align: left;">₪${formatCurrency(total)}</td>
           <td></td>
         </tr>
       </tbody>
@@ -1813,7 +3022,166 @@ async function renderExpenses() {
   `;
 }
 
+// Solar roof income functions
+async function addSolarIncome(data) {
+  const tx = await getTx('solar', 'readwrite');
+  data.createdAt = new Date().toISOString();
+  return new Promise((res, rej) => {
+    const r = tx.objectStore('solar').add(data);
+    r.onsuccess = () => res(r.result);
+    r.onerror = () => rej(r.error);
+  });
+}
+
+async function updateSolarIncome(id, data) {
+  const tx = await getTx('solar', 'readwrite');
+  data.id = id;
+  data.createdAt = new Date().toISOString();
+  return new Promise((res, rej) => {
+    const r = tx.objectStore('solar').put(data);
+    r.onsuccess = () => res(r.result);
+    r.onerror = () => rej(r.error);
+  });
+}
+
+async function deleteSolarIncome(id) {
+  const tx = await getTx('solar', 'readwrite');
+  return new Promise((res, rej) => {
+    const r = tx.objectStore('solar').delete(id);
+    r.onsuccess = () => res();
+    r.onerror = () => rej(r.error);
+  });
+}
+
+async function clearAllSolarIncome() {
+  const tx = await getTx('solar', 'readwrite');
+  return new Promise((res, rej) => {
+    const r = tx.objectStore('solar').clear();
+    r.onsuccess = () => res();
+    r.onerror = () => rej(r.error);
+  });
+}
+
+async function getAllSolarIncome() {
+  const tx = await getTx('solar', 'readonly');
+  return new Promise((res, rej) => {
+    const r = tx.objectStore('solar').getAll();
+    r.onsuccess = () => res((r.result || []).sort((a, b) => String(b.period || '').localeCompare(String(a.period || ''))));
+    r.onerror = () => rej(r.error);
+  });
+}
+
+function normalizeSolarPeriod(period) {
+  const formatted = formatPeriodDisplay(period);
+  return formatted || String(period || '').trim();
+}
+
+async function solarIncomeExists(entry, excludeId = null) {
+  const items = await getAllSolarIncome();
+  const periodKey = normalizeSolarPeriod(entry.period);
+  const amount = Number(entry.amount || 0);
+  return items.some(i => {
+    if (excludeId !== null && i.id === excludeId) return false;
+    const itemPeriod = normalizeSolarPeriod(i.period);
+    const itemAmount = Number(i.amount || 0);
+    return itemPeriod === periodKey && itemAmount === amount;
+  });
+}
+
+async function renderSolarIncome() {
+  const items = await getAllSolarIncome();
+  const listEl = document.getElementById('solar-list');
+  if (!listEl) return;
+  if (items.length === 0) {
+    listEl.innerHTML = '<p>אין הכנסות</p>';
+    return;
+  }
+
+  // Helper function to extract start date for sorting
+  function extractSortKey(period) {
+    const raw = String(period || '').trim();
+    const parts = raw.match(/\d+/g) || [];
+    if (parts.length === 0) return '999999';
+    const yearPart = parts.find(p => p.length === 4) || parts[parts.length - 1];
+    const year = Number(yearPart);
+    const monthParts = parts.filter(p => p !== yearPart).map(n => Number(n)).filter(n => !Number.isNaN(n));
+    const startMonth = monthParts.length > 0 ? monthParts[0] : 1;
+    return `${year}${String(startMonth).padStart(2, '0')}`;
+  }
+
+  // Sort items by period (year-month)
+  const sortedItems = [...items].sort((a, b) => {
+    const keyA = extractSortKey(a.period);
+    const keyB = extractSortKey(b.period);
+    return keyA.localeCompare(keyB);
+  });
+
+  let total = 0;
+  const rows = sortedItems.map(item => {
+    total += Number(item.amount || 0);
+    return `
+      <tr>
+        <td>${formatPeriodDisplay(item.period) || '-'}</td>
+        <td style="direction: ltr; text-align: left;">₪${formatCurrency(item.amount || 0)}</td>
+        <td><button class="btn-edit-solar" data-id="${item.id}" style="margin-right: 5px;">✏️</button><button class="btn-delete-solar" data-id="${item.id}">🗑️</button></td>
+      </tr>
+    `;
+  }).join('');
+
+  // Generate chart bars
+  const maxAmount = sortedItems.reduce((max, item) => Math.max(max, Number(item.amount || 0)), 0);
+  const chartBars = sortedItems.map(item => {
+    const amount = Number(item.amount || 0);
+    const widthPct = maxAmount > 0 ? Math.round((amount / maxAmount) * 100) : 0;
+    const label = formatPeriodDisplay(item.period) || '-';
+    return `
+      <div style="display: grid; grid-template-columns: 100px 1fr 120px; gap: 12px; align-items: center;">
+        <div style="font-size: 12px; color: #666;">${label}</div>
+        <div style="height: 14px; background: #eef2f5; border-radius: 8px; overflow: hidden;">
+          <div style="height: 100%; width: ${widthPct}%; background: #f39c12; border-radius: 8px;"></div>
+        </div>
+        <div style="font-size: 12px; color: #333; text-align: right; direction: ltr;">₪${formatCurrency(amount)}</div>
+      </div>
+    `;
+  }).join('');
+
+  listEl.innerHTML = `
+    <table class="payments-table">
+      <thead>
+        <tr>
+          <th>תקופה</th>
+          <th>סכום</th>
+          <th>פעולות</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${rows}
+        <tr style="font-weight: bold; border-top: 2px solid #333;">
+          <td>סה"כ:</td>
+          <td style="direction: ltr; text-align: left;">₪${formatCurrency(total)}</td>
+          <td></td>
+        </tr>
+      </tbody>
+    </table>
+    <div style="margin-top: 20px;">
+      <div style="font-weight: bold; margin-bottom: 8px;">גרף הכנסות גג סולארי</div>
+      <div style="display: grid; gap: 8px; border-top: 1px solid #eee; padding-top: 12px;">
+        ${chartBars}
+      </div>
+    </div>
+  `;
+}
+
 const expensesView = document.getElementById('expenses-view');
+const solarView = document.getElementById('solar-view');
+
+// Helper function to set active button
+function setActiveButton(buttonId) {
+  const buttons = document.querySelectorAll('.controls button');
+  buttons.forEach(btn => btn.classList.remove('active-btn'));
+  const activeBtn = document.getElementById(buttonId);
+  if (activeBtn) activeBtn.classList.add('active-btn');
+}
 
 // Actions
 const showAddBtn = document.getElementById('show-add');
@@ -1822,11 +3190,13 @@ const showSettingsBtn = document.getElementById('show-settings');
 const showReadingsBtn = document.getElementById('show-readings');
 const showPaymentsBtn = document.getElementById('show-payments');
 const showExpensesBtn = document.getElementById('show-expenses');
+const showSolarBtn = document.getElementById('show-solar');
 const showBalanceBtn = document.getElementById('show-balance');
 
-showAddBtn?.addEventListener('click', async () => { show(tenantForm); tenantForm.editId = null; document.getElementById('form-title').textContent = 'הוספת דייר'; tenantForm.reset(); await renderTenantsTable(); });
-showArchiveBtn?.addEventListener('click', async () => { await renderArchive(); show(archiveView); });
+showAddBtn?.addEventListener('click', async () => { setActiveButton('show-add'); show(tenantForm); tenantForm.editId = null; document.getElementById('form-title').textContent = 'הוספת דייר'; tenantForm.reset(); await renderTenantsTable(); });
+showArchiveBtn?.addEventListener('click', async () => { setActiveButton('show-archive'); await renderArchive(); show(archiveView); });
 showSettingsBtn?.addEventListener('click', async () => { 
+  setActiveButton('show-settings');
   const e = await getSetting('electricityPrice'); 
   const w = await getSetting('waterPrice'); 
   const kva = await getSetting('kvaCon');
@@ -1840,20 +3210,48 @@ showSettingsBtn?.addEventListener('click', async () => {
   show(settingsView); 
 });
 showPaymentsBtn?.addEventListener('click', async () => {
+  setActiveButton('show-payments');
   await populateTenantSelects();
   if (paymentForm) paymentForm.reset();
   resetPaymentFormMode();
   await renderPayments();
   show(paymentsView);
 });
-showBalanceBtn?.addEventListener('click', async () => { await renderBalance(); show(balanceView); });
+showBalanceBtn?.addEventListener('click', async () => {
+  setActiveButton('show-balance');
+  const checkbox = document.getElementById('balance-include-solar');
+  if (checkbox) {
+    const saved = await getSetting('balanceIncludeSolar');
+    checkbox.checked = saved === undefined ? true : !!saved;
+  }
+  await renderBalance();
+  show(balanceView);
+});
+
+document.getElementById('balance-include-solar')?.addEventListener('change', async e => {
+  await setSetting('balanceIncludeSolar', e.target.checked);
+  await renderBalance();
+});
 
 showExpensesBtn?.addEventListener('click', async () => { 
+  setActiveButton('show-expenses');
   await renderExpenses();
   show(expensesView);
 });
+showSolarBtn?.addEventListener('click', async () => {
+  setActiveButton('show-solar');
+  await renderSolarIncome();
+  show(solarView);
+});
+const showMomBtn = document.getElementById('show-mom');
+showMomBtn?.addEventListener('click', async () => {
+  setActiveButton('show-mom');
+  await renderMom();
+  show(document.getElementById('mom-view'));
+});
 
 showReadingsBtn?.addEventListener('click', async () => {
+  setActiveButton('show-readings');
   const tenants = await getAllTenants(false);
   const sortedElec = sortTenantsByMeter(tenants, 'electricityMeter');
   const sortedWater = sortTenantsByMeter(tenants, 'waterMeter');
@@ -1897,6 +3295,14 @@ document.getElementById('close-expenses')?.addEventListener('click', () => {
   document.getElementById('expense-water-period').value = '';
   document.getElementById('expense-electricity').value = '';
   document.getElementById('expense-electricity-period').value = '';
+  show(tenantForm);
+});
+document.getElementById('close-solar')?.addEventListener('click', () => {
+  delete solarView?.dataset?.editId;
+  const periodEl = document.getElementById('solar-period');
+  const amountEl = document.getElementById('solar-amount');
+  if (periodEl) periodEl.value = '';
+  if (amountEl) amountEl.value = '';
   show(tenantForm);
 });
 
@@ -2077,7 +3483,7 @@ document.getElementById('expenses-export-csv')?.addEventListener('click', async 
   const expenses = await getAllExpenses();
   const csv = 'Type,Period,Amount,Frequency\n' + 
     expenses.map(e => `${e.type},${e.period||''},${e.amount||0},${e.frequency||''}`).join('\n');
-  const blob = new Blob([csv], { type: 'text/csv' });
+  const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
@@ -2127,6 +3533,103 @@ document.getElementById('expenses-clear-all')?.addEventListener('click', async (
     const expenses = await getAllExpenses();
     for (const e of expenses) await deleteExpense(e.id);
     await renderExpenses();
+  }
+});
+
+// Solar roof income
+document.getElementById('save-solar')?.addEventListener('click', async () => {
+  const editId = solarView?.dataset?.editId;
+  const period = document.getElementById('solar-period').value.trim();
+  const amount = parseFloat(document.getElementById('solar-amount').value) || 0;
+  if (!period) { alert('הזן תקופה'); return; }
+  if (amount <= 0) { alert('הזן סכום תקין'); return; }
+  const entry = { period, amount };
+  if (await solarIncomeExists(entry, editId ? Number(editId) : null)) {
+    alert('הכנסה כזו כבר קיימת');
+    return;
+  }
+  if (editId) {
+    await updateSolarIncome(Number(editId), entry);
+    delete solarView?.dataset?.editId;
+  } else {
+    await addSolarIncome(entry);
+  }
+  document.getElementById('solar-period').value = '';
+  document.getElementById('solar-amount').value = '';
+  await renderSolarIncome();
+});
+
+document.getElementById('solar-list')?.addEventListener('click', async e => {
+  const editBtn = e.target.closest('.btn-edit-solar');
+  const delBtn = e.target.closest('.btn-delete-solar');
+  if (editBtn) {
+    const id = Number(editBtn.dataset.id);
+    const items = await getAllSolarIncome();
+    const item = items.find(i => i.id === id);
+    if (!item) return;
+    document.getElementById('solar-period').value = item.period || '';
+    document.getElementById('solar-amount').value = Number(item.amount || 0);
+    solarView.dataset.editId = id;
+    return;
+  }
+  if (!delBtn) return;
+  const id = Number(delBtn.dataset.id);
+  if (await confirmDialog('מחק את ההכנסה?')) {
+    await deleteSolarIncome(id);
+    await renderSolarIncome();
+  }
+});
+
+document.getElementById('solar-export-csv')?.addEventListener('click', async () => {
+  const items = await getAllSolarIncome();
+  const csv = 'Period,Amount\n' + items.map(i => `${i.period || ''},${i.amount || 0}`).join('\n');
+  const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'solar_income.csv';
+  a.click();
+  URL.revokeObjectURL(url);
+});
+
+document.getElementById('solar-import-csv')?.addEventListener('click', async () => {
+  const file = document.getElementById('solar-csv-upload').files[0];
+  if (!file) { alert('בחר קובץ'); return; }
+  const statusEl = document.getElementById('solar-csv-status');
+  if (statusEl) statusEl.textContent = 'מעבד...';
+  try {
+    const text = await readCsvWithEncoding(file);
+    const lines = text.trim().split('\n');
+    let imported = 0;
+    let skipped = 0;
+    for (let i = 1; i < lines.length; i++) {
+      const parts = lines[i].split(',');
+      if (parts.length >= 2 && parts[0]) {
+        const [period, amount] = parts;
+        const entry = {
+          period: period.trim(),
+          amount: parseFloat(amount) || 0
+        };
+        if (!(await solarIncomeExists(entry))) {
+          await addSolarIncome(entry);
+          imported++;
+        } else {
+          skipped++;
+        }
+      }
+    }
+    const msg = `יובאו ${imported} רשומות ✓${skipped > 0 ? ` (${skipped} כפילויות התעלמו)` : ''}`;
+    if (statusEl) statusEl.textContent = msg;
+  } catch (err) {
+    if (statusEl) statusEl.textContent = `שגיאה: ${err.message}`;
+  }
+  await renderSolarIncome();
+});
+
+document.getElementById('solar-clear-all')?.addEventListener('click', async () => {
+  if (await confirmDialog('מחק את כל ההכנסות?')) {
+    await clearAllSolarIncome();
+    await renderSolarIncome();
   }
 });
 
@@ -3125,6 +4628,9 @@ async function renderDashboard() {
   if (!container) return;
 
   try {
+    // Render current month summary (solar + balance)
+    await renderCurrentMonthSummary();
+    
     // Render income summary
     await renderIncomeSummary();
     
@@ -3132,10 +4638,123 @@ async function renderDashboard() {
     await renderTimeline();
   } catch (err) {
     console.error('Dashboard render error:', err);
+    const currentMonthSummary = document.getElementById('current-month-summary');
     const incomeSummary = document.getElementById('income-summary');
     const timelineContainer = document.getElementById('timeline-container');
+    if (currentMonthSummary) currentMonthSummary.innerHTML = `<p style="color: red;">שגיאה: ${err.message}</p>`;
     if (incomeSummary) incomeSummary.innerHTML = `<p style="color: red;">שגיאה: ${err.message}</p>`;
     if (timelineContainer) timelineContainer.innerHTML = `<p style="color: red;">שגיאה: ${err.message}</p>`;
+  }
+}
+
+async function renderCurrentMonthSummary() {
+  const container = document.getElementById('current-month-summary');
+  if (!container) return;
+
+  try {
+    // Get current month and year
+    const today = new Date();
+    const currentYear = today.getFullYear();
+    const currentMonth = String(today.getMonth() + 1).padStart(2, '0');
+    const currentMonthKey = `${currentYear}-${currentMonth}`;
+
+    // Get solar income
+    const solarIncome = await getAllSolarIncome();
+    const totalSolar = solarIncome.reduce((sum, item) => sum + Number(item.amount || 0), 0);
+
+    // Get cumulative balance from parent payments for current month
+    // This is the balance from the "Mom" payment table
+    const payments = await getAllPayments();
+    const parentDefaultRaw = await getSetting('parentPaymentDefault');
+    const parentPeriodsText = await getSetting('parentPaymentPeriods');
+    const parentExempt = await getSetting('parentPaymentExemptMonths');
+    const parentReductionsRaw = await getSetting('parentPaymentReductions');
+    
+    const parentDefault = Number(parentDefaultRaw ?? 4400) || 0;
+    const parentPeriods = parseParentPaymentPeriods(parentPeriodsText || '');
+    const parentExemptSet = new Set(Array.isArray(parentExempt) ? parentExempt : []);
+    const parentReductions = parentReductionsRaw || {};
+    
+    const parentPaymentsByMonth = new Map();
+    payments
+      .filter(p => accountValueFromCsv(p.account) === 'grandma')
+      .forEach(p => {
+        const iso = parseDateToIso(p.date);
+        if (!iso) return;
+        const key = iso.slice(0, 7);
+        parentPaymentsByMonth.set(key, (parentPaymentsByMonth.get(key) || 0) + Number(p.amount || 0));
+      });
+
+    // Calculate cumulative balance up to current month
+    let currentMonthBalance = 0;
+    const allMonths = [];
+    
+    parentPeriods.forEach(p => {
+      p.months.forEach(m => {
+        allMonths.push(`${p.year}-${String(m).padStart(2, '0')}`);
+      });
+    });
+    parentPaymentsByMonth.forEach((_, key) => allMonths.push(key));
+    parentExemptSet.forEach(key => allMonths.push(key));
+    
+    if (allMonths.length > 0) {
+      allMonths.sort();
+      const firstMonth = allMonths[0];
+      
+      const parentMonthSet = new Set();
+      let [iterYear, iterMonth] = firstMonth.split('-').map(Number);
+      const [currYear, currMonth] = currentMonthKey.split('-').map(Number);
+      
+      while (iterYear < currYear || (iterYear === currYear && iterMonth <= currMonth)) {
+        parentMonthSet.add(`${iterYear}-${String(iterMonth).padStart(2, '0')}`);
+        iterMonth++;
+        if (iterMonth > 12) {
+          iterMonth = 1;
+          iterYear++;
+        }
+      }
+      
+      const parentMonths = Array.from(parentMonthSet).sort();
+      let cumulativeBalance = 0;
+      
+      parentMonths.forEach(key => {
+        const year = Number(key.slice(0, 4));
+        const month = Number(key.slice(5, 7));
+        let obligation = parentDefault;
+        parentPeriods.forEach(p => {
+          if (p.year === year && p.months.includes(month)) obligation = p.amount;
+        });
+        const isExempt = parentExemptSet.has(key);
+        if (isExempt) obligation = 0;
+        
+        const reduction = parentReductions[key] || {};
+        const reductionAmount = Number(reduction.amount || 0);
+        
+        const finalObligation = obligation - reductionAmount;
+        const paid = parentPaymentsByMonth.get(key) || 0;
+        const balance = paid - finalObligation;
+        cumulativeBalance += balance;
+      });
+      
+      currentMonthBalance = cumulativeBalance;
+    }
+
+    const balanceColor = currentMonthBalance >= 0 ? '#27ae60' : '#e74c3c';
+    const monthDisplay = `${currentMonth}/${currentYear}`;
+
+    container.innerHTML = `
+      <div class="income-card">
+        <h4>הכנסות גג סולארי</h4>
+        <div class="amount" style="color: #f39c12; direction: ltr; text-align: left;">₪${formatCurrency(totalSolar)}</div>
+      </div>
+      <div class="income-card">
+        <h4>עודף דוח חודש ${monthDisplay}</h4>
+        <div class="amount" style="color: ${balanceColor}; direction: ltr; text-align: left;">₪${formatCurrency(currentMonthBalance)}</div>
+      </div>
+    `;
+  } catch (err) {
+    console.error('Current month summary error:', err);
+    container.innerHTML = `<p style="color: red;">שגיאה: ${err.message}</p>`;
   }
 }
 
@@ -3353,7 +4972,7 @@ async function renderIncomeSummary() {
   container.innerHTML = cards.map(card => `
     <div class="income-card">
       <h4>${card.label}</h4>
-      <div class="amount">₪${card.amount.toFixed(2)}</div>
+      <div class="amount" style="direction: ltr; text-align: left;">₪${formatCurrency(card.amount)}</div>
     </div>
   `).join('');
 }
@@ -3687,6 +5306,7 @@ function buildTimelineBars(tenantsList, minDate, maxDate, totalDays) {
 // Dashboard button handlers
 const showDashboardBtn = document.getElementById('show-dashboard');
 showDashboardBtn?.addEventListener('click', async () => {
+  setActiveButton('show-dashboard');
   await renderDashboard();
   show(document.getElementById('dashboard-view'));
 });
@@ -3775,6 +5395,14 @@ document.getElementById('edit-dates-save')?.addEventListener('click', async () =
     alert('שגיאה בעדכון תאריכים: ' + err.message);
   }
 });
+
+// Parent payments (Exempt & Reduction) - Export/Import/Clear
+async function clearAllParentPaymentsData() {
+  await setSetting('parentPaymentExemptMonths', []);
+  await setSetting('parentPaymentReductions', {});
+  await renderBalance();
+  await renderMom();
+}
 
 // Init
 window.addEventListener('DOMContentLoaded', async () => { 

@@ -89,6 +89,16 @@ main {
   transform: translateY(0);
 }
 
+.controls button.active-btn {
+  background: linear-gradient(135deg, #27ae60 0%, #229954 100%);
+  box-shadow: 0 0 0 3px rgba(39, 174, 96, 0.3), 0 4px 15px rgba(39, 174, 96, 0.5);
+  transform: translateY(-2px);
+}
+
+.controls button.active-btn:hover {
+  box-shadow: 0 0 0 3px rgba(39, 174, 96, 0.3), 0 6px 20px rgba(39, 174, 96, 0.6);
+}
+
 .content {
   flex: 1;
   padding: 24px;
@@ -1217,4 +1227,19 @@ textarea {
   .bulk-list {
     max-height: none;
   }
+}
+
+/* Balance table row highlighting */
+.balance-month-row {
+  transition: background-color 0.2s ease;
+}
+
+.balance-month-row.selected {
+  background-color: rgba(43, 108, 176, 0.15);
+  border-left: 4px solid #2b6cb0;
+  font-weight: 600;
+}
+
+.balance-month-row.selected:hover {
+  background-color: rgba(43, 108, 176, 0.25);
 }
