@@ -119,8 +119,6 @@
             <tr>
               <td style="white-space:nowrap;">${escapeHtml(row.label)}</td>
               <td style="white-space:nowrap;direction: ltr; text-align: left;">₪${formatCurrency(row.obligation)}</td>
-              <td style="white-space:nowrap;direction: ltr; text-align: left;">₪${formatCurrency(row.reductionAmount)}</td>
-              <td style="white-space:nowrap;">${escapeHtml(row.reductionReason || '')}</td>
               <td style="white-space:nowrap;direction: ltr; text-align: left;">₪${formatCurrency(row.paid)}</td>
               <td style="color:${balanceColor};font-weight:bold;white-space:nowrap;direction: ltr; text-align: left;">₪${formatCurrency(row.balance)}</td>
               <td style="color:${cumulativeColor};font-weight:bold;white-space:nowrap;direction: ltr; text-align: left;">₪${formatCurrency(row.cumulativeBalance)}</td>
@@ -135,8 +133,6 @@
               <tr>
                 <th>חודש</th>
                 <th>התחייבות</th>
-                <th>הפחתה</th>
-                <th>סיבה</th>
                 <th>שולם</th>
                 <th>מאזן</th>
                 <th>עודף מצטבר</th>
