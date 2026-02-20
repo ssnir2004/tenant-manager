@@ -102,7 +102,7 @@ function isGrandmaAccount(accountValue) {
 async function ensureInitialAdmin(db) {
   if (!ADMIN_EMAIL || !ADMIN_PASSWORD) return;
   const normalizedEmail = String(ADMIN_EMAIL).toLowerCase().trim();
-  const existing = await db.get('SELECT * FROM users WHERE email = ?', normalizedEmail);
+  const existing = await db.get('SELECT * FROM users WHERE email = ?', [normalizedEmail]);
   if (existing) return;
   const hash = await bcrypt.hash(ADMIN_PASSWORD, 10);
   const now = new Date().toISOString();
@@ -120,9 +120,9 @@ function getTokenFromRequest(req) {
 }
 
 async function getUserWithTenant(db, userId) {
-  const user = await db.get('SELECT * FROM users WHERE id = ?', userId);
+  const user = await db.get('SELECT * FROM users WHERE id = ?', [userId]);
   if (!user || !user.isActive) return null;
-  const tenantRow = await db.get('SELECT tenantId FROM user_tenants WHERE userId = ?', userId);
+  const tenantRow = await db.get('SELECT tenantId FROM user_tenants WHERE userId = ?', [userId]);
   const tenantId = tenantRow ? tenantRow.tenantId : null;
   return { user, tenantId };
 }
@@ -330,11 +330,11 @@ function respondDbError(res, err) {
   app.post('/api/auth/login', async (req, res) => {
     const { email, password } = req.body || {};
     if (!email || !password) return res.status(400).json({ error: 'Missing credentials' });
-    const user = await db.get('SELECT * FROM users WHERE email = ?', String(email).toLowerCase());
+    const user = await db.get('SELECT * FROM users WHERE email = ?', [String(email).toLowerCase()]);
     if (!user || !user.isActive) return res.status(401).json({ error: 'Invalid credentials' });
     const match = await bcrypt.compare(String(password), user.passwordHash);
     if (!match) return res.status(401).json({ error: 'Invalid credentials' });
-    const tenantRow = await db.get('SELECT tenantId FROM user_tenants WHERE userId = ?', user.id);
+    const tenantRow = await db.get('SELECT tenantId FROM user_tenants WHERE userId = ?', [user.id]);
     const token = signToken(user);
     res.json({
       token,
@@ -364,7 +364,7 @@ function respondDbError(res, err) {
     if (!email || !password) return res.status(400).json({ error: 'Missing email/password' });
     if (!allowedRoles.has(role)) return res.status(400).json({ error: 'Invalid role' });
 
-    const existing = await db.get('SELECT id FROM users WHERE email = ?', email);
+    const existing = await db.get('SELECT id FROM users WHERE email = ?', [email]);
     if (existing) return res.status(409).json({ error: 'Email already exists' });
 
     const hash = await bcrypt.hash(password, 10);
@@ -387,8 +387,8 @@ function respondDbError(res, err) {
         await db.run('INSERT INTO user_tenants (userId, tenantId) VALUES (?, ?)', [result.lastID, req.body.tenantId]);
       }
 
-      const created = await db.get('SELECT * FROM users WHERE id = ?', result.lastID);
-      const tenantRow = await db.get('SELECT tenantId FROM user_tenants WHERE userId = ?', result.lastID);
+      const created = await db.get('SELECT * FROM users WHERE id = ?', [result.lastID]);
+      const tenantRow = await db.get('SELECT tenantId FROM user_tenants WHERE userId = ?', [result.lastID]);
       res.json(toUserDto(created, tenantRow ? tenantRow.tenantId : null));
     } catch (err) {
       return respondDbError(res, err);
@@ -398,7 +398,7 @@ function respondDbError(res, err) {
   app.put('/api/users/:id', authRequired, async (req, res) => {
     if (!isAdmin(req.user)) return res.status(403).json({ error: 'Forbidden' });
     const userId = req.params.id;
-    const user = await db.get('SELECT * FROM users WHERE id = ?', userId);
+    const user = await db.get('SELECT * FROM users WHERE id = ?', [userId]);
     if (!user) return res.status(404).json({ error: 'Not found' });
 
     const email = req.body?.email ? String(req.body.email).toLowerCase().trim() : user.email;
@@ -427,13 +427,13 @@ function respondDbError(res, err) {
         return res.status(400).json({ error: 'Missing tenantId for tenant role' });
       }
 
-      await db.run('DELETE FROM user_tenants WHERE userId = ?', userId);
+      await db.run('DELETE FROM user_tenants WHERE userId = ?', [userId]);
       if (role === 'tenant') {
         await db.run('INSERT INTO user_tenants (userId, tenantId) VALUES (?, ?)', [userId, req.body.tenantId]);
       }
 
-      const updated = await db.get('SELECT * FROM users WHERE id = ?', userId);
-      const tenantRow = await db.get('SELECT tenantId FROM user_tenants WHERE userId = ?', userId);
+      const updated = await db.get('SELECT * FROM users WHERE id = ?', [userId]);
+      const tenantRow = await db.get('SELECT tenantId FROM user_tenants WHERE userId = ?', [userId]);
       res.json(toUserDto(updated, tenantRow ? tenantRow.tenantId : null));
     } catch (err) {
       return respondDbError(res, err);
@@ -444,7 +444,7 @@ function respondDbError(res, err) {
   app.get('/api/tenants', authRequired, async (req, res) => {
     if (req.user.role === 'tenant') {
       if (!req.userTenantId) return res.json([]);
-      const row = await db.get('SELECT * FROM tenants WHERE id = ?', req.userTenantId);
+      const row = await db.get('SELECT * FROM tenants WHERE id = ?', [req.userTenantId]);
       return res.json(row ? [row] : []);
     }
     const includeArchived = req.query.includeArchived === 'true';
@@ -458,7 +458,7 @@ function respondDbError(res, err) {
     if (req.user.role === 'tenant' && Number(req.params.id) !== Number(req.userTenantId)) {
       return res.status(403).json({ error: 'Forbidden' });
     }
-    const row = await db.get('SELECT * FROM tenants WHERE id = ?', req.params.id);
+    const row = await db.get('SELECT * FROM tenants WHERE id = ?', [req.params.id]);
     if (!row) return res.status(404).json({ error: 'Not found' });
     res.json(row);
   });
@@ -492,7 +492,7 @@ function respondDbError(res, err) {
         toBooleanInt(t.active) ?? 1
       ]
     );
-    const row = await db.get('SELECT * FROM tenants WHERE id = ?', result.lastID);
+    const row = await db.get('SELECT * FROM tenants WHERE id = ?', [result.lastID]);
     res.json(row);
   });
 
@@ -524,13 +524,13 @@ function respondDbError(res, err) {
         req.params.id
       ]
     );
-    const row = await db.get('SELECT * FROM tenants WHERE id = ?', req.params.id);
+    const row = await db.get('SELECT * FROM tenants WHERE id = ?', [req.params.id]);
     res.json(row);
   });
 
   app.delete('/api/tenants/:id', authRequired, async (req, res) => {
     if (!canWrite(req.user)) return res.status(403).json({ error: 'Forbidden' });
-    await db.run('DELETE FROM tenants WHERE id = ?', req.params.id);
+    await db.run('DELETE FROM tenants WHERE id = ?', [req.params.id]);
     res.json({ ok: true });
   });
 
@@ -567,7 +567,7 @@ function respondDbError(res, err) {
   });
 
   app.get('/api/readings/:id', authRequired, async (req, res) => {
-    const row = await db.get('SELECT * FROM readings WHERE id = ?', req.params.id);
+    const row = await db.get('SELECT * FROM readings WHERE id = ?', [req.params.id]);
     if (!row) {
       res.status(404).send('Not found');
       return;
@@ -609,7 +609,7 @@ function respondDbError(res, err) {
         'INSERT INTO readings (tenantId, meterType, date, value, paid, createdAt, status, submittedByUserId, approvedByUserId, approvedAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
         [tenantId, r.meterType || '', r.date || '', r.value ?? null, toBooleanInt(r.paid) ?? 0, now, status, submittedByUserId, approvedByUserId, approvedAt]
       );
-      const row = await db.get('SELECT * FROM readings WHERE id = ?', result.lastID);
+      const row = await db.get('SELECT * FROM readings WHERE id = ?', [result.lastID]);
       res.json(row);
     } catch (err) {
       return respondDbError(res, err);
@@ -618,7 +618,7 @@ function respondDbError(res, err) {
 
   app.delete('/api/readings/:id', authRequired, async (req, res) => {
     if (!canWrite(req.user)) return res.status(403).json({ error: 'Forbidden' });
-    await db.run('DELETE FROM readings WHERE id = ?', req.params.id);
+    await db.run('DELETE FROM readings WHERE id = ?', [req.params.id]);
     res.json({ ok: true });
   });
 
@@ -637,7 +637,7 @@ function respondDbError(res, err) {
         'UPDATE readings SET tenantId = ?, meterType = ?, date = ?, value = ?, paid = ?, status = ?, approvedByUserId = ?, approvedAt = ? WHERE id = ?',
         [r.tenantId ?? null, r.meterType || '', r.date || '', r.value ?? null, toBooleanInt(r.paid) ?? 0, r.status || 'approved', approvedByUserId, approvedAt, req.params.id]
       );
-      const row = await db.get('SELECT * FROM readings WHERE id = ?', req.params.id);
+      const row = await db.get('SELECT * FROM readings WHERE id = ?', [req.params.id]);
       if (!row) {
         res.status(404).send('Not found');
         return;
@@ -677,7 +677,7 @@ function respondDbError(res, err) {
         'INSERT INTO bills (tenantId, month, electricity, water, total, createdAt) VALUES (?, ?, ?, ?, ?, ?)',
         [b.tenantId ?? null, b.month || '', b.electricity ?? null, b.water ?? null, b.total ?? null, now]
       );
-      const row = await db.get('SELECT * FROM bills WHERE id = ?', result.lastID);
+      const row = await db.get('SELECT * FROM bills WHERE id = ?', [result.lastID]);
       res.json(row);
     } catch (err) {
       return respondDbError(res, err);
@@ -686,7 +686,7 @@ function respondDbError(res, err) {
 
   app.delete('/api/bills/:id', authRequired, async (req, res) => {
     if (!canWrite(req.user)) return res.status(403).json({ error: 'Forbidden' });
-    await db.run('DELETE FROM bills WHERE id = ?', req.params.id);
+    await db.run('DELETE FROM bills WHERE id = ?', [req.params.id]);
     res.json({ ok: true });
   });
 
@@ -719,7 +719,7 @@ function respondDbError(res, err) {
         'INSERT INTO payments (tenantId, amount, method, account, date, notes, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?)',
         [p.tenantId ?? null, p.amount ?? null, p.method || '', p.account || '', p.date || '', p.notes || '', now]
       );
-      const row = await db.get('SELECT * FROM payments WHERE id = ?', result.lastID);
+      const row = await db.get('SELECT * FROM payments WHERE id = ?', [result.lastID]);
       res.json(row);
     } catch (err) {
       return respondDbError(res, err);
@@ -734,7 +734,7 @@ function respondDbError(res, err) {
         'UPDATE payments SET tenantId = ?, amount = ?, method = ?, account = ?, date = ?, notes = ? WHERE id = ?',
         [p.tenantId ?? null, p.amount ?? null, p.method || '', p.account || '', p.date || '', p.notes || '', req.params.id]
       );
-      const row = await db.get('SELECT * FROM payments WHERE id = ?', req.params.id);
+      const row = await db.get('SELECT * FROM payments WHERE id = ?', [req.params.id]);
       res.json(row);
     } catch (err) {
       return respondDbError(res, err);
@@ -743,7 +743,7 @@ function respondDbError(res, err) {
 
   app.delete('/api/payments/:id', authRequired, async (req, res) => {
     if (!canWrite(req.user)) return res.status(403).json({ error: 'Forbidden' });
-    await db.run('DELETE FROM payments WHERE id = ?', req.params.id);
+    await db.run('DELETE FROM payments WHERE id = ?', [req.params.id]);
     res.json({ ok: true });
   });
 
@@ -768,7 +768,7 @@ function respondDbError(res, err) {
       'INSERT INTO expenses (type, period, amount, frequency, date, paid, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?)',
       [e.type || '', e.period || '', e.amount ?? null, e.frequency || '', e.date || '', toBooleanInt(e.paid) ?? 0, now]
     );
-    const row = await db.get('SELECT * FROM expenses WHERE id = ?', result.lastID);
+    const row = await db.get('SELECT * FROM expenses WHERE id = ?', [result.lastID]);
     res.json(row);
   });
 
@@ -779,13 +779,13 @@ function respondDbError(res, err) {
       'UPDATE expenses SET type = ?, period = ?, amount = ?, frequency = ?, date = ?, paid = ? WHERE id = ?',
       [e.type || '', e.period || '', e.amount ?? null, e.frequency || '', e.date || '', toBooleanInt(e.paid) ?? 0, req.params.id]
     );
-    const row = await db.get('SELECT * FROM expenses WHERE id = ?', req.params.id);
+    const row = await db.get('SELECT * FROM expenses WHERE id = ?', [req.params.id]);
     res.json(row);
   });
 
   app.delete('/api/expenses/:id', authRequired, async (req, res) => {
     if (!canWrite(req.user)) return res.status(403).json({ error: 'Forbidden' });
-    await db.run('DELETE FROM expenses WHERE id = ?', req.params.id);
+    await db.run('DELETE FROM expenses WHERE id = ?', [req.params.id]);
     res.json({ ok: true });
   });
 
@@ -810,7 +810,7 @@ function respondDbError(res, err) {
       'INSERT INTO solar (period, amount, date, createdAt) VALUES (?, ?, ?, ?)',
       [s.period || '', s.amount ?? null, s.date || '', now]
     );
-    const row = await db.get('SELECT * FROM solar WHERE id = ?', result.lastID);
+    const row = await db.get('SELECT * FROM solar WHERE id = ?', [result.lastID]);
     res.json(row);
   });
 
@@ -821,13 +821,13 @@ function respondDbError(res, err) {
       'UPDATE solar SET period = ?, amount = ?, date = ? WHERE id = ?',
       [s.period || '', s.amount ?? null, s.date || '', req.params.id]
     );
-    const row = await db.get('SELECT * FROM solar WHERE id = ?', req.params.id);
+    const row = await db.get('SELECT * FROM solar WHERE id = ?', [req.params.id]);
     res.json(row);
   });
 
   app.delete('/api/solar/:id', authRequired, async (req, res) => {
     if (!canWrite(req.user)) return res.status(403).json({ error: 'Forbidden' });
-    await db.run('DELETE FROM solar WHERE id = ?', req.params.id);
+    await db.run('DELETE FROM solar WHERE id = ?', [req.params.id]);
     res.json({ ok: true });
   });
 
@@ -846,7 +846,7 @@ function respondDbError(res, err) {
 
   app.get('/api/settings/:key', authRequired, async (req, res) => {
     if (!isAdmin(req.user)) return res.status(403).json({ error: 'Forbidden' });
-    const row = await db.get('SELECT * FROM settings WHERE key = ?', req.params.key);
+    const row = await db.get('SELECT * FROM settings WHERE key = ?', [req.params.key]);
     if (!row) return res.status(404).json({ error: 'Not found' });
     res.json(row);
   });
@@ -858,7 +858,7 @@ function respondDbError(res, err) {
     await db.run('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value',
       [req.params.key, serializedValue]
     );
-    const row = await db.get('SELECT * FROM settings WHERE key = ?', req.params.key);
+    const row = await db.get('SELECT * FROM settings WHERE key = ?', [req.params.key]);
     res.json(row);
   });
 
