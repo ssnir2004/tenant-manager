@@ -1,4 +1,6 @@
 // Tenant Management App - Vanilla JS + IndexedDB
+const APP_VERSION = '2025-02-18-expenses-paid';
+console.log('App version:', APP_VERSION);
 const DB_NAME = 'tenant_mgmt_v1';
 const DB_VERSION = 5;
 const STORES = ['tenants', 'readings', 'bills', 'payments', 'expenses', 'solar', 'settings'];
@@ -8,11 +10,7 @@ function isRemoteApp() {
   if (window.location.protocol === 'file:') {
     return false;
   }
-  // Check if localhost or loopback
-  if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
-    return false;
-  }
-  // Otherwise it's remote (e.g., Cloudflare tunnel)
+  // Any non-file origin uses server auth (localhost or hosted)
   return true;
 }
 
@@ -26,12 +24,48 @@ function getApiBase() {
   return window.CURRENT_SERVER_URL || 'http://localhost:3001';
 }
 
+let currentUser = null;
+
+function roleLabel(role, canWrite) {
+  if (role === 'admin') return 'מנהל';
+  if (role === 'tenant') return 'דייר';
+  if (role === 'family') return canWrite ? 'משפחה (מלא)' : 'משפחה (צפייה)';
+  return role || '';
+}
+
+function getAuthToken() {
+  return localStorage.getItem('authToken') || '';
+}
+
+function setAuthToken(token) {
+  if (token) {
+    localStorage.setItem('authToken', token);
+  } else {
+    localStorage.removeItem('authToken');
+  }
+}
+
+function canWriteCurrentUser() {
+  return currentUser && (currentUser.role === 'admin' || (currentUser.role === 'family' && currentUser.canWrite));
+}
+
+function canSubmitReadingsCurrentUser() {
+  return currentUser && (currentUser.role === 'admin' || (currentUser.role === 'family' && currentUser.canWrite) || (currentUser.role === 'tenant' && currentUser.canSubmitReadings));
+}
+
 async function apiRequest(path, options = {}) {
   const API_BASE = getApiBase();
+  const token = getAuthToken();
+  const headers = { 'Content-Type': 'application/json', ...(options.headers || {}) };
+  if (token) headers.Authorization = `Bearer ${token}`;
   const res = await fetch(`${API_BASE}${path}`, {
-    headers: { 'Content-Type': 'application/json' },
+    headers,
     ...options
   });
+  if (res.status === 401 && !options._retry && !options._skipAuthRetry && !String(path).startsWith('/api/auth/')) {
+    await ensureServerAuth();
+    return await apiRequest(path, { ...options, _retry: true });
+  }
   if (!res.ok) {
     const text = await res.text();
     const message = text ? `HTTP ${res.status} ${text}` : `HTTP ${res.status}`;
@@ -46,7 +80,166 @@ function normalizeTenantRow(row) {
     ...row,
     archived: !!row.archived,
     active: row.active === undefined ? true : !!row.active
-  };
+  };ש 
+}
+
+function showAuthModal() {
+  const modal = document.getElementById('auth-modal');
+  if (modal) modal.classList.remove('hidden');
+}
+
+function hideAuthModal() {
+  const modal = document.getElementById('auth-modal');
+  if (modal) modal.classList.add('hidden');
+}
+
+const authPasswordToggle = document.getElementById('auth-password-toggle');
+authPasswordToggle?.addEventListener('change', e => {
+  const input = document.getElementById('auth-password');
+  if (!input) return;
+  input.type = e.target.checked ? 'text' : 'password';
+});
+
+async function fetchCurrentUser() {
+  try {
+    const data = await apiRequest('/api/auth/me', { _skipAuthRetry: true });
+    currentUser = data.user || null;
+    return currentUser;
+  } catch (err) {
+    currentUser = null;
+    return null;
+  }
+}
+
+function applyRoleUI() {
+  if (!currentUser) return;
+  const isTenant = currentUser.role === 'tenant';
+
+  if (isTenant) {
+    const hideIds = [
+      'show-dashboard',
+      'show-add',
+      'show-archive',
+      'show-settings',
+      'show-expenses',
+      'show-solar',
+      'show-balance',
+      'show-mom'
+    ];
+    hideIds.forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.classList.add('hidden');
+    });
+  }
+
+  const canWrite = canWriteCurrentUser();
+  if (!canWrite) {
+    const disableIds = [
+      'save-settings',
+      'tenants-import-csv',
+      'tenants-clear-all',
+      'payments-import-csv',
+      'payments-clear-all',
+      'expenses-import-csv',
+      'expenses-clear-all',
+      'solar-import-csv',
+      'solar-clear-all',
+      'readings-import-csv',
+      'readings-clear-all',
+      'bulk-electricity-save',
+      'bulk-water-save',
+      'generate-bills',
+      'save-expense',
+      'save-solar',
+      'mom-payments-import-csv',
+      'mom-payments-clear-all'
+    ];
+    disableIds.forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.disabled = true;
+    });
+
+    const tenantFormSubmit = document.querySelector('#tenant-form button[type="submit"]');
+    if (tenantFormSubmit) tenantFormSubmit.disabled = true;
+
+    const paymentFormSubmit = document.querySelector('#payment-form button[type="submit"]');
+    if (paymentFormSubmit) paymentFormSubmit.disabled = true;
+  }
+
+  const tenantSubmitPanel = document.getElementById('tenant-reading-submit');
+  const bulkPanel = document.querySelector('.bulk-readings');
+  if (isTenant) {
+    if (tenantSubmitPanel) tenantSubmitPanel.style.display = canSubmitReadingsCurrentUser() ? 'block' : 'none';
+    if (bulkPanel) bulkPanel.style.display = 'none';
+  }
+}
+
+function updateAuthUI() {
+  const statusEl = document.getElementById('auth-status');
+  const actionBtn = document.getElementById('auth-action-btn');
+  const isLocalFile = window.location.protocol === 'file:';
+
+  if (!statusEl || !actionBtn) return;
+
+  if (isLocalFile) {
+    statusEl.textContent = 'מצב מקומי';
+    actionBtn.classList.add('hidden');
+    return;
+  }
+
+  if (currentUser) {
+    const label = roleLabel(currentUser.role, currentUser.canWrite);
+    statusEl.textContent = `${currentUser.email} · ${label}`;
+    actionBtn.textContent = 'התנתק';
+    actionBtn.classList.remove('hidden');
+  } else {
+    statusEl.textContent = 'לא מחובר';
+    actionBtn.textContent = 'התחבר';
+    actionBtn.classList.remove('hidden');
+  }
+}
+
+async function ensureServerAuth() {
+  const token = getAuthToken();
+  if (token) {
+    const user = await fetchCurrentUser();
+    if (user) {
+      updateAuthUI();
+      applyRoleUI();
+      return user;
+    }
+  }
+
+  showAuthModal();
+  return new Promise(resolve => {
+    const loginBtn = document.getElementById('auth-login');
+    if (!loginBtn) return resolve(null);
+    loginBtn.onclick = async () => {
+      const email = document.getElementById('auth-email').value.trim();
+      const password = document.getElementById('auth-password').value;
+      const errorEl = document.getElementById('auth-error');
+      if (errorEl) errorEl.textContent = '';
+      try {
+        const data = await apiRequest('/api/auth/login', {
+          method: 'POST',
+          body: JSON.stringify({ email, password })
+        });
+        setAuthToken(data.token);
+        currentUser = data.user || null;
+        hideAuthModal();
+        updateAuthUI();
+        applyRoleUI();
+        resolve(currentUser);
+      } catch (err) {
+        if (errorEl) errorEl.textContent = 'שגיאה בהתחברות. בדוק אימייל וסיסמה.';
+      }
+    };
+  });
+}
+
+async function ensureRemoteAuth() {
+  if (!isRemoteApp()) return null;
+  return await ensureServerAuth();
 }
 
 function openDB() {
@@ -254,7 +447,12 @@ async function getTenantByIdRemote(id) {
 
 // Readings
 async function addReading(reading) {
+  if (isRemoteApp()) {
+    return await addReadingRemote(reading);
+  }
   const tx = await getTx('readings', 'readwrite');
+  if (reading.paid === undefined) reading.paid = false;
+  reading.paid = !!reading.paid;
   reading.createdAt = new Date().toISOString();
 
   const store = tx.objectStore('readings');
@@ -286,20 +484,9 @@ async function addReadingRemote(reading) {
     tenantId: reading.tenantId ?? null,
     meterType: reading.meterType || '',
     date: reading.date || '',
-    value: reading.value ?? null
-  };
-  return await apiRequest('/api/readings', {
-    method: 'POST',
-    body: JSON.stringify(payload)
-  });
-}
-
-async function addReadingRemote(reading) {
-  const payload = {
-    tenantId: reading.tenantId ?? null,
-    meterType: reading.meterType || '',
-    date: reading.date || '',
-    value: reading.value ?? null
+    value: reading.value ?? null,
+    paid: !!reading.paid,
+    status: reading.status || 'approved'
   };
   return await apiRequest('/api/readings', {
     method: 'POST',
@@ -308,6 +495,10 @@ async function addReadingRemote(reading) {
 }
 
 async function getReadingsByTenant(tenantId) {
+  if (isRemoteApp()) {
+    const rows = await getAllReadingsRemote();
+    return rows.filter(r => Number(r.tenantId) === Number(tenantId));
+  }
   const tx = await getTx('readings', 'readonly');
   return new Promise((res, rej) => {
     const r = tx.objectStore('readings').index('tenantId').getAll(tenantId);
@@ -320,6 +511,9 @@ async function getReadingsByTenant(tenantId) {
 }
 
 async function getAllReadings() {
+  if (isRemoteApp()) {
+    return await getAllReadingsRemote();
+  }
   const tx = await getTx('readings', 'readonly');
   return new Promise((res, rej) => {
     const r = tx.objectStore('readings').getAll();
@@ -330,15 +524,24 @@ async function getAllReadings() {
 
 async function getAllReadingsRemote() {
   const rows = await apiRequest('/api/readings');
+  return (rows || []).map(row => ({ ...row, paid: !!row.paid }));
+}
+
+async function getPendingReadingsRemote() {
+  const rows = await apiRequest('/api/readings/pending');
   return rows || [];
 }
 
 async function getAllReadingsRemote() {
   const rows = await apiRequest('/api/readings');
-  return rows || [];
+  return (rows || []).map(row => ({ ...row, paid: !!row.paid }));
 }
 
 async function clearAllReadings() {
+  if (isRemoteApp()) {
+    await apiRequest('/api/readings', { method: 'DELETE' });
+    return;
+  }
   const tx = await getTx('readings', 'readwrite');
   return new Promise((res, rej) => {
     const r = tx.objectStore('readings').clear();
@@ -377,9 +580,12 @@ async function getReadingByIdRemote(id) {
 }
 
 async function updateReadingRemote(id, patch) {
+  const existing = await getReadingByIdRemote(id);
+  if (!existing) throw new Error('Not found');
+  const payload = { ...existing, ...patch };
   return await apiRequest(`/api/readings/${id}`, {
     method: 'PUT',
-    body: JSON.stringify(patch)
+    body: JSON.stringify(payload)
   });
 }
 
@@ -388,6 +594,9 @@ async function deleteReadingRemote(id) {
 }
 
 async function deleteReading(id) {
+  if (isRemoteApp()) {
+    return await deleteReadingRemote(id);
+  }
   const tx = await getTx('readings', 'readwrite');
   return new Promise((res, rej) => {
     const r = tx.objectStore('readings').delete(id);
@@ -441,6 +650,9 @@ async function detachTenantData(tenantId) {
 
 // Payments
 async function addPayment(p) {
+  if (isRemoteApp()) {
+    return await addPaymentRemote(p);
+  }
   const tx = await getTx('payments', 'readwrite');
   p.createdAt = new Date().toISOString();
   return new Promise((res, rej) => {
@@ -451,6 +663,9 @@ async function addPayment(p) {
 }
 
 async function updatePayment(id, patch) {
+  if (isRemoteApp()) {
+    return await updatePaymentRemote(id, patch);
+  }
   const tx = await getTx('payments', 'readwrite');
   const store = tx.objectStore('payments');
   return new Promise((res, rej) => {
@@ -468,6 +683,9 @@ async function updatePayment(id, patch) {
 }
 
 async function deletePayment(id) {
+  if (isRemoteApp()) {
+    return await deletePaymentRemote(id);
+  }
   const tx = await getTx('payments', 'readwrite');
   return new Promise((res, rej) => {
     const r = tx.objectStore('payments').delete(id);
@@ -477,6 +695,9 @@ async function deletePayment(id) {
 }
 
 async function getAllPayments() {
+  if (isRemoteApp()) {
+    return await getAllPaymentsRemote();
+  }
   const tx = await getTx('payments', 'readonly');
   return new Promise((res, rej) => {
     const r = tx.objectStore('payments').getAll();
@@ -486,6 +707,10 @@ async function getAllPayments() {
 }
 
 async function getPaymentsByTenant(tenantId) {
+  if (isRemoteApp()) {
+    const rows = await getAllPaymentsRemote();
+    return rows.filter(p => Number(p.tenantId) === Number(tenantId));
+  }
   const tx = await getTx('payments', 'readonly');
   return new Promise((res, rej) => {
     const r = tx.objectStore('payments').index('tenantId').getAll(tenantId);
@@ -495,6 +720,10 @@ async function getPaymentsByTenant(tenantId) {
 }
 
 async function clearAllPayments() {
+  if (isRemoteApp()) {
+    await apiRequest('/api/payments', { method: 'DELETE' });
+    return;
+  }
   const tx = await getTx('payments', 'readwrite');
   return new Promise((res, rej) => {
     const r = tx.objectStore('payments').clear();
@@ -503,7 +732,39 @@ async function clearAllPayments() {
   });
 }
 
+async function addPaymentRemote(p) {
+  const payload = {
+    tenantId: p.tenantId ?? null,
+    amount: p.amount ?? null,
+    method: p.method || '',
+    account: p.account || '',
+    date: p.date || '',
+    notes: p.notes || ''
+  };
+  return await apiRequest('/api/payments', {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  });
+}
+
+async function updatePaymentRemote(id, patch) {
+  return await apiRequest(`/api/payments/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(patch)
+  });
+}
+
+async function deletePaymentRemote(id) {
+  await apiRequest(`/api/payments/${id}`, { method: 'DELETE' });
+}
+
+async function getAllPaymentsRemote() {
+  const rows = await apiRequest('/api/payments');
+  return rows || [];
+}
+
 const paymentsSort = { key: null, dir: 'asc' };
+const readingsSort = { key: null, dir: 'asc' };
 
 function comparePayments(a, b, tenantMap, key) {
   const tA = tenantMap.get(a.tenantId) || {};
@@ -523,6 +784,27 @@ function comparePayments(a, b, tenantMap, key) {
       return String(a.method || '').localeCompare(String(b.method || ''));
     case 'notes':
       return String(a.notes || '').localeCompare(String(b.notes || ''));
+    default:
+      return 0;
+  }
+}
+
+function compareReadings(a, b, tenantMap, key) {
+  const tA = tenantMap.get(a.tenantId) || {};
+  const tB = tenantMap.get(b.tenantId) || {};
+  switch (key) {
+    case 'date':
+      return new Date(a.date) - new Date(b.date);
+    case 'apartment':
+      return Number(tA.apartmentNumber || a.apartmentNumber || 0) - Number(tB.apartmentNumber || b.apartmentNumber || 0);
+    case 'tenant':
+      return (`${tA.firstName || ''} ${tA.lastName || ''}`.trim() || a.tenantName || '').localeCompare(`${tB.firstName || ''} ${tB.lastName || ''}`.trim() || b.tenantName || '');
+    case 'type':
+      return meterTypeLabel(a.meterType).localeCompare(meterTypeLabel(b.meterType));
+    case 'value':
+      return Number(a.value || 0) - Number(b.value || 0);
+    case 'paid':
+      return Number(!!a.paid) - Number(!!b.paid);
     default:
       return 0;
   }
@@ -630,6 +912,12 @@ function parseDateToIso(value) {
   return `${yyyy}-${mm}-${dd}`;
 }
 
+function dateValueFromAny(value) {
+  const iso = parseDateToIso(value);
+  if (!iso) return Number.NaN;
+  return new Date(iso).getTime();
+}
+
 function accountLabel(accountValue) {
   if (accountValue === 'grandma') return 'חשבון אסתר ומיכאל';
   if (accountValue === 'my') return 'חשבון ניר וליאור';
@@ -640,6 +928,11 @@ function meterTypeLabel(meterType) {
   if (meterType === 'electricity') return 'חשמל';
   if (meterType === 'water') return 'מים';
   return meterType || '';
+}
+
+function readingStatusLabel(status) {
+  if (status === 'pending') return 'ממתין לאישור';
+  return 'מאושר';
 }
 
 function meterTypeFromCsv(value) {
@@ -816,10 +1109,32 @@ function buildTenantNameIndex(tenants) {
   return map;
 }
 
+function buildTenantNamePartsIndex(tenants) {
+  const map = new Map();
+  tenants.forEach(t => {
+    const first = normalizeName(t.firstName || '');
+    const last = normalizeName(t.lastName || '');
+    if (!first || !last) return;
+    const key = `${first}|${last}`;
+    if (!map.has(key)) map.set(key, []);
+    map.get(key).push(t);
+  });
+  return map;
+}
+
 function findTenantByName(nameIndex, fullName) {
   const key = normalizeName(fullName);
   if (!key) return null;
   const matches = nameIndex.get(key) || [];
+  if (matches.length !== 1) return null;
+  return matches[0];
+}
+
+function findTenantByNameParts(namePartsIndex, firstName, lastName) {
+  const first = normalizeName(firstName || '');
+  const last = normalizeName(lastName || '');
+  if (!first || !last) return null;
+  const matches = namePartsIndex.get(`${first}|${last}`) || [];
   if (matches.length !== 1) return null;
   return matches[0];
 }
@@ -966,8 +1281,9 @@ async function importDepositsFromCsv(csvText, accountValue) {
   const names = rows[1];
   const dayRow = rows[2];
 
-  const tenants = await getAllTenants(true);
+  const tenants = isRemoteApp() ? await getAllTenantsRemote(true) : await getAllTenants(true);
   const tenantIndex = buildTenantNameIndex(tenants);
+  const tenantPartsIndex = buildTenantNamePartsIndex(tenants);
   const existingPayments = await getAllPayments();
   const existingSet = new Set(existingPayments.map(p => buildPaymentKey(p.tenantId, p.tenantName, p.apartmentNumber, p.date, p.amount, p.account)));
 
@@ -1025,8 +1341,8 @@ async function generateBills(asOfDate) {
   const kvaCon = await getSetting('kvaCon') ?? 0;
   const tenants = await getAllTenants(false);
   const created = [];
-  const tx = await getTx('bills', 'readwrite');
-  const billStore = tx.objectStore('bills');
+  const useRemote = isRemoteApp();
+  const billStore = useRemote ? null : (await getTx('bills', 'readwrite')).objectStore('bills');
 
   for (const t of tenants) {
     for (const meterType of ['electricity', 'water']) {
@@ -1046,7 +1362,11 @@ async function generateBills(asOfDate) {
         amount = Math.max(0, consumption) * waterPrice;
       }
       const bill = { tenantId: t.id, apartmentNumber: t.apartmentNumber, meterType, prevReading: prev.value, prevDate: prev.date, currReading: curr.value, currDate: curr.date, consumption, amount, date: asOfDate, paid: false, createdAt: new Date().toISOString() };
-      billStore.add(bill);
+      if (useRemote) {
+        await addBillRemote(bill);
+      } else {
+        billStore.add(bill);
+      }
       created.push(bill);
     }
   }
@@ -1054,6 +1374,9 @@ async function generateBills(asOfDate) {
 }
 
 async function getAllBills() {
+  if (isRemoteApp()) {
+    return await getAllBillsRemote();
+  }
   const tx = await getTx('bills', 'readonly');
   return new Promise((res, rej) => {
     const r = tx.objectStore('bills').getAll();
@@ -1063,6 +1386,10 @@ async function getAllBills() {
 }
 
 async function clearAllBills() {
+  if (isRemoteApp()) {
+    await apiRequest('/api/bills', { method: 'DELETE' });
+    return;
+  }
   const tx = await getTx('bills', 'readwrite');
   return new Promise((res, rej) => {
     const r = tx.objectStore('bills').clear();
@@ -1071,8 +1398,30 @@ async function clearAllBills() {
   });
 }
 
+async function addBillRemote(bill) {
+  const payload = {
+    tenantId: bill.tenantId ?? null,
+    month: bill.date || '',
+    electricity: bill.meterType === 'electricity' ? bill.amount : null,
+    water: bill.meterType === 'water' ? bill.amount : null,
+    total: bill.amount ?? null
+  };
+  return await apiRequest('/api/bills', {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  });
+}
+
+async function getAllBillsRemote() {
+  const rows = await apiRequest('/api/bills');
+  return rows || [];
+}
+
 // Settings
 async function getSetting(key) {
+  if (isRemoteApp()) {
+    return await getSettingRemote(key);
+  }
   const tx = await getTx('settings', 'readonly');
   return new Promise((res, rej) => {
     const r = tx.objectStore('settings').get(key);
@@ -1082,12 +1431,214 @@ async function getSetting(key) {
 }
 
 async function setSetting(key, value) {
+  if (isRemoteApp()) {
+    await setSettingRemote(key, value);
+    return;
+  }
   const tx = await getTx('settings', 'readwrite');
   return new Promise((res, rej) => {
     const r = tx.objectStore('settings').put({ key, value });
     r.onsuccess = () => res();
     r.onerror = () => rej(r.error);
   });
+}
+
+async function getAllSettingsLocal() {
+  const tx = await getTx('settings', 'readonly');
+  return new Promise((res, rej) => {
+    const r = tx.objectStore('settings').getAll();
+    r.onsuccess = () => res(r.result || []);
+    r.onerror = () => rej(r.error);
+  });
+}
+
+function parseSettingValueRemote(value) {
+  if (value === null || value === undefined) return null;
+  if (typeof value !== 'string') return value;
+  const trimmed = value.trim();
+  if (!trimmed) return '';
+  const canBeJson =
+    trimmed.startsWith('{') ||
+    trimmed.startsWith('[') ||
+    trimmed.startsWith('"') ||
+    trimmed === 'true' ||
+    trimmed === 'false' ||
+    trimmed === 'null' ||
+    /^-?\d+(\.\d+)?$/.test(trimmed);
+  if (!canBeJson) return value;
+  try {
+    return JSON.parse(trimmed);
+  } catch (err) {
+    return value;
+  }
+}
+
+async function getSettingRemote(key) {
+  try {
+    const row = await apiRequest(`/api/settings/${encodeURIComponent(key)}`);
+    return parseSettingValueRemote(row?.value);
+  } catch (err) {
+    if (String(err.message || '').includes('404')) return null;
+    throw err;
+  }
+}
+
+async function setSettingRemote(key, value) {
+  await apiRequest(`/api/settings/${encodeURIComponent(key)}`, {
+    method: 'PUT',
+    body: JSON.stringify({ value })
+  });
+}
+
+async function getAllSettingsRemote() {
+  const rows = await apiRequest('/api/settings');
+  return (rows || []).map(row => ({ ...row, value: parseSettingValueRemote(row?.value) }));
+}
+
+async function getAllFromStoreLocal(storeName) {
+  const tx = await getTx(storeName, 'readonly');
+  return new Promise((res, rej) => {
+    const r = tx.objectStore(storeName).getAll();
+    r.onsuccess = () => res(r.result || []);
+    r.onerror = () => rej(r.error);
+  });
+}
+
+async function syncAllLocalDataToServer() {
+  const statusEl = document.getElementById('sync-status');
+  if (statusEl) statusEl.textContent = 'בודק הרשאות...';
+
+  const user = await ensureServerAuth();
+  if (!user) return;
+  if (user.role !== 'admin') {
+    if (statusEl) statusEl.textContent = 'רק מנהל יכול לבצע סנכרון מלא.';
+    return;
+  }
+
+  const confirmed = await confirmDialog('הסנכרון ימחק את הנתונים בשרת ויעלה את הנתונים המקומיים. להמשיך?');
+  if (!confirmed) {
+    if (statusEl) statusEl.textContent = '';
+    return;
+  }
+
+  if (statusEl) statusEl.textContent = 'מעלה נתונים לשרת...';
+
+  const tenants = await getAllFromStoreLocal('tenants');
+  const readings = await getAllFromStoreLocal('readings');
+  const payments = await getAllFromStoreLocal('payments');
+  const bills = await getAllFromStoreLocal('bills');
+  const expenses = await getAllFromStoreLocal('expenses');
+  const solar = await getAllFromStoreLocal('solar');
+  const settings = await getAllSettingsLocal();
+
+  await apiRequest('/api/readings', { method: 'DELETE' });
+  await apiRequest('/api/bills', { method: 'DELETE' });
+  await apiRequest('/api/payments', { method: 'DELETE' });
+  await apiRequest('/api/tenants', { method: 'DELETE' });
+  await apiRequest('/api/expenses', { method: 'DELETE' });
+  await apiRequest('/api/solar', { method: 'DELETE' });
+  await apiRequest('/api/settings', { method: 'DELETE' });
+
+  for (const tenant of tenants) {
+    await addTenantRemote(tenant);
+  }
+
+  const remoteTenants = await getAllTenantsRemote(true);
+  const remoteNameIndex = buildTenantNameIndex(remoteTenants);
+  const remoteByApartment = new Map();
+  remoteTenants.forEach(t => {
+    const aptKey = String(t.apartmentNumber || '').trim();
+    if (!aptKey) return;
+    if (!remoteByApartment.has(aptKey)) remoteByApartment.set(aptKey, t);
+  });
+
+  const remoteByKey = new Map();
+  remoteTenants.forEach(t => {
+    const key = `${normalizeName(buildTenantName(t))}|${String(t.apartmentNumber || '').trim()}`;
+    if (!key.trim()) return;
+    if (remoteByKey.has(key)) {
+      remoteByKey.set(key, null);
+    } else {
+      remoteByKey.set(key, t);
+    }
+  });
+
+  const localToRemoteId = new Map();
+  tenants.forEach(t => {
+    const key = `${normalizeName(buildTenantName(t))}|${String(t.apartmentNumber || '').trim()}`;
+    let remote = remoteByKey.get(key) || null;
+    if (!remote && t.apartmentNumber) {
+      remote = remoteByApartment.get(String(t.apartmentNumber).trim()) || null;
+    }
+    if (!remote) {
+      remote = findTenantByName(remoteNameIndex, buildTenantName(t));
+    }
+    if (remote) localToRemoteId.set(t.id, remote.id);
+  });
+
+  let unmatchedReadings = 0;
+  let unmatchedPayments = 0;
+  let unmatchedBills = 0;
+
+  for (const r of readings) {
+    const mappedTenantId = localToRemoteId.get(r.tenantId) || null;
+    if (!mappedTenantId) {
+      unmatchedReadings++;
+      continue;
+    }
+    await addReadingRemote({
+      tenantId: mappedTenantId,
+      meterType: r.meterType || '',
+      date: r.date || '',
+      value: r.value ?? null,
+      status: r.status || 'approved'
+    });
+  }
+
+  for (const p of payments) {
+    const mappedTenantId = localToRemoteId.get(p.tenantId) || null;
+    if (!mappedTenantId) {
+      unmatchedPayments++;
+      continue;
+    }
+    await addPaymentRemote({
+      ...p,
+      tenantId: mappedTenantId
+    });
+  }
+
+  for (const b of bills) {
+    const mappedTenantId = localToRemoteId.get(b.tenantId) || null;
+    if (!mappedTenantId) {
+      unmatchedBills++;
+      continue;
+    }
+    await addBillRemote({
+      ...b,
+      tenantId: mappedTenantId
+    });
+  }
+
+  for (const e of expenses) {
+    await addExpenseRemote(e);
+  }
+
+  for (const s of solar) {
+    await addSolarIncomeRemote(s);
+  }
+
+  for (const item of settings) {
+    await setSettingRemote(item.key, item.value);
+  }
+
+  if (statusEl) {
+    const parts = [];
+    if (unmatchedReadings) parts.push(`${unmatchedReadings} קריאות ללא התאמה`);
+    if (unmatchedPayments) parts.push(`${unmatchedPayments} תשלומים ללא התאמה`);
+    if (unmatchedBills) parts.push(`${unmatchedBills} חשבונות ללא התאמה`);
+    const suffix = parts.length ? ` (${parts.join(', ')})` : '';
+    statusEl.textContent = `הסנכרון הושלם ✓${suffix}`;
+  }
 }
 
 // CSV Import
@@ -1183,8 +1734,9 @@ function formatMonthEu(value) {
 }
 
 function isInMonth(dateStr, year, month) {
-  const d = new Date(dateStr);
-  if (Number.isNaN(d.getTime())) return false;
+  const iso = parseDateToIso(dateStr);
+  if (!iso) return false;
+  const d = new Date(iso);
   return d.getFullYear() === year && (d.getMonth() + 1) === month;
 }
 
@@ -1195,9 +1747,10 @@ function getMonthFirstReading(readings, year, month) {
 }
 
 function getClosestBefore(readings, dateStr) {
-  const target = new Date(dateStr);
-  const before = readings.filter(r => new Date(r.date) < target)
-    .sort((a, b) => new Date(b.date) - new Date(a.date));
+  const targetValue = dateValueFromAny(dateStr);
+  if (Number.isNaN(targetValue)) return null;
+  const before = readings.filter(r => dateValueFromAny(r.date) < targetValue)
+    .sort((a, b) => dateValueFromAny(b.date) - dateValueFromAny(a.date));
   return before[0] || null;
 }
 
@@ -1232,6 +1785,17 @@ function calculateElectricityReportFromPair(prevReading, currentReading, kvaCon)
   };
 }
 
+function resolveReadingDisplayInfo(tenant, waterCurrent, elecCurrent) {
+  const nameFromReading = (waterCurrent?.tenantName || elecCurrent?.tenantName || '').trim();
+  const aptFromReading = (waterCurrent?.apartmentNumber || elecCurrent?.apartmentNumber || '').trim();
+  const fallbackName = `${tenant.firstName || ''} ${tenant.lastName || ''}`.trim();
+  const fallbackApt = tenant.apartmentNumber || '';
+  return {
+    tenantName: nameFromReading || fallbackName,
+    apartment: aptFromReading || fallbackApt
+  };
+}
+
 async function buildMonthlyReport(monthValue) {
   const parsed = parseMonthValue(monthValue);
   if (!parsed) throw new Error('בחר חודש תקין (MM/YYYY)');
@@ -1256,10 +1820,11 @@ async function buildMonthlyReport(monthValue) {
     const elecReport = calculateElectricityReportFromPair(elecPrev, elecCurrent, kvaCon);
 
     const total = (waterReport?.cost || 0) + (elecReport?.cost || 0);
+    const displayInfo = resolveReadingDisplayInfo(t, waterCurrent, elecCurrent);
 
     return {
-      tenantName: `${t.firstName || ''} ${t.lastName || ''}`.trim(),
-      apartment: t.apartmentNumber || '',
+      tenantName: displayInfo.tenantName,
+      apartment: displayInfo.apartment,
       waterMeter: t.waterMeter || '',
       electricMeter: t.electricityMeter || '',
       water: waterReport,
@@ -1365,8 +1930,37 @@ function reportToCsv(report) {
   return rows.map(row => row.map(escape).join(',')).join('\n');
 }
 
-function downloadCsv(content, filename) {
-  const blob = new Blob(['\ufeff' + content], { type: 'text/csv;charset=utf-8;' });
+function getSaveAsFileType(filename, mimeType) {
+  const ext = String(filename || '').split('.').pop()?.toLowerCase() || '';
+  const defaultMime = mimeType || (ext === 'csv' ? 'text/csv' : ext === 'pdf' ? 'application/pdf' : 'application/octet-stream');
+  const description = ext ? `${ext.toUpperCase()} file` : 'File';
+  return {
+    description,
+    accept: {
+      [defaultMime]: ext ? [`.${ext}`] : ['.*']
+    }
+  };
+}
+
+async function saveBlobAs(blob, filename, mimeType = '') {
+  if (typeof window.showSaveFilePicker === 'function' && window.isSecureContext) {
+    try {
+      const fileType = getSaveAsFileType(filename, mimeType || blob.type);
+      const handle = await window.showSaveFilePicker({
+        suggestedName: filename,
+        types: [fileType],
+        excludeAcceptAllOption: false
+      });
+      const writable = await handle.createWritable();
+      await writable.write(blob);
+      await writable.close();
+      return true;
+    } catch (err) {
+      if (err?.name === 'AbortError') return false;
+      console.warn('Save As not available, falling back to download:', err);
+    }
+  }
+
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
@@ -1375,6 +1969,12 @@ function downloadCsv(content, filename) {
   a.click();
   a.remove();
   URL.revokeObjectURL(url);
+  return true;
+}
+
+async function downloadCsv(content, filename) {
+  const blob = new Blob(['\ufeff' + content], { type: 'text/csv;charset=utf-8;' });
+  return await saveBlobAs(blob, filename, 'text/csv');
 }
 
 function buildTenantPdfHtml(row, monthValue) {
@@ -1689,67 +2289,116 @@ async function renderReadings() {
   try {
     const all = await getAllReadings();
     const tenants = await getAllTenants(true);
+    const waterPrice = Number(await getSetting('waterPrice') ?? 0);
+    const kvaCon = Number(await getSetting('kvaCon') ?? 0);
+    const allowWrite = canWriteCurrentUser();
+    const showStatus = isRemoteApp();
 
     if (all.length === 0) { list.innerHTML = '<p>אין קריאות</p>'; return; }
 
     const tenantMap = new Map(tenants.map(t => [t.id, t]));
     
     // Try to auto-link readings without tenantId to matching tenants by name
-    for (const r of all) {
-      if (!r.tenantId && r.tenantName) {
-        const matchedTenant = findTenantByNameMatch(tenants, r.tenantName);
-        if (matchedTenant) {
-          await updateReading(r.id, {
-            tenantId: matchedTenant.id,
-            tenantName: `${matchedTenant.firstName || ''} ${matchedTenant.lastName || ''}`.trim(),
-            apartmentNumber: matchedTenant.apartmentNumber || ''
-          });
-          tenantMap.set(matchedTenant.id, matchedTenant);
-          r.tenantId = matchedTenant.id;
-          r.tenantName = `${matchedTenant.firstName || ''} ${matchedTenant.lastName || ''}`.trim();
-          r.apartmentNumber = matchedTenant.apartmentNumber || '';
+    if (allowWrite) {
+      for (const r of all) {
+        if (!r.tenantId && r.tenantName) {
+          const matchedTenant = findTenantByNameMatch(tenants, r.tenantName);
+          if (matchedTenant) {
+            await updateReading(r.id, {
+              tenantId: matchedTenant.id,
+              tenantName: `${matchedTenant.firstName || ''} ${matchedTenant.lastName || ''}`.trim(),
+              apartmentNumber: matchedTenant.apartmentNumber || ''
+            });
+            tenantMap.set(matchedTenant.id, matchedTenant);
+            r.tenantId = matchedTenant.id;
+            r.tenantName = `${matchedTenant.firstName || ''} ${matchedTenant.lastName || ''}`.trim();
+            r.apartmentNumber = matchedTenant.apartmentNumber || '';
+          }
         }
       }
     }
     
-    const sorted = all.slice().sort((a, b) => new Date(b.date) - new Date(a.date));
+    const sorted = all.slice();
+    if (readingsSort.key) {
+      const dir = readingsSort.dir === 'asc' ? 1 : -1;
+      sorted.sort((a, b) => compareReadings(a, b, tenantMap, readingsSort.key) * dir);
+    } else {
+      sorted.sort((a, b) => dateValueFromAny(b.date) - dateValueFromAny(a.date));
+    }
+    const readingsByKey = new Map();
+    sorted.forEach(r => {
+      const key = `${r.tenantId || ''}|${r.meterType || ''}`;
+      if (!readingsByKey.has(key)) readingsByKey.set(key, []);
+      readingsByKey.get(key).push(r);
+    });
+    readingsByKey.forEach(arr => arr.sort((a, b) => dateValueFromAny(a.date) - dateValueFromAny(b.date)));
+
+    const prevById = new Map();
+    const readingById = new Map();
+    readingsByKey.forEach(arr => {
+      for (let i = 0; i < arr.length; i++) {
+        const current = arr[i];
+        const prev = i > 0 ? arr[i - 1] : null;
+        prevById.set(current.id, prev);
+        readingById.set(current.id, current);
+      }
+    });
+
+    window.__readingsDetailCache = {
+      prevById,
+      readingById,
+      tenantMap,
+      waterPrice,
+      kvaCon
+    };
 
     const rows = sorted.map(r => {
       const t = tenantMap.get(r.tenantId);
       const name = t ? `${t.firstName || ''} ${t.lastName || ''}`.trim() : (r.tenantName || '');
       const apartment = t?.apartmentNumber || r.apartmentNumber || '';
       const missing = !t;
-      const linkCell = missing ? `
+      const linkCell = allowWrite && missing ? `
         <select class="link-reading-select" data-reading-id="${r.id}">
           ${buildTenantSelectOptions(tenants)}
         </select>
       ` : '—';
+      const statusCell = showStatus ? `<td>${readingStatusLabel(r.status)}</td>` : '';
+        const paidCell = `<td><input type="checkbox" class="reading-paid-toggle" data-reading-id="${r.id}" ${r.paid ? 'checked' : ''} ${allowWrite ? '' : 'disabled'} aria-label="שולם"></td>`;
+      const actionsCell = allowWrite ? `
+          <button class="btn-edit-reading" data-id="${r.id}">✏️</button>
+          <button class="btn-delete-reading" data-id="${r.id}">🗑️</button>
+      ` : '—';
       return `
-        <tr class="${missing ? 'row-missing' : ''}">
+        <tr class="${missing ? 'row-missing' : ''} reading-row" data-reading-id="${r.id}">
           <td>${formatDateEu(r.date)}</td>
           <td>${apartment || '-'}</td>
           <td>${name || '-'}</td>
           <td>${meterTypeLabel(r.meterType)}</td>
           <td>${r.value ?? ''}</td>
+          ${paidCell}
           <td>${linkCell}</td>
-          <td>
-            <button class="btn-edit-reading" data-id="${r.id}">✏️</button>
-            <button class="btn-delete-reading" data-id="${r.id}">🗑️</button>
-          </td>
+          ${statusCell}
+          <td>${actionsCell}</td>
+        </tr>
+        <tr class="reading-detail-row hidden" data-reading-id="${r.id}">
+          <td colspan="${showStatus ? 9 : 8}"></td>
         </tr>
       `;
     }).join('');
 
+    const statusHeader = showStatus ? '<th>סטטוס</th>' : '';
     list.innerHTML = `
       <table class="payments-table">
         <thead>
           <tr>
-            <th>תאריך</th>
-            <th>דירה</th>
-            <th>דייר</th>
-            <th>סוג</th>
-            <th>ערך</th>
+            <th data-key="date">תאריך</th>
+            <th data-key="apartment">דירה</th>
+            <th data-key="tenant">דייר</th>
+            <th data-key="type">סוג</th>
+            <th data-key="value">ערך</th>
+            <th data-key="paid">שולם</th>
             <th>קישור</th>
+            ${statusHeader}
             <th>פעולות</th>
           </tr>
         </thead>
@@ -1759,6 +2408,66 @@ async function renderReadings() {
   } catch (err) {
     console.error(err);
     list.innerHTML = `<p style="color: #e74c3c;">שגיאה בטעינת קריאות: ${err.message}</p>`;
+  }
+
+  await renderReadingApprovals();
+}
+
+async function renderReadingApprovals() {
+  const container = document.getElementById('readings-approvals');
+  if (!container) return;
+  if (!isRemoteApp() || !canWriteCurrentUser()) {
+    container.innerHTML = '';
+    return;
+  }
+
+  try {
+    const pending = await getPendingReadingsRemote();
+    if (!pending.length) {
+      container.innerHTML = '<p style="color: #666;">אין קריאות שממתינות לאישור</p>';
+      return;
+    }
+
+    const tenants = await getAllTenants(true);
+    const tenantMap = new Map(tenants.map(t => [t.id, t]));
+    const rows = pending.map(r => {
+      const t = tenantMap.get(r.tenantId);
+      const name = t ? `${t.firstName || ''} ${t.lastName || ''}`.trim() : (r.tenantName || '');
+      const apartment = t?.apartmentNumber || r.apartmentNumber || '';
+      return `
+        <tr>
+          <td>${formatDateEu(r.date)}</td>
+          <td>${apartment || '-'}</td>
+          <td>${name || '-'}</td>
+          <td>${meterTypeLabel(r.meterType)}</td>
+          <td>${r.value ?? ''}</td>
+          <td>
+            <button class="btn-approve-reading" data-id="${r.id}">אשר</button>
+            <button class="btn-reject-reading" data-id="${r.id}">דחה</button>
+          </td>
+        </tr>
+      `;
+    }).join('');
+
+    container.innerHTML = `
+      <h3 style="margin-bottom: 8px;">קריאות ממתינות לאישור</h3>
+      <table class="payments-table">
+        <thead>
+          <tr>
+            <th>תאריך</th>
+            <th>דירה</th>
+            <th>דייר</th>
+            <th>סוג</th>
+            <th>ערך</th>
+            <th>פעולות</th>
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>
+    `;
+  } catch (err) {
+    console.error(err);
+    container.innerHTML = `<p style="color: #e74c3c;">שגיאה בטעינת אישורים: ${err.message}</p>`;
   }
 }
 
@@ -1772,6 +2481,7 @@ async function renderPayments() {
 
   const tenants = await getAllTenants(true);
   const tenantMap = new Map(tenants.map(t => [t.id, t]));
+  const allowWrite = canWriteCurrentUser();
   
   // Try to auto-link payments without tenantId to matching tenants by name
   for (const p of all) {
@@ -1804,10 +2514,14 @@ async function renderPayments() {
     const name = t ? `${t.firstName || ''} ${t.lastName || ''}`.trim() : (p.tenantName || '');
     const apartment = t?.apartmentNumber || p.apartmentNumber || '';
     const missing = !t;
-    const linkCell = missing ? `
+    const linkCell = allowWrite && missing ? `
       <select class="link-payment-select" data-payment-id="${p.id}">
         ${buildTenantSelectOptions(tenants)}
       </select>
+    ` : '—';
+    const actionsCell = allowWrite ? `
+          <button class="btn-edit-payment" data-id="${p.id}">✏️</button>
+          <button class="btn-delete-payment" data-id="${p.id}">🗑️</button>
     ` : '—';
     return `
       <tr class="${missing ? 'row-missing' : ''}">
@@ -1819,10 +2533,7 @@ async function renderPayments() {
         <td>${p.method || ''}</td>
         <td>${p.notes || ''}</td>
         <td>${linkCell}</td>
-        <td>
-          <button class="btn-edit-payment" data-id="${p.id}">✏️</button>
-          <button class="btn-delete-payment" data-id="${p.id}">🗑️</button>
-        </td>
+        <td>${actionsCell}</td>
       </tr>
     `;
   }).join('');
@@ -1849,7 +2560,11 @@ async function renderPayments() {
 
 async function renderBalance() {
   const payments = await getAllPayments();
+  const readings = await getAllReadings();
+  const tenants = await getAllTenants(true);
   const expenses = await getAllExpenses();
+  const waterPrice = Number(await getSetting('waterPrice') ?? 0);
+  const kvaCon = Number(await getSetting('kvaCon') ?? 0);
   const includeSolarCheckbox = document.getElementById('balance-include-solar');
   const includeSolar = includeSolarCheckbox
     ? includeSolarCheckbox.checked
@@ -1901,6 +2616,7 @@ async function renderBalance() {
     if (!monthlyDetails.has(key)) monthlyDetails.set(key, { incomes: [], expenses: [] });
     return monthlyDetails.get(key);
   };
+  const tenantMap = new Map(tenants.map(t => [t.id, t]));
 
   payments.forEach(p => {
     const iso = parseDateToIso(p.date);
@@ -1908,10 +2624,14 @@ async function renderBalance() {
     const key = iso.slice(0, 7);
     const rec = ensureMonth(key);
     rec.income += Number(p.amount || 0);
+    const tenant = tenantMap.get(p.tenantId);
+    const resolvedTenantName = tenant
+      ? `${tenant.firstName || ''} ${tenant.lastName || ''}`.trim()
+      : (p.tenantName || '');
     const details = ensureDetails(key);
     details.incomes.push({
       date: p.date,
-      tenantName: p.tenantName || '',
+      tenantName: resolvedTenantName,
       account: p.account || '',
       method: p.method || '',
       amount: Number(p.amount || 0)
@@ -1960,6 +2680,62 @@ async function renderBalance() {
       amount
     });
   });
+
+  const readingsByTenantMeter = new Map();
+  readings.forEach(r => {
+    if (!r?.tenantId || !r?.meterType) return;
+    const key = `${r.tenantId}|${r.meterType}`;
+    if (!readingsByTenantMeter.has(key)) readingsByTenantMeter.set(key, []);
+    readingsByTenantMeter.get(key).push(r);
+  });
+  readingsByTenantMeter.forEach(arr => {
+    arr.sort((a, b) => dateValueFromAny(a.date) - dateValueFromAny(b.date));
+  });
+
+  readings
+    .filter(r => !!r.paid)
+    .forEach(r => {
+      const iso = parseDateToIso(r.date);
+      if (!iso) return;
+
+      const keyByTenant = `${r.tenantId}|${r.meterType}`;
+      const chain = readingsByTenantMeter.get(keyByTenant) || [];
+      const currentDateValue = dateValueFromAny(r.date);
+      if (Number.isNaN(currentDateValue)) return;
+
+      const previous = chain
+        .filter(item => item.id !== r.id && dateValueFromAny(item.date) < currentDateValue)
+        .sort((a, b) => dateValueFromAny(b.date) - dateValueFromAny(a.date))[0];
+
+      if (!previous) return;
+
+      const consumption = Number(r.value || 0) - Number(previous.value || 0);
+      let amount = 0;
+      if (r.meterType === 'electricity') {
+        amount = (kvaCon / 4) + (Math.max(0, consumption) * 0.65);
+      } else if (r.meterType === 'water') {
+        amount = Math.max(0, consumption) * waterPrice;
+      }
+      if (!amount) return;
+
+      const monthKey = iso.slice(0, 7);
+      const rec = ensureMonth(monthKey);
+      rec.income += amount;
+
+      const tenant = tenantMap.get(r.tenantId);
+      const tenantName = tenant
+        ? `${tenant.firstName || ''} ${tenant.lastName || ''}`.trim()
+        : (r.tenantName || '');
+
+      const details = ensureDetails(monthKey);
+      details.incomes.push({
+        date: r.date,
+        tenantName,
+        account: 'קריאות',
+        method: meterTypeLabel(r.meterType),
+        amount
+      });
+    });
 
   expenses.forEach(e => {
     const amount = Number(e.amount || 0);
@@ -2028,6 +2804,16 @@ async function renderBalance() {
   
   // Add exempt months
   parentExemptSet.forEach(key => allMonths.push(key));
+
+  // Add reduction months
+  if (parentReductions && typeof parentReductions === 'object') {
+    Object.keys(parentReductions).forEach(key => allMonths.push(key));
+  }
+
+  // Add reduction months
+  if (parentReductions && typeof parentReductions === 'object') {
+    Object.keys(parentReductions).forEach(key => allMonths.push(key));
+  }
   
   let parentMonths = [];
   
@@ -2161,7 +2947,7 @@ async function renderBalance() {
                     <th>תאריך</th>
                     <th>דייר</th>
                     <th>חשבון</th>
-                    <th>אמצעי</th>
+                    <th>אופן</th>
                     <th>סכום</th>
                   </tr>
                 </thead>
@@ -2194,26 +2980,93 @@ async function renderBalance() {
   const totalNet = totalIncome - totalExpense;
   const totalNetColor = totalNet >= 0 ? '#27ae60' : '#e74c3c';
 
-  const maxIncome = displayMonths.reduce((max, key) => {
-    const rec = monthly.get(key) || { income: 0 };
-    return Math.max(max, rec.income || 0);
-  }, 0);
+  // Calculate net amounts for chart
+  const netAmounts = displayMonths.map(key => {
+    const rec = monthly.get(key) || { income: 0, expense: 0 };
+    return (rec.income || 0) - (rec.expense || 0);
+  });
 
-  const chartBars = displayMonths.map(key => {
-    const rec = monthly.get(key) || { income: 0 };
-    const income = rec.income || 0;
-    const widthPct = maxIncome > 0 ? Math.round((income / maxIncome) * 100) : 0;
+  const maxNet = Math.max(...netAmounts.map(Math.abs), 1);
+  const totalNetSum = netAmounts.reduce((sum, n) => sum + n, 0);
+  const avgNet = displayMonths.length > 0 ? totalNetSum / displayMonths.length : 0;
+
+  const chartBars = displayMonths.map((key, index) => {
+    const rec = monthly.get(key) || { income: 0, expense: 0 };
+    const net = (rec.income || 0) - (rec.expense || 0);
+    const widthPct = maxNet > 0 ? Math.round((Math.abs(net) / maxNet) * 100) : 0;
     const label = `${key.slice(5, 7)}/${key.slice(0, 4)}`;
+    const diffFromAvg = net - avgNet;
+    const diffPct = avgNet !== 0 ? ((diffFromAvg / Math.abs(avgNet)) * 100).toFixed(1) : 0;
+    const diffSymbol = diffFromAvg > 0 ? '▲' : (diffFromAvg < 0 ? '▼' : '=');
+    const diffColor = diffFromAvg > 0 ? '#27ae60' : (diffFromAvg < 0 ? '#e74c3c' : '#666');
+    const barColor = net >= 0 ? 'linear-gradient(135deg, #2ecc71 0%, #27ae60 100%)' : 'linear-gradient(135deg, #e74c3c 0%, #c0392b 100%)';
+    const netColor = net >= 0 ? '#27ae60' : '#e74c3c';
     return `
-      <div style="display: grid; grid-template-columns: 80px 1fr 120px; gap: 12px; align-items: center;">
+      <div style="display: grid; grid-template-columns: 80px 1fr 120px 85px; gap: 12px; align-items: center;">
         <div style="font-size: 12px; color: #666;">${label}</div>
-        <div style="height: 14px; background: #eef2f5; border-radius: 8px; overflow: hidden;">
-          <div style="height: 100%; width: ${widthPct}%; background: #2ecc71; border-radius: 8px;"></div>
+        <div style="height: 16px; background: #eef2f5; border-radius: 8px; overflow: hidden;">
+          <div style="height: 100%; width: ${widthPct}%; background: ${barColor}; border-radius: 8px;"></div>
         </div>
-        <div style="font-size: 12px; color: #333; text-align: right; direction: ltr;">₪${formatCurrency(income)}</div>
+        <div style="font-size: 12px; color: ${netColor}; text-align: right; direction: ltr; font-weight: 500;">₪${formatCurrency(net)}</div>
+        <div style="font-size: 11px; color: ${diffColor}; text-align: center;">${diffSymbol} ${Math.abs(diffPct)}%</div>
       </div>
     `;
   }).join('');
+
+  // Generate yearly aggregation
+  const yearlyMap = new Map();
+  displayMonths.forEach(key => {
+    const year = Number(key.slice(0, 4));
+    const rec = monthly.get(key) || { income: 0, expense: 0 };
+    const net = (rec.income || 0) - (rec.expense || 0);
+    if (!yearlyMap.has(year)) {
+      yearlyMap.set(year, { income: 0, expense: 0, net: 0 });
+    }
+    const yearRec = yearlyMap.get(year);
+    yearRec.income += rec.income || 0;
+    yearRec.expense += rec.expense || 0;
+    yearRec.net += net;
+  });
+
+  const yearlyEntries = Array.from(yearlyMap.entries()).sort((a, b) => a[0] - b[0]);
+  const yearlyNetTotal = yearlyEntries.reduce((sum, [year, data]) => sum + data.net, 0);
+  const yearlyNetAvg = yearlyEntries.length > 0 ? yearlyNetTotal / yearlyEntries.length : 0;
+  const maxYearlyNet = yearlyEntries.reduce((max, [year, data]) => Math.max(max, Math.abs(data.net)), 0);
+
+  const yearlyChartBars = yearlyEntries.map(([year, data]) => {
+    const net = data.net;
+    const widthPct = maxYearlyNet > 0 ? Math.round((Math.abs(net) / maxYearlyNet) * 100) : 0;
+    const diffFromAvg = net - yearlyNetAvg;
+    const diffPct = yearlyNetAvg !== 0 ? ((diffFromAvg / Math.abs(yearlyNetAvg)) * 100).toFixed(1) : 0;
+    const diffSymbol = diffFromAvg > 0 ? '▲' : (diffFromAvg < 0 ? '▼' : '=');
+    const diffColor = diffFromAvg > 0 ? '#27ae60' : (diffFromAvg < 0 ? '#e74c3c' : '#666');
+    const barColor = net >= 0 ? 'linear-gradient(135deg, #3498db 0%, #2980b9 100%)' : 'linear-gradient(135deg, #e67e22 0%, #d35400 100%)';
+    const netColor = net >= 0 ? '#27ae60' : '#e74c3c';
+    return `
+      <div style="display: grid; grid-template-columns: 70px 1fr 130px 95px; gap: 12px; align-items: center;">
+        <div style="font-size: 13px; font-weight: bold; color: #333;">${year}</div>
+        <div style="height: 24px; background: #eef2f5; border-radius: 8px; overflow: hidden; position: relative;">
+          <div style="height: 100%; width: ${widthPct}%; background: ${barColor}; border-radius: 8px;"></div>
+        </div>
+        <div style="font-size: 13px; color: ${netColor}; text-align: right; direction: ltr; font-weight: 600;">₪${formatCurrency(net)}</div>
+        <div style="font-size: 11px; color: ${diffColor}; text-align: center;">${diffSymbol} ${Math.abs(diffPct)}%</div>
+      </div>
+    `;
+  }).join('');
+
+  const yearlyChartSection = yearlyEntries.length > 0 ? `
+    <div style="margin-top: 30px; padding: 16px; background: #f9f9f9; border-radius: 8px;">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+        <div style="font-weight: bold; font-size: 15px;">📊 נטו שנתי</div>
+        <div style="font-size: 13px; color: #666;">
+          ממוצע: <span style="font-weight: bold; color: ${yearlyNetAvg >= 0 ? '#27ae60' : '#e74c3c'};">₪${formatCurrency(yearlyNetAvg)}</span>
+        </div>
+      </div>
+      <div style="display: grid; gap: 10px; padding-top: 8px;">
+        ${yearlyChartBars}
+      </div>
+    </div>
+  ` : '';
 
   let cumulativeBalance = 0;
   const parentRows = parentMonths.length ? parentMonths.map(key => {
@@ -2272,8 +3125,14 @@ async function renderBalance() {
         </tr>
       </tbody>
     </table>
+    ${yearlyChartSection}
     <div style="margin-top: 20px;">
-      <div style="font-weight: bold; margin-bottom: 8px;">גרף הכנסות חודשי</div>
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+        <div style="font-weight: bold;">גרף נטו חודשי</div>
+        <div style="font-size: 13px; color: #666;">
+          ממוצע: <span style="font-weight: bold; color: ${avgNet >= 0 ? '#27ae60' : '#e74c3c'};">₪${formatCurrency(avgNet)}</span>
+        </div>
+      </div>
       <div style="display: grid; gap: 8px; border-top: 1px solid #eee; padding-top: 12px;">
         ${chartBars}
       </div>
@@ -2543,14 +3402,8 @@ function setupMomButtonListeners() {
         return `${month},${isExempt ? 1 : 0},${amount},"${reason}"`;
       });
       
-      const csv = '\uFEFF' + 'Month,Exempt,ReductionAmount,ReductionReason\n' + rows.join('\n');
-      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = 'parent_payments.csv';
-      a.click();
-      URL.revokeObjectURL(url);
+      const csv = 'Month,Exempt,ReductionAmount,ReductionReason\n' + rows.join('\n');
+      await downloadCsv(csv, 'parent_payments.csv');
     };
   }
   
@@ -2716,13 +3569,14 @@ async function exportParentPaymentsTableToPDF() {
       tableClone.style.borderCollapse = 'collapse';
       element.appendChild(tableClone);
       
-      html2pdf().set({
+      const worker = html2pdf().set({
         margin: [10, 10, 10, 10],
-        filename: filename,
         image: { type: 'jpeg', quality: 0.98 },
         html2canvas: { scale: 2, logging: false },
         jsPDF: { orientation: 'landscape', unit: 'mm', format: 'a4' }
-      }).from(element).save();
+      }).from(element);
+      const pdfBlob = await worker.outputPdf('blob');
+      await saveBlobAs(pdfBlob, filename, 'application/pdf');
       
       console.log('PDF export completed with html2pdf');
       return;
@@ -2887,7 +3741,8 @@ async function exportParentPaymentsTableToPDF() {
       );
     }
     
-    pdf.save(filename);
+    const pdfBlob = pdf.output('blob');
+    await saveBlobAs(pdfBlob, filename, 'application/pdf');
     console.log('PDF export completed with jsPDF');
     
   } catch (err) {
@@ -2918,7 +3773,12 @@ function resetPaymentFormMode() {
 
 // Expenses functions
 async function addExpense(data) {
+  if (isRemoteApp()) {
+    return await addExpenseRemote(data);
+  }
   const tx = await getTx('expenses', 'readwrite');
+  if (data.paid === undefined) data.paid = false;
+  data.paid = !!data.paid;
   data.createdAt = new Date().toISOString();
   return new Promise((res, rej) => {
     const r = tx.objectStore('expenses').add(data);
@@ -2928,6 +3788,9 @@ async function addExpense(data) {
 }
 
 async function deleteExpense(id) {
+  if (isRemoteApp()) {
+    return await deleteExpenseRemote(id);
+  }
   const tx = await getTx('expenses', 'readwrite');
   return new Promise((res, rej) => {
     const r = tx.objectStore('expenses').delete(id);
@@ -2937,11 +3800,16 @@ async function deleteExpense(id) {
 }
 
 async function updateExpense(id, data) {
+  if (isRemoteApp()) {
+    return await updateExpenseRemote(id, data);
+  }
   const tx = await getTx('expenses', 'readwrite');
   data.id = id;
   data.createdAt = new Date().toISOString();
   if (!data.period) data.period = '';
   if (!data.frequency) data.frequency = '';
+  if (data.paid === undefined) data.paid = false;
+  data.paid = !!data.paid;
   return new Promise((res, rej) => {
     const r = tx.objectStore('expenses').put(data);
     r.onsuccess = () => res(r.result);
@@ -2950,12 +3818,67 @@ async function updateExpense(id, data) {
 }
 
 async function getAllExpenses() {
+  if (isRemoteApp()) {
+    return await getAllExpensesRemote();
+  }
   const tx = await getTx('expenses', 'readonly');
   return new Promise((res, rej) => {
     const r = tx.objectStore('expenses').getAll();
     r.onsuccess = () => res((r.result || []).sort((a, b) => new Date(b.date) - new Date(a.date)));
     r.onerror = () => rej(r.error);
   });
+}
+
+async function clearAllExpenses() {
+  if (isRemoteApp()) {
+    await apiRequest('/api/expenses', { method: 'DELETE' });
+    return;
+  }
+  const tx = await getTx('expenses', 'readwrite');
+  return new Promise((res, rej) => {
+    const r = tx.objectStore('expenses').clear();
+    r.onsuccess = () => res();
+    r.onerror = () => rej(r.error);
+  });
+}
+
+async function addExpenseRemote(data) {
+  const payload = {
+    type: data.type || '',
+    period: data.period || '',
+    amount: data.amount ?? null,
+    frequency: data.frequency || '',
+    date: data.date || '',
+    paid: !!data.paid
+  };
+  return await apiRequest('/api/expenses', {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  });
+}
+
+async function updateExpenseRemote(id, data) {
+  const payload = {
+    type: data.type || '',
+    period: data.period || '',
+    amount: data.amount ?? null,
+    frequency: data.frequency || '',
+    date: data.date || '',
+    paid: !!data.paid
+  };
+  return await apiRequest(`/api/expenses/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(payload)
+  });
+}
+
+async function deleteExpenseRemote(id) {
+  await apiRequest(`/api/expenses/${id}`, { method: 'DELETE' });
+}
+
+async function getAllExpensesRemote() {
+  const rows = await apiRequest('/api/expenses');
+  return (rows || []).map(row => ({ ...row, paid: !!row.paid }));
 }
 
 async function expenseExists(expense) {
@@ -2966,6 +3889,12 @@ async function expenseExists(expense) {
     e.amount === expense.amount &&
     e.frequency === (expense.frequency || '')
   );
+}
+
+function parsePaidCsvValue(raw) {
+  const value = String(raw || '').trim().toLowerCase();
+  if (!value) return false;
+  return ['1', 'true', 'yes', 'y', 'כן'].includes(value);
 }
 
 async function renderExpenses() {
@@ -3024,6 +3953,9 @@ async function renderExpenses() {
 
 // Solar roof income functions
 async function addSolarIncome(data) {
+  if (isRemoteApp()) {
+    return await addSolarIncomeRemote(data);
+  }
   const tx = await getTx('solar', 'readwrite');
   data.createdAt = new Date().toISOString();
   return new Promise((res, rej) => {
@@ -3034,6 +3966,9 @@ async function addSolarIncome(data) {
 }
 
 async function updateSolarIncome(id, data) {
+  if (isRemoteApp()) {
+    return await updateSolarIncomeRemote(id, data);
+  }
   const tx = await getTx('solar', 'readwrite');
   data.id = id;
   data.createdAt = new Date().toISOString();
@@ -3045,6 +3980,9 @@ async function updateSolarIncome(id, data) {
 }
 
 async function deleteSolarIncome(id) {
+  if (isRemoteApp()) {
+    return await deleteSolarIncomeRemote(id);
+  }
   const tx = await getTx('solar', 'readwrite');
   return new Promise((res, rej) => {
     const r = tx.objectStore('solar').delete(id);
@@ -3054,6 +3992,10 @@ async function deleteSolarIncome(id) {
 }
 
 async function clearAllSolarIncome() {
+  if (isRemoteApp()) {
+    await apiRequest('/api/solar', { method: 'DELETE' });
+    return;
+  }
   const tx = await getTx('solar', 'readwrite');
   return new Promise((res, rej) => {
     const r = tx.objectStore('solar').clear();
@@ -3063,12 +4005,48 @@ async function clearAllSolarIncome() {
 }
 
 async function getAllSolarIncome() {
+  if (isRemoteApp()) {
+    return await getAllSolarIncomeRemote();
+  }
   const tx = await getTx('solar', 'readonly');
   return new Promise((res, rej) => {
     const r = tx.objectStore('solar').getAll();
     r.onsuccess = () => res((r.result || []).sort((a, b) => String(b.period || '').localeCompare(String(a.period || ''))));
     r.onerror = () => rej(r.error);
   });
+}
+
+async function addSolarIncomeRemote(data) {
+  const payload = {
+    period: data.period || '',
+    amount: data.amount ?? null,
+    date: data.date || ''
+  };
+  return await apiRequest('/api/solar', {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  });
+}
+
+async function updateSolarIncomeRemote(id, data) {
+  const payload = {
+    period: data.period || '',
+    amount: data.amount ?? null,
+    date: data.date || ''
+  };
+  return await apiRequest(`/api/solar/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(payload)
+  });
+}
+
+async function deleteSolarIncomeRemote(id) {
+  await apiRequest(`/api/solar/${id}`, { method: 'DELETE' });
+}
+
+async function getAllSolarIncomeRemote() {
+  const rows = await apiRequest('/api/solar');
+  return rows || [];
 }
 
 function normalizeSolarPeriod(period) {
@@ -3128,22 +4106,79 @@ async function renderSolarIncome() {
     `;
   }).join('');
 
-  // Generate chart bars
+  // Generate chart bars (monthly) with average and percentage
   const maxAmount = sortedItems.reduce((max, item) => Math.max(max, Number(item.amount || 0)), 0);
+  const monthlyTotal = sortedItems.reduce((sum, item) => sum + Number(item.amount || 0), 0);
+  const monthlyAvg = sortedItems.length > 0 ? monthlyTotal / sortedItems.length : 0;
+  
   const chartBars = sortedItems.map(item => {
     const amount = Number(item.amount || 0);
     const widthPct = maxAmount > 0 ? Math.round((amount / maxAmount) * 100) : 0;
     const label = formatPeriodDisplay(item.period) || '-';
+    const diffFromAvg = amount - monthlyAvg;
+    const diffPct = monthlyAvg > 0 ? ((diffFromAvg / monthlyAvg) * 100).toFixed(1) : 0;
+    const diffSymbol = diffFromAvg > 0 ? '▲' : (diffFromAvg < 0 ? '▼' : '=');
+    const diffColor = diffFromAvg > 0 ? '#27ae60' : (diffFromAvg < 0 ? '#e74c3c' : '#666');
     return `
-      <div style="display: grid; grid-template-columns: 100px 1fr 120px; gap: 12px; align-items: center;">
+      <div style="display: grid; grid-template-columns: 100px 1fr 120px 85px; gap: 12px; align-items: center;">
         <div style="font-size: 12px; color: #666;">${label}</div>
-        <div style="height: 14px; background: #eef2f5; border-radius: 8px; overflow: hidden;">
-          <div style="height: 100%; width: ${widthPct}%; background: #f39c12; border-radius: 8px;"></div>
+        <div style="height: 16px; background: #eef2f5; border-radius: 8px; overflow: hidden;">
+          <div style="height: 100%; width: ${widthPct}%; background: linear-gradient(135deg, #f39c12 0%, #e67e22 100%); border-radius: 8px;"></div>
         </div>
-        <div style="font-size: 12px; color: #333; text-align: right; direction: ltr;">₪${formatCurrency(amount)}</div>
+        <div style="font-size: 12px; color: #333; text-align: right; direction: ltr; font-weight: 500;">₪${formatCurrency(amount)}</div>
+        <div style="font-size: 11px; color: ${diffColor}; text-align: center;">${diffSymbol} ${Math.abs(diffPct)}%</div>
       </div>
     `;
   }).join('');
+
+  // Generate yearly aggregation
+  const yearlyMap = new Map();
+  sortedItems.forEach(item => {
+    const period = String(item.period || '').trim();
+    const parts = period.match(/\d+/g) || [];
+    const yearPart = parts.find(p => p.length === 4);
+    if (!yearPart) return;
+    const year = Number(yearPart);
+    const amount = Number(item.amount || 0);
+    yearlyMap.set(year, (yearlyMap.get(year) || 0) + amount);
+  });
+
+  const yearlyEntries = Array.from(yearlyMap.entries()).sort((a, b) => a[0] - b[0]);
+  const yearlyTotal = yearlyEntries.reduce((sum, [year, amount]) => sum + amount, 0);
+  const yearlyAvg = yearlyEntries.length > 0 ? yearlyTotal / yearlyEntries.length : 0;
+  const maxYearlyAmount = yearlyEntries.reduce((max, [year, amount]) => Math.max(max, amount), 0);
+
+  const yearlyChartBars = yearlyEntries.map(([year, amount]) => {
+    const widthPct = maxYearlyAmount > 0 ? Math.round((amount / maxYearlyAmount) * 100) : 0;
+    const diffFromAvg = amount - yearlyAvg;
+    const diffPct = yearlyAvg > 0 ? ((diffFromAvg / yearlyAvg) * 100).toFixed(1) : 0;
+    const diffSymbol = diffFromAvg > 0 ? '▲' : (diffFromAvg < 0 ? '▼' : '=');
+    const diffColor = diffFromAvg > 0 ? '#27ae60' : (diffFromAvg < 0 ? '#e74c3c' : '#666');
+    return `
+      <div style="display: grid; grid-template-columns: 70px 1fr 130px 95px; gap: 12px; align-items: center;">
+        <div style="font-size: 13px; font-weight: bold; color: #333;">${year}</div>
+        <div style="height: 24px; background: #eef2f5; border-radius: 8px; overflow: hidden; position: relative;">
+          <div style="height: 100%; width: ${widthPct}%; background: linear-gradient(135deg, #3498db 0%, #2980b9 100%); border-radius: 8px;"></div>
+        </div>
+        <div style="font-size: 13px; color: #333; text-align: right; direction: ltr; font-weight: 600;">₪${formatCurrency(amount)}</div>
+        <div style="font-size: 11px; color: ${diffColor}; text-align: center;">${diffSymbol} ${Math.abs(diffPct)}%</div>
+      </div>
+    `;
+  }).join('');
+
+  const yearlyChartSection = yearlyEntries.length > 0 ? `
+    <div style="margin-top: 30px; padding: 16px; background: #f9f9f9; border-radius: 8px;">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+        <div style="font-weight: bold; font-size: 15px;">📊 הכנסות שנתיות</div>
+        <div style="font-size: 13px; color: #666;">
+          ממוצע: <span style="font-weight: bold; color: #333;">₪${formatCurrency(yearlyAvg)}</span>
+        </div>
+      </div>
+      <div style="display: grid; gap: 10px; padding-top: 8px;">
+        ${yearlyChartBars}
+      </div>
+    </div>
+  ` : '';
 
   listEl.innerHTML = `
     <table class="payments-table">
@@ -3163,8 +4198,14 @@ async function renderSolarIncome() {
         </tr>
       </tbody>
     </table>
+    ${yearlyChartSection}
     <div style="margin-top: 20px;">
-      <div style="font-weight: bold; margin-bottom: 8px;">גרף הכנסות גג סולארי</div>
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+        <div style="font-weight: bold;">גרף הכנסות חודשי</div>
+        <div style="font-size: 13px; color: #666;">
+          ממוצע: <span style="font-weight: bold; color: #333;">₪${formatCurrency(monthlyAvg)}</span>
+        </div>
+      </div>
       <div style="display: grid; gap: 8px; border-top: 1px solid #eee; padding-top: 12px;">
         ${chartBars}
       </div>
@@ -3275,40 +4316,16 @@ showReadingsBtn?.addEventListener('click', async () => {
 
 // Close buttons
 document.getElementById('cancel')?.addEventListener('click', () => show(tenantForm));
-document.getElementById('close-archive')?.addEventListener('click', () => show(tenantForm));
-document.getElementById('cancel-reading')?.addEventListener('click', () => show(tenantForm));
-document.getElementById('close-settings')?.addEventListener('click', () => show(tenantForm));
-document.getElementById('close-payments')?.addEventListener('click', () => {
-  if (paymentForm) paymentForm.reset();
-  resetPaymentFormMode();
-  show(tenantForm);
-});
-document.getElementById('close-expenses')?.addEventListener('click', () => {
-  delete expensesView?.dataset?.editId;
-  document.getElementById('expense-arnona1').value = '';
-  document.getElementById('expense-arnona1-frequency').value = 'bimonthly';
-  document.getElementById('expense-arnona1-period').value = '';
-  document.getElementById('expense-arnona2').value = '';
-  document.getElementById('expense-arnona2-frequency').value = 'bimonthly';
-  document.getElementById('expense-arnona2-period').value = '';
-  document.getElementById('expense-water').value = '';
-  document.getElementById('expense-water-period').value = '';
-  document.getElementById('expense-electricity').value = '';
-  document.getElementById('expense-electricity-period').value = '';
-  show(tenantForm);
-});
-document.getElementById('close-solar')?.addEventListener('click', () => {
-  delete solarView?.dataset?.editId;
-  const periodEl = document.getElementById('solar-period');
-  const amountEl = document.getElementById('solar-amount');
-  if (periodEl) periodEl.value = '';
-  if (amountEl) amountEl.value = '';
-  show(tenantForm);
-});
 
 // Expenses form
 document.getElementById('save-expense')?.addEventListener('click', async () => {
   const editId = expensesView?.dataset?.editId;
+  let existingPaid = false;
+  if (editId) {
+    const expenses = await getAllExpenses();
+    const existing = expenses.find(ex => ex.id === Number(editId));
+    existingPaid = !!existing?.paid;
+  }
   const arnona1 = parseFloat(document.getElementById('expense-arnona1').value) || 0;
   const arnona1Freq = document.getElementById('expense-arnona1-frequency').value;
   const arnona1Period = document.getElementById('expense-arnona1-period').value.trim();
@@ -3341,7 +4358,8 @@ document.getElementById('save-expense')?.addEventListener('click', async () => {
         period: arnona1Period,
         type: 'arnona1',
         amount: arnona1,
-        frequency: arnona1Freq
+        frequency: arnona1Freq,
+        paid: existingPaid
       };
       await updateExpense(id, expense1);
     } else if (arnona2 > 0) {
@@ -3349,21 +4367,24 @@ document.getElementById('save-expense')?.addEventListener('click', async () => {
         period: arnona2Period,
         type: 'arnona2',
         amount: arnona2,
-        frequency: arnona2Freq
+        frequency: arnona2Freq,
+        paid: existingPaid
       };
       await updateExpense(id, expense2);
     } else if (water > 0) {
       const expenseWater = {
         period: waterPeriod,
         type: 'water',
-        amount: water
+        amount: water,
+        paid: existingPaid
       };
       await updateExpense(id, expenseWater);
     } else if (electricity > 0) {
       const expenseElec = {
         period: electricityPeriod,
         type: 'electricity',
-        amount: electricity
+        amount: electricity,
+        paid: existingPaid
       };
       await updateExpense(id, expenseElec);
     }
@@ -3376,7 +4397,8 @@ document.getElementById('save-expense')?.addEventListener('click', async () => {
         period: arnona1Period,
         type: 'arnona1',
         amount: arnona1,
-        frequency: arnona1Freq
+        frequency: arnona1Freq,
+        paid: false
       };
       if (!(await expenseExists(expense1))) {
         await addExpense(expense1);
@@ -3388,7 +4410,8 @@ document.getElementById('save-expense')?.addEventListener('click', async () => {
         period: arnona2Period,
         type: 'arnona2',
         amount: arnona2,
-        frequency: arnona2Freq
+        frequency: arnona2Freq,
+        paid: false
       };
       if (!(await expenseExists(expense2))) {
         await addExpense(expense2);
@@ -3399,7 +4422,8 @@ document.getElementById('save-expense')?.addEventListener('click', async () => {
       const expenseWater = {
         period: waterPeriod,
         type: 'water',
-        amount: water
+        amount: water,
+        paid: false
       };
       if (!(await expenseExists(expenseWater))) {
         await addExpense(expenseWater);
@@ -3410,7 +4434,8 @@ document.getElementById('save-expense')?.addEventListener('click', async () => {
       const expenseElec = {
         period: electricityPeriod,
         type: 'electricity',
-        amount: electricity
+        amount: electricity,
+        paid: false
       };
       if (!(await expenseExists(expenseElec))) {
         await addExpense(expenseElec);
@@ -3483,13 +4508,7 @@ document.getElementById('expenses-export-csv')?.addEventListener('click', async 
   const expenses = await getAllExpenses();
   const csv = 'Type,Period,Amount,Frequency\n' + 
     expenses.map(e => `${e.type},${e.period||''},${e.amount||0},${e.frequency||''}`).join('\n');
-  const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = 'expenses.csv';
-  a.click();
-  URL.revokeObjectURL(url);
+  await downloadCsv(csv, 'expenses.csv');
 });
 
 document.getElementById('expenses-import-csv')?.addEventListener('click', async () => {
@@ -3583,13 +4602,7 @@ document.getElementById('solar-list')?.addEventListener('click', async e => {
 document.getElementById('solar-export-csv')?.addEventListener('click', async () => {
   const items = await getAllSolarIncome();
   const csv = 'Period,Amount\n' + items.map(i => `${i.period || ''},${i.amount || 0}`).join('\n');
-  const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = 'solar_income.csv';
-  a.click();
-  URL.revokeObjectURL(url);
+  await downloadCsv(csv, 'solar_income.csv');
 });
 
 document.getElementById('solar-import-csv')?.addEventListener('click', async () => {
@@ -3800,7 +4813,8 @@ paymentsImportBtn?.addEventListener('click', async () => {
   try {
     const text = await readCsvWithEncoding(file);
     const res = await importPaymentsCsvEnglish(text);
-    if (statusEl) statusEl.textContent = `יובאו ${res.success}/${res.total} תשלומים (${res.skipped} כפילויות דולגו) ✓`;
+    const unmatchedText = res.unmatched ? `, ${res.unmatched} ללא התאמה` : '';
+    if (statusEl) statusEl.textContent = `יובאו ${res.success}/${res.total} תשלומים (${res.skipped} כפילויות דולגו${unmatchedText}) ✓`;
   } catch (e) {
     if (statusEl) statusEl.textContent = `שגיאה: ${e.message}`;
   }
@@ -3855,6 +4869,7 @@ saveSettingsBtn?.addEventListener('click', async () => {
 // Manual tenant sync
 const syncPushBtn = document.getElementById('sync-tenants-push');
 const syncPullBtn = document.getElementById('sync-tenants-pull');
+const syncAllBtn = document.getElementById('sync-all-data');
 const syncStatusEl = document.getElementById('sync-status');
 
 const TENANT_SYNC_FIELDS = [
@@ -3970,14 +4985,6 @@ function resolveTenantConflicts(conflicts) {
   });
 }
 
-document.getElementById('sync-conflict-close')?.addEventListener('click', () => {
-  closeTenantConflictModal();
-  if (resolveTenantConflictsPromise) {
-    resolveTenantConflictsPromise();
-    resolveTenantConflictsPromise = null;
-  }
-});
-
 document.getElementById('sync-conflict-list')?.addEventListener('click', async e => {
   const btn = e.target.closest('button[data-choice]');
   if (!btn) return;
@@ -4077,6 +5084,18 @@ syncPullBtn?.addEventListener('click', async () => {
   await syncTenantsPull();
 });
 
+syncAllBtn?.addEventListener('click', async () => {
+  await syncAllLocalDataToServer();
+  await renderTenants();
+  await renderArchive();
+  await renderReadings();
+  await renderPayments();
+  await renderExpenses();
+  await renderSolarIncome();
+  await renderBalance();
+  await renderMom();
+});
+
 
 // Bills actions
 const generateBillsBtn = document.getElementById('generate-bills');
@@ -4128,7 +5147,8 @@ readingsImportBtn?.addEventListener('click', async () => {
   try {
     const text = await readCsvWithEncoding(file);
     const res = await importReadingsCsv(text);
-    if (statusEl) statusEl.textContent = `יובאו ${res.success}/${res.total} קריאות (${res.skipped} כפילויות דולגו) ✓`;
+    const unmatchedText = res.unmatched ? `, ${res.unmatched} ללא התאמה` : '';
+    if (statusEl) statusEl.textContent = `יובאו ${res.success}/${res.total} קריאות (${res.skipped} כפילויות דולגו${unmatchedText}) ✓`;
   } catch (e) {
     if (statusEl) statusEl.textContent = `שגיאה: ${e.message}`;
   }
@@ -4161,18 +5181,33 @@ document.getElementById('bills-report')?.addEventListener('click', e => {
 
 // Reading edit/delete handlers (delegated)
 document.getElementById('readings-list')?.addEventListener('click', async e => {
+  const header = e.target.closest('th[data-key]');
+  if (header) {
+    const key = header.dataset.key;
+    if (readingsSort.key === key) {
+      readingsSort.dir = readingsSort.dir === 'asc' ? 'desc' : 'asc';
+    } else {
+      readingsSort.key = key;
+      readingsSort.dir = 'asc';
+    }
+    await renderReadings();
+    return;
+  }
   const editBtn = e.target.closest('.btn-edit-reading');
   const delBtn = e.target.closest('.btn-delete-reading');
+  const row = e.target.closest('.reading-row');
   if (editBtn) {
     const id = Number(editBtn.dataset.id);
     try {
-      const rec = await new Promise((res, rej) => {
-        getTx('readings', 'readonly').then(tx => {
-          const r = tx.objectStore('readings').get(id);
-          r.onsuccess = () => res(r.result);
-          r.onerror = () => rej(r.error);
-        }).catch(rej);
-      });
+      const rec = isRemoteApp()
+        ? await getReadingByIdRemote(id)
+        : await new Promise((res, rej) => {
+            getTx('readings', 'readonly').then(tx => {
+              const r = tx.objectStore('readings').get(id);
+              r.onsuccess = () => res(r.result);
+              r.onerror = () => rej(r.error);
+            }).catch(rej);
+          });
       if (!rec) return alert('לא נמצא רישום');
       const newVal = prompt('ערוך ערך קריאה (ללא יחידות):', String(rec.value));
       if (newVal === null) return;
@@ -4196,9 +5231,70 @@ document.getElementById('readings-list')?.addEventListener('click', async e => {
       } catch (err) { console.error(err); alert('שגיאה במחיקה: ' + err.message); }
     }
   }
+  if (row) {
+    if (e.target.closest('button') || e.target.closest('select') || e.target.closest('input')) return;
+    document.querySelectorAll('.reading-row.selected').forEach(r => r.classList.remove('selected'));
+    row.classList.add('selected');
+    const id = Number(row.dataset.readingId);
+    const detailRow = document.querySelector(`.reading-detail-row[data-reading-id="${id}"]`);
+    if (!detailRow) return;
+    const cell = detailRow.querySelector('td');
+    if (!cell) return;
+    const cache = window.__readingsDetailCache || {};
+    const prev = cache.prevById ? cache.prevById.get(id) : null;
+    const reading = cache.readingById ? cache.readingById.get(id) : null;
+    const waterPrice = Number(cache.waterPrice || 0);
+    const kvaCon = Number(cache.kvaCon || 0);
+
+    if (!reading) return;
+
+    const meterLabel = meterTypeLabel(reading.meterType);
+    const currentValue = Number(reading.value || 0);
+    const prevValue = prev ? Number(prev.value || 0) : null;
+    const prevDate = prev ? formatDateEu(prev.date) : '';
+    const currentDateValue = dateValueFromAny(reading.date);
+    const prevDateValue = prev ? dateValueFromAny(prev.date) : Number.NaN;
+    const daysBetween = prev && !Number.isNaN(currentDateValue) && !Number.isNaN(prevDateValue)
+      ? Math.round((currentDateValue - prevDateValue) / (1000 * 60 * 60 * 24))
+      : null;
+
+    let consumption = null;
+    let amount = null;
+    if (prev) {
+      consumption = currentValue - Number(prev.value || 0);
+      if (meterLabel === 'חשמל') {
+        amount = (kvaCon / 4) + (Math.max(0, consumption) * 0.65);
+      } else if (meterLabel === 'מים') {
+        amount = Math.max(0, consumption) * waterPrice;
+      }
+    }
+
+    if (!prev) {
+      cell.innerHTML = `<div style="color:#666;">אין קריאה קודמת לחישוב.</div>`;
+    } else {
+      cell.innerHTML = `
+        <div style="display:grid; grid-template-columns: repeat(6, 1fr); gap: 12px; align-items: center;">
+          <div><strong>קריאה קודמת:</strong><br>${prevValue}</div>
+          <div><strong>תאריך קודם:</strong><br>${prevDate || '-'}</div>
+          <div><strong>קריאה נוכחית:</strong><br>${currentValue}</div>
+          <div><strong>ימים בין קריאות:</strong><br>${daysBetween ?? '-'}</div>
+          <div><strong>צריכה:</strong><br>${Number(consumption || 0).toFixed(2)}</div>
+          <div><strong>חיוב:</strong><br>₪${formatCurrency(amount || 0)}</div>
+        </div>
+      `;
+    }
+    detailRow.classList.toggle('hidden');
+  }
 });
 
 document.getElementById('readings-list')?.addEventListener('change', async e => {
+  const paidToggle = e.target.closest('.reading-paid-toggle');
+  if (paidToggle) {
+    const readingId = Number(paidToggle.dataset.readingId);
+    await updateReading(readingId, { paid: paidToggle.checked });
+    await renderReadings();
+    return;
+  }
   const select = e.target.closest('.link-reading-select');
   if (!select) return;
   const tenantId = Number(select.value);
@@ -4234,7 +5330,7 @@ async function exportReadingsCsv() {
   const tenants = await getAllTenants(true);
   const tenantMap = new Map(tenants.map(t => [t.id, t]));
   const rows = [
-    ['date', 'apartment', 'tenant', 'meter_type', 'meter_number', 'value']
+    ['date', 'apartment', 'tenant', 'meter_type', 'meter_number', 'value', 'paid']
   ];
 
   readings.slice().sort((a, b) => new Date(a.date) - new Date(b.date)).forEach(r => {
@@ -4248,7 +5344,8 @@ async function exportReadingsCsv() {
       name,
       meterTypeLabel(r.meterType),
       meterNumber,
-      r.value ?? ''
+      r.value ?? '',
+      r.paid ? '1' : '0'
     ]);
   });
 
@@ -4264,10 +5361,12 @@ async function importReadingsCsv(text) {
   const startIdx = rows[0][0]?.toLowerCase() === 'date' ? 1 : 0;
   const existing = await getAllReadings();
   const existingSet = new Set(existing.map(r => `${r.tenantId}|${r.meterType}|${r.date}`));
-  const tenants = await getAllTenants(true);
+  const tenants = isRemoteApp() ? await getAllTenantsRemote(true) : await getAllTenants(true);
   const tenantIndex = buildTenantNameIndex(tenants);
+  const tenantPartsIndex = buildTenantNamePartsIndex(tenants);
 
-  let total = 0, success = 0, skipped = 0;
+  let total = 0, success = 0, skipped = 0, unmatched = 0;
+  const unmatchedNames = new Set();
 
   for (let i = startIdx; i < rows.length; i++) {
     const row = rows[i];
@@ -4277,10 +5376,23 @@ async function importReadingsCsv(text) {
     const meterType = meterTypeFromCsv(row[3]);
     const meterNumber = row[4]?.trim();
     const value = Number(String(row[5] || '').replace(/,/g, ''));
+    const paid = parsePaidCsvValue(row[6]);
 
     if (!date || !apartment || !meterType || Number.isNaN(value)) continue;
     total++;
-    const tenant = findTenantByName(tenantIndex, tenantName);
+    let tenant = findTenantByName(tenantIndex, tenantName);
+    if (!tenant && tenantName) {
+      const nameParts = splitName(tenantName);
+      tenant = findTenantByNameParts(tenantPartsIndex, nameParts.firstName, nameParts.lastName);
+    }
+    if (!tenant && tenantName) {
+      tenant = findTenantByNameMatch(tenants, tenantName);
+    }
+    if (!tenant) {
+      unmatched++;
+      if (tenantName) unmatchedNames.add(tenantName);
+      continue;
+    }
     const key = `${tenant?.id || ''}|${meterType}|${date}`;
     if (existingSet.has(key)) { skipped++; continue; }
 
@@ -4289,6 +5401,7 @@ async function importReadingsCsv(text) {
       meterType,
       value,
       date,
+      paid,
       tenantName: tenant ? `${tenant.firstName || ''} ${tenant.lastName || ''}`.trim() : (tenantName || ''),
       apartmentNumber: tenant?.apartmentNumber || apartment || ''
     };
@@ -4297,7 +5410,11 @@ async function importReadingsCsv(text) {
     success++;
   }
 
-  return { success, total, skipped };
+  if (unmatchedNames.size > 0) {
+    console.warn('Unmatched tenant names in readings import:', Array.from(unmatchedNames));
+  }
+
+  return { success, total, skipped, unmatched };
 }
 
 async function exportPaymentsCsvEnglish() {
@@ -4348,7 +5465,8 @@ async function importPaymentsCsvEnglish(text) {
   const existingPayments = await getAllPayments();
   const existingSet = new Set(existingPayments.map(p => buildPaymentKey(p.tenantId, p.tenantName, p.apartmentNumber, p.date, p.amount, p.account)));
 
-  let total = 0, success = 0, skipped = 0;
+  let total = 0, success = 0, skipped = 0, unmatched = 0;
+  const unmatchedNames = new Set();
 
   for (let i = startIdx; i < rows.length; i++) {
     const row = rows[i];
@@ -4365,7 +5483,18 @@ async function importPaymentsCsvEnglish(text) {
 
     if (!date || Number.isNaN(amount)) continue;
     total++;
-    const tenant = findTenantByName(tenantIndex, tenantName);
+    let tenant = findTenantByName(tenantIndex, tenantName);
+    if (!tenant && tenantName) {
+      tenant = findTenantByNameParts(tenantPartsIndex, firstName, lastName);
+    }
+    if (!tenant && tenantName) {
+      tenant = findTenantByNameMatch(tenants, tenantName);
+    }
+    if (!tenant) {
+      unmatched++;
+      if (tenantName) unmatchedNames.add(tenantName);
+      continue;
+    }
     const key = buildPaymentKey(tenant?.id, tenantName, apartment, date, amount, account);
     if (existingSet.has(key)) { skipped++; continue; }
 
@@ -4382,8 +5511,11 @@ async function importPaymentsCsvEnglish(text) {
     existingSet.add(key);
     success++;
   }
+  if (unmatchedNames.size > 0) {
+    console.warn('Unmatched tenant names in payments import:', Array.from(unmatchedNames));
+  }
 
-  return { success, total, skipped };
+  return { success, total, skipped, unmatched };
 }
 
 // Payments edit/delete handlers
@@ -4393,12 +5525,8 @@ document.getElementById('payments-list')?.addEventListener('click', async e => {
   if (editBtn) {
     const id = Number(editBtn.dataset.id);
     try {
-      const tx = await getTx('payments', 'readonly');
-      const rec = await new Promise((res, rej) => {
-        const r = tx.objectStore('payments').get(id);
-        r.onsuccess = () => res(r.result);
-        r.onerror = () => rej(r.error);
-      });
+      const allPayments = await getAllPayments();
+      const rec = allPayments.find(p => p.id === id);
       if (!rec) return alert('לא נמצא רישום');
 
       await populateTenantSelects();
@@ -4760,75 +5888,147 @@ async function renderCurrentMonthSummary() {
 
 async function exportTimelineCSV() {
   const tenants = await getAllTenants(true);
-  
+  const payments = await getAllPayments();
+
   if (tenants.length === 0) {
     alert('אין דיירים לייצוא');
     return;
   }
 
-  // Group by apartment
-  const byApartment = {};
-  tenants.forEach(t => {
-    const apt = t.apartmentNumber || 'ללא מספר';
-    if (!byApartment[apt]) byApartment[apt] = [];
-    byApartment[apt].push(t);
+  const paymentRanges = new Map();
+  payments.forEach(p => {
+    if (!p.tenantId) return;
+    const iso = parseDateToIso(p.date);
+    if (!iso) return;
+    if (!paymentRanges.has(p.tenantId)) {
+      paymentRanges.set(p.tenantId, { min: iso, max: iso });
+      return;
+    }
+    const range = paymentRanges.get(p.tenantId);
+    if (iso < range.min) range.min = iso;
+    if (iso > range.max) range.max = iso;
   });
 
-  // Sort apartments
-  const apartmentsSorted = Object.keys(byApartment).sort((a, b) => {
-    const aNum = Number(a);
-    const bNum = Number(b);
-    if (Number.isNaN(aNum) && Number.isNaN(bNum)) return a.localeCompare(b);
+  const tenantColumns = tenants
+    .map(t => {
+      const name = `${t.firstName || ''} ${t.lastName || ''}`.trim() || '-';
+      const range = paymentRanges.get(t.id);
+      const startIso = parseDateToIso(t.startDate) || range?.min || '';
+      const endIso = parseDateToIso(t.moveOutDate || t.endDate) || range?.max || '';
+      return {
+        id: t.id,
+        name,
+        apt: t.apartmentNumber || 'ללא מספר',
+        startIso,
+        endIso
+      };
+    })
+    .filter(t => !!t.startIso);
+
+  if (tenantColumns.length === 0) {
+    alert('אין דיירים עם תאריך התחלה');
+    return;
+  }
+
+  tenantColumns.sort((a, b) => {
+    const aNum = Number(a.apt);
+    const bNum = Number(b.apt);
+    if (Number.isNaN(aNum) && Number.isNaN(bNum)) return a.apt.localeCompare(b.apt);
     if (Number.isNaN(aNum)) return 1;
     if (Number.isNaN(bNum)) return -1;
-    return aNum - bNum;
+    if (aNum !== bNum) return aNum - bNum;
+    return a.startIso.localeCompare(b.startIso);
   });
 
-  // Build CSV
-  const rows = [['דירה', 'שם דייר', 'תאריך התחלה', 'תאריך סיום', 'חודשים מושכרים']];
+  const monthIndex = iso => {
+    const d = parseDate(iso);
+    if (!d) return null;
+    return d.getUTCFullYear() * 12 + d.getUTCMonth();
+  };
 
-  apartmentsSorted.forEach(apt => {
-    byApartment[apt].forEach(tenant => {
-      if (!tenant.startDate) return; // Skip tenants without start date
+  let minIndex = null;
+  let maxIndex = null;
+  const todayIso = new Date().toISOString().slice(0, 10);
 
-      const name = `${tenant.firstName || ''} ${tenant.lastName || ''}`.trim();
-      const startDate = parseDate(tenant.startDate);
-      const endDate = parseDate(tenant.moveOutDate || tenant.endDate);
-      
-      if (!startDate) return;
+  tenantColumns.forEach(t => {
+    const startIdx = monthIndex(t.startIso);
+    const endIdx = monthIndex(t.endIso || todayIso);
+    if (startIdx === null || endIdx === null) return;
+    minIndex = minIndex === null ? startIdx : Math.min(minIndex, startIdx);
+    maxIndex = maxIndex === null ? endIdx : Math.max(maxIndex, endIdx);
+  });
 
-      // Calculate months
-      const months = [];
-      let current = new Date(startDate.getFullYear(), startDate.getUTCMonth(), 1);
-      const end = endDate || new Date(); // If no end date, use today
+  if (minIndex === null || maxIndex === null) {
+    alert('לא ניתן לחשב טווח חודשי');
+    return;
+  }
 
-      while (current <= end) {
-        const year = current.getFullYear();
-        const month = String(current.getMonth() + 1).padStart(2, '0');
-        months.push(`${year}-${month}`);
-        current = new Date(current.getFullYear(), current.getMonth() + 1, 1);
+  const paymentMap = new Map();
+  payments.forEach(p => {
+    if (!p.tenantId) return;
+    const iso = parseDateToIso(p.date);
+    if (!iso) return;
+    const key = `${p.tenantId}|${iso.slice(0, 7)}`;
+    if (!paymentMap.has(key)) paymentMap.set(key, { total: 0, byAccount: new Map() });
+    const rec = paymentMap.get(key);
+    const amount = Number(p.amount || 0);
+    rec.total += amount;
+    const acct = p.account || '';
+    rec.byAccount.set(acct, (rec.byAccount.get(acct) || 0) + amount);
+  });
+
+  const rows = [];
+  rows.push(['חודש', ...tenantColumns.map(t => `דירה ${t.apt}`)]);
+  rows.push(['', ...tenantColumns.map(t => t.name)]);
+
+  for (let idx = minIndex; idx <= maxIndex; idx += 1) {
+    const year = Math.floor(idx / 12);
+    const month = String((idx % 12) + 1).padStart(2, '0');
+    const monthKey = `${year}-${month}`;
+    const monthLabel = `${month}/${year}`;
+
+    const row = [monthLabel];
+
+    tenantColumns.forEach(t => {
+      const startIdx = monthIndex(t.startIso);
+      const endIdx = monthIndex(t.endIso || todayIso);
+      const isActive = startIdx !== null && endIdx !== null && idx >= startIdx && idx <= endIdx;
+
+      const payKey = `${t.id}|${monthKey}`;
+      const payment = paymentMap.get(payKey);
+      const parts = [];
+      const accountCode = acct => {
+        if (acct === 'my') return 'N';
+        if (acct === 'grandma') return 'E';
+        const raw = String(acct || '').trim();
+        return raw ? raw[0].toUpperCase() : 'A';
+      };
+
+      if (payment && payment.total) {
+        const acctParts = [];
+        payment.byAccount.forEach((amt, acct) => {
+          if (!amt) return;
+          acctParts.push(`${accountCode(acct)}-${formatCurrency(amt)}`);
+        });
+        if (acctParts.length) parts.push(acctParts.join(','));
+      } else if (isActive) {
+        parts.push('R');
       }
 
-      const endStr = tenant.moveOutDate || tenant.endDate || 'עד היום';
-      rows.push([
-        apt,
-        name,
-        formatDateEu(tenant.startDate),
-        endStr === 'עד היום' ? endStr : formatDateEu(endStr),
-        months.join(', ')
-      ]);
+      row.push(parts.join(' '));
     });
-  });
 
-  // Convert to CSV
-  const csv = rows.map(row => 
+    rows.push(row);
+  }
+
+  const csv = rows.map(row =>
     row.map(cell => {
       const cellStr = String(cell || '');
       return '"' + cellStr.replace(/"/g, '""') + '"';
     }).join(',')
   ).join('\n');
 
-  downloadCsv(csv, `timeline_${new Date().toISOString().slice(0, 10)}.csv`);
+  downloadCsv(csv, `timeline_matrix_${new Date().toISOString().slice(0, 10)}.csv`);
   alert('קובץ ייצא בהצלחה!');
 }
 
@@ -4950,31 +6150,37 @@ async function addSampleTenants() {
 
 async function renderIncomeSummary() {
   const payments = await getAllPayments();
+  const expenses = await getAllExpenses();
   const container = document.getElementById('income-summary');
   if (!container) return;
 
-  // Group payments by account
-  const byAccount = {
-    my: payments.filter(p => p.account === 'my').reduce((sum, p) => sum + Number(p.amount), 0),
-    grandma: payments.filter(p => p.account === 'grandma').reduce((sum, p) => sum + Number(p.amount), 0)
-  };
+  const myIncome = payments
+    .filter(p => accountValueFromCsv(p.account) === 'my')
+    .reduce((sum, p) => sum + Number(p.amount || 0), 0);
+  const grandmaIncome = payments
+    .filter(p => accountValueFromCsv(p.account) === 'grandma')
+    .reduce((sum, p) => sum + Number(p.amount || 0), 0);
+  const totalExpense = expenses.reduce((sum, ex) => sum + Number(ex.amount || 0), 0);
+  const myNet = myIncome - totalExpense;
+  const grandmaNet = grandmaIncome;
+  const myNetColor = myNet >= 0 ? '#27ae60' : '#e74c3c';
+  const grandmaNetColor = grandmaNet >= 0 ? '#27ae60' : '#e74c3c';
 
-  const cards = [
-    { account: 'my', label: 'ניר וליאור', amount: byAccount.my },
-    { account: 'grandma', label: 'אסתר ומיכאל', amount: byAccount.grandma }
-  ];
-
-  if (payments.length === 0) {
+  if (payments.length === 0 && expenses.length === 0) {
     container.innerHTML = '<p style="text-align: center; color: #999; grid-column: 1/-1;">אין תשלומים עדיין</p>';
     return;
   }
 
-  container.innerHTML = cards.map(card => `
+  container.innerHTML = `
     <div class="income-card">
-      <h4>${card.label}</h4>
-      <div class="amount" style="direction: ltr; text-align: left;">₪${formatCurrency(card.amount)}</div>
+      <h4>נטו ניר וליאור</h4>
+      <div class="amount" style="color: ${myNetColor}; direction: ltr; text-align: left;">₪${formatCurrency(myNet)}</div>
     </div>
-  `).join('');
+    <div class="income-card">
+      <h4>נטו אסתר ומיכאל</h4>
+      <div class="amount" style="color: ${grandmaNetColor}; direction: ltr; text-align: left;">₪${formatCurrency(grandmaNet)}</div>
+    </div>
+  `;
 }
 
 async function renderTimeline() {
@@ -5311,10 +6517,6 @@ showDashboardBtn?.addEventListener('click', async () => {
   show(document.getElementById('dashboard-view'));
 });
 
-document.getElementById('close-dashboard')?.addEventListener('click', () => {
-  show(tenantForm);
-});
-
 document.getElementById('export-timeline-csv')?.addEventListener('click', async () => {
   await exportTimelineCSV();
 });
@@ -5406,6 +6608,19 @@ async function clearAllParentPaymentsData() {
 
 // Init
 window.addEventListener('DOMContentLoaded', async () => { 
+  const authActionBtn = document.getElementById('auth-action-btn');
+  if (authActionBtn) {
+    authActionBtn.addEventListener('click', async () => {
+      if (currentUser) {
+        setAuthToken('');
+        currentUser = null;
+        window.location.reload();
+        return;
+      }
+      await ensureServerAuth();
+    });
+  }
+
   // Load app title if saved
   const savedTitle = await getSetting('appTitle');
   if (savedTitle) {
@@ -5417,6 +6632,13 @@ window.addEventListener('DOMContentLoaded', async () => {
   const savedServerUrl = await getSetting('serverUrl');
   if (savedServerUrl) {
     window.CURRENT_SERVER_URL = savedServerUrl;
+  }
+
+  if (isRemoteApp()) {
+    await ensureRemoteAuth();
+    updateAuthUI();
+  } else {
+    updateAuthUI();
   }
   
   // If accessing via remote (Cloudflare), sync remote tenants to local IndexedDB

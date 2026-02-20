@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="he">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>תשלום לאסתר ומיכאל</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <div class="header-content">
+      <div class="header-title">
+        <h1>תשלום לאסתר ומיכאל</h1>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <section class="content">
+      <div class="card" id="mom-public-card">
+        <div id="mom-public-status" style="margin-bottom: 12px; color: #666;"></div>
+        <div id="mom-public-table"></div>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    function formatCurrency(value) {
+      const num = Number(value || 0);
+      return num.toLocaleString('he-IL', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    }
+
+    function escapeHtml(value) {
+      const div = document.createElement('div');
+      div.textContent = value ?? '';
+      return div.innerHTML;
+    }
+
+    async function loadMomTable() {
+      const statusEl = document.getElementById('mom-public-status');
+      const tableEl = document.getElementById('mom-public-table');
+      if (statusEl) statusEl.textContent = 'טוען נתונים...';
+
+      try {
+        const res = await fetch('/public/mom-data');
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        const rows = data?.rows || [];
+
+        if (!rows.length) {
+          if (statusEl) statusEl.textContent = '';
+          tableEl.innerHTML = '<div style="text-align:center;color:#999;">אין נתונים</div>';
+          return;
+        }
+
+        const body = rows.map(row => {
+          const balanceColor = row.balance >= 0 ? '#27ae60' : '#e74c3c';
+          const cumulativeColor = row.cumulativeBalance >= 0 ? '#27ae60' : '#e74c3c';
+          return `
+            <tr>
+              <td style="white-space:nowrap;">${escapeHtml(row.label)}</td>
+              <td style="white-space:nowrap;direction: ltr; text-align: left;">₪${formatCurrency(row.obligation)}</td>
+              <td style="white-space:nowrap;direction: ltr; text-align: left;">₪${formatCurrency(row.reductionAmount)}</td>
+              <td style="white-space:nowrap;">${escapeHtml(row.reductionReason || '')}</td>
+              <td style="white-space:nowrap;direction: ltr; text-align: left;">₪${formatCurrency(row.paid)}</td>
+              <td style="color:${balanceColor};font-weight:bold;white-space:nowrap;direction: ltr; text-align: left;">₪${formatCurrency(row.balance)}</td>
+              <td style="color:${cumulativeColor};font-weight:bold;white-space:nowrap;direction: ltr; text-align: left;">₪${formatCurrency(row.cumulativeBalance)}</td>
+              <td style="text-align:center;">${row.isExempt ? 'כן' : ''}</td>
+            </tr>
+          `;
+        }).join('');
+
+        tableEl.innerHTML = `
+          <table class="payments-table">
+            <thead>
+              <tr>
+                <th>חודש</th>
+                <th>התחייבות</th>
+                <th>הפחתה</th>
+                <th>סיבה</th>
+                <th>שולם</th>
+                <th>מאזן</th>
+                <th>עודף מצטבר</th>
+                <th>פטור</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${body}
+            </tbody>
+          </table>
+        `;
+        if (statusEl) statusEl.textContent = '';
+      } catch (err) {
+        if (statusEl) statusEl.textContent = 'שגיאה בטעינת נתונים';
+        tableEl.innerHTML = '';
+      }
+    }
+
+    loadMomTable();
+  </script>
+</body>
+</html>

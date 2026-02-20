@@ -40,6 +40,54 @@ header {
   text-align: center;
 }
 
+header .header-content {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+header .header-title {
+  flex: 1;
+  text-align: center;
+}
+
+header h1 {
+  margin: 0;
+}
+
+.auth-area {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  white-space: nowrap;
+}
+
+.auth-status {
+  font-size: 12px;
+  color: #f0f4f8;
+  background: rgba(255,255,255,0.15);
+  padding: 6px 10px;
+  border-radius: 999px;
+}
+
+.auth-btn {
+  background: #fff;
+  color: var(--accent-dark);
+  border: none;
+  padding: 8px 14px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.auth-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 16px rgba(0,0,0,0.12);
+}
+
 header h1 {
   font-size: 24px;
   font-weight: 600;
@@ -118,6 +166,17 @@ main {
 .card:hover {
   box-shadow: var(--shadow-hover);
   border-color: var(--accent-light);
+}
+
+.reading-row.selected td,
+.balance-month-row.selected td {
+  background: #eaf2ff;
+}
+
+.reading-row.selected,
+.balance-month-row.selected {
+  outline: 2px solid rgba(43, 108, 176, 0.25);
+  outline-offset: -2px;
 }
 
 .card h2 {
@@ -1242,4 +1301,29 @@ textarea {
 
 .balance-month-row.selected:hover {
   background-color: rgba(43, 108, 176, 0.25);
+}
+
+.payments-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.payments-table th,
+.payments-table td {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+@media (max-width: 768px) {
+  .payments-table {
+    display: block;
+    overflow-x: auto;
+    white-space: nowrap;
+  }
+
+  .payments-table thead,
+  .payments-table tbody {
+    display: table;
+    width: max-content;
+  }
 }

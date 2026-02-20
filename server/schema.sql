@@ -26,7 +26,31 @@ CREATE TABLE IF NOT EXISTS readings (
   meterType TEXT,
   date TEXT,
   value REAL,
+  paid INTEGER DEFAULT 0,
   createdAt TEXT,
+  status TEXT DEFAULT 'approved',
+  submittedByUserId INTEGER,
+  approvedByUserId INTEGER,
+  approvedAt TEXT,
+  FOREIGN KEY (tenantId) REFERENCES tenants(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS users (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  email TEXT UNIQUE NOT NULL,
+  passwordHash TEXT NOT NULL,
+  role TEXT NOT NULL,
+  canWrite INTEGER DEFAULT 0,
+  canSubmitReadings INTEGER DEFAULT 0,
+  isActive INTEGER DEFAULT 1,
+  createdAt TEXT
+);
+
+CREATE TABLE IF NOT EXISTS user_tenants (
+  userId INTEGER NOT NULL,
+  tenantId INTEGER NOT NULL,
+  PRIMARY KEY (userId, tenantId),
+  FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE,
   FOREIGN KEY (tenantId) REFERENCES tenants(id) ON DELETE CASCADE
 );
 
@@ -51,6 +75,25 @@ CREATE TABLE IF NOT EXISTS payments (
   notes TEXT,
   createdAt TEXT,
   FOREIGN KEY (tenantId) REFERENCES tenants(id) ON DELETE SET NULL
+);
+
+CREATE TABLE IF NOT EXISTS expenses (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  type TEXT,
+  period TEXT,
+  amount REAL,
+  frequency TEXT,
+  date TEXT,
+  paid INTEGER DEFAULT 0,
+  createdAt TEXT
+);
+
+CREATE TABLE IF NOT EXISTS solar (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  period TEXT,
+  amount REAL,
+  date TEXT,
+  createdAt TEXT
 );
 
 CREATE TABLE IF NOT EXISTS settings (
