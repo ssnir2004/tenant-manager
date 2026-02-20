@@ -191,6 +191,14 @@ function respondDbError(res, err) {
 }
 
 (async () => {
+  console.log('Startup env check:', {
+    port: PORT,
+    hasDatabaseUrl: !!process.env.DATABASE_URL,
+    hasJwtSecret: !!JWT_SECRET,
+    hasAdminEmail: !!ADMIN_EMAIL,
+    hasAdminPassword: !!ADMIN_PASSWORD
+  });
+
   const db = await initDb();
 
   if (!JWT_SECRET) {
