@@ -260,17 +260,9 @@ function respondDbError(res, err) {
       let parentMonths = [];
       if (allMonths.length > 0) {
         allMonths.sort();
-        const firstMonth = allMonths[0];
-        let lastMonth;
-        if (parentPaymentsByMonth.size > 0) {
-          const lastPaymentMonth = Array.from(parentPaymentsByMonth.keys()).sort().pop();
-          const [year, month] = lastPaymentMonth.split('-').map(Number);
-          const nextMonth = month === 12 ? 1 : month + 1;
-          const nextYear = month === 12 ? year + 1 : year;
-          lastMonth = `${nextYear}-${String(nextMonth).padStart(2, '0')}`;
-        } else {
-          lastMonth = allMonths[allMonths.length - 1];
-        }
+        const firstMonth = '2022-10';
+        const now = new Date();
+        const lastMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
 
         const parentMonthSet = new Set();
         let [currentYear, currentMonth] = firstMonth.split('-').map(Number);
