@@ -238,6 +238,7 @@ function respondDbError(res, err) {
         : {};
 
       const parentPaymentsByMonth = new Map();
+      const parentPaymentsByMonthDetails = new Map();
       payments
         .filter(p => isGrandmaAccount(p.account))
         .forEach(p => {
@@ -245,7 +246,22 @@ function respondDbError(res, err) {
           if (!iso) return;
           const key = iso.slice(0, 7);
           parentPaymentsByMonth.set(key, (parentPaymentsByMonth.get(key) || 0) + Number(p.amount || 0));
+
+          if (!parentPaymentsByMonthDetails.has(key)) {
+            parentPaymentsByMonthDetails.set(key, []);
+          }
+          parentPaymentsByMonthDetails.get(key).push({
+            date: iso,
+            amount: Number(p.amount || 0),
+            method: p.method || '',
+            notes: p.notes || ''
+          });
         });
+
+      const paymentsByMonth = {};
+      parentPaymentsByMonthDetails.forEach((list, key) => {
+        paymentsByMonth[key] = list.sort((a, b) => a.date.localeCompare(b.date));
+      });
 
       const allMonths = [];
       parentPeriods.forEach(p => {
@@ -367,6 +383,7 @@ function respondDbError(res, err) {
         rows,
         totalIncome,
         yearlyIncome,
+        paymentsByMonth,
         currentMonthBalance,
         currentMonthDisplay
       });
