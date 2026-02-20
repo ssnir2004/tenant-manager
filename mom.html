@@ -39,6 +39,15 @@
       return div.innerHTML;
     }
 
+    function methodLabel(value) {
+      const raw = String(value || '').trim();
+      if (raw === 'cash') return 'מזומן';
+      if (raw === 'check') return "צ'ק";
+      if (raw === 'bit') return 'ביט';
+      if (raw === 'transfer') return 'העברה';
+      return raw;
+    }
+
     function formatDate(value) {
       const raw = String(value || '').trim();
       const isoMatch = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
@@ -130,7 +139,7 @@
                 <tr>
                   <td>${escapeHtml(formatDate(payment.date))}</td>
                   <td style="direction: ltr; text-align: left;">₪${formatCurrency(payment.amount)}</td>
-                  <td>${escapeHtml(payment.method || '-') }</td>
+                  <td>${escapeHtml(methodLabel(payment.method || '-'))}</td>
                   <td>${escapeHtml(payment.notes || '')}</td>
                 </tr>
               `).join('')
