@@ -766,6 +766,57 @@ async function getAllPaymentsRemote() {
 const paymentsSort = { key: null, dir: 'asc' };
 const readingsSort = { key: null, dir: 'asc' };
 
+function getPaymentsFilters() {
+  const text = (document.getElementById('payments-filter-text')?.value || '').trim().toLowerCase();
+  const tenantIdRaw = document.getElementById('payments-filter-tenant')?.value || '';
+  const tenantId = tenantIdRaw ? Number(tenantIdRaw) : null;
+  const account = document.getElementById('payments-filter-account')?.value || '';
+  const method = document.getElementById('payments-filter-method')?.value || '';
+  const from = document.getElementById('payments-filter-from')?.value || '';
+  const to = document.getElementById('payments-filter-to')?.value || '';
+  return { text, tenantId, account, method, from, to };
+}
+
+function bindPaymentsFilters() {
+  const triggerIds = [
+    'payments-filter-text',
+    'payments-filter-tenant',
+    'payments-filter-account',
+    'payments-filter-method',
+    'payments-filter-from',
+    'payments-filter-to'
+  ];
+
+  triggerIds.forEach(id => {
+    const el = document.getElementById(id);
+    if (!el || el.dataset.bound === '1') return;
+    const handler = () => { renderPayments().catch(console.error); };
+    el.addEventListener('change', handler);
+    if (id === 'payments-filter-text') el.addEventListener('input', handler);
+    el.dataset.bound = '1';
+  });
+
+  const clearBtn = document.getElementById('payments-filter-clear');
+  if (clearBtn && clearBtn.dataset.bound !== '1') {
+    clearBtn.addEventListener('click', () => {
+      const text = document.getElementById('payments-filter-text');
+      const tenant = document.getElementById('payments-filter-tenant');
+      const account = document.getElementById('payments-filter-account');
+      const method = document.getElementById('payments-filter-method');
+      const from = document.getElementById('payments-filter-from');
+      const to = document.getElementById('payments-filter-to');
+      if (text) text.value = '';
+      if (tenant) tenant.value = '';
+      if (account) account.value = '';
+      if (method) method.value = '';
+      if (from) from.value = '';
+      if (to) to.value = '';
+      renderPayments().catch(console.error);
+    });
+    clearBtn.dataset.bound = '1';
+  }
+}
+
 function comparePayments(a, b, tenantMap, key) {
   const tA = tenantMap.get(a.tenantId) || {};
   const tB = tenantMap.get(b.tenantId) || {};
@@ -2472,6 +2523,7 @@ async function renderReadingApprovals() {
 }
 
 async function renderPayments() {
+  bindPaymentsFilters();
   const all = await getAllPayments();
   const list = document.getElementById('payments-list');
   if (all.length === 0) {
@@ -2479,9 +2531,23 @@ async function renderPayments() {
     return;
   }
 
-  const tenants = await getAllTenants(true);
+  const tenants = isRemoteApp()
+    ? await getAllTenantsRemote(true)
+    : await getAllTenants(true);
   const tenantMap = new Map(tenants.map(t => [t.id, t]));
   const allowWrite = canWriteCurrentUser();
+
+  const tenantFilterEl = document.getElementById('payments-filter-tenant');
+  if (tenantFilterEl) {
+    const prevSelected = tenantFilterEl.value;
+    tenantFilterEl.innerHTML = `<option value="">כל הדיירים</option>${tenants.map(t => {
+      const name = `${t.firstName || ''} ${t.lastName || ''}`.trim();
+      const label = `${t.apartmentNumber || '-'}: ${name || '-'}`;
+      return `<option value="${t.id}">${label}</option>`;
+    }).join('')}`;
+    const selectedExists = tenants.some(t => String(t.id) === String(prevSelected));
+    tenantFilterEl.value = selectedExists ? prevSelected : '';
+  }
   
   // Try to auto-link payments without tenantId to matching tenants by name
   for (const p of all) {
@@ -2501,12 +2567,39 @@ async function renderPayments() {
     }
   }
   
-  const sorted = all.slice();
+  const filters = getPaymentsFilters();
+  const filtered = all.filter(p => {
+    const t = tenantMap.get(p.tenantId);
+    const name = t ? `${t.firstName || ''} ${t.lastName || ''}`.trim() : (p.tenantName || '');
+    const apartment = t?.apartmentNumber || p.apartmentNumber || '';
+    const notes = p.notes || '';
+
+    if (filters.tenantId && Number(p.tenantId) !== Number(filters.tenantId)) return false;
+    if (filters.account && String(p.account || '') !== filters.account) return false;
+    if (filters.method && String(p.method || '') !== filters.method) return false;
+
+    const iso = parseDateToIso(p.date);
+    if (filters.from && (!iso || iso < filters.from)) return false;
+    if (filters.to && (!iso || iso > filters.to)) return false;
+
+    if (filters.text) {
+      const haystack = `${name} ${apartment} ${notes}`.toLowerCase();
+      if (!haystack.includes(filters.text)) return false;
+    }
+    return true;
+  });
+
+  const sorted = filtered.slice();
   if (paymentsSort.key) {
     const dir = paymentsSort.dir === 'asc' ? 1 : -1;
     sorted.sort((a, b) => comparePayments(a, b, tenantMap, paymentsSort.key) * dir);
   } else {
     sorted.sort((a, b) => new Date(b.date) - new Date(a.date));
+  }
+
+  if (sorted.length === 0) {
+    list.innerHTML = '<p>אין תשלומים לפי הסינון שנבחר</p>';
+    return;
   }
 
   const rows = sorted.map(p => {
@@ -3753,12 +3846,35 @@ async function exportParentPaymentsTableToPDF() {
 
 // Keep this comment for reference - event listeners moved to renderBalance()
 
-async function populateTenantSelects() {
-  const tenants = await getAllTenants(false);
-  [document.getElementById('reading-tenant'), document.getElementById('payment-tenant')].forEach(sel => {
+async function populateTenantSelects(includeArchived = false, target = 'both', ensureTenantId = null) {
+  const tenants = isRemoteApp()
+    ? await getAllTenantsRemote(includeArchived)
+    : await getAllTenants(includeArchived);
+  const tenantsForSelect = tenants.slice();
+  if (ensureTenantId) {
+    const exists = tenantsForSelect.some(t => Number(t.id) === Number(ensureTenantId));
+    if (!exists) {
+      const ensuredTenant = isRemoteApp()
+        ? await getTenantByIdRemote(Number(ensureTenantId))
+        : await getTenantById(Number(ensureTenantId));
+      if (ensuredTenant) tenantsForSelect.unshift(ensuredTenant);
+    }
+  }
+  const selects = target === 'payment'
+    ? [document.getElementById('payment-tenant')]
+    : target === 'reading'
+      ? [document.getElementById('reading-tenant')]
+      : [document.getElementById('reading-tenant'), document.getElementById('payment-tenant')];
+
+  selects.forEach(sel => {
     if (!sel) return;
     sel.innerHTML = '<option value="">בחר דייר</option>';
-    tenants.forEach(t => { const opt = document.createElement('option'); opt.value = t.id; opt.textContent = `${t.apartmentNumber || '-'}: ${t.firstName}`; sel.appendChild(opt); });
+    tenantsForSelect.forEach(t => {
+      const opt = document.createElement('option');
+      opt.value = t.id;
+      opt.textContent = `${t.apartmentNumber || '-'}: ${t.firstName}`;
+      sel.appendChild(opt);
+    });
   });
 }
 
@@ -4749,7 +4865,9 @@ paymentForm?.addEventListener('submit', async e => {
   e.preventDefault();
   const f = e.target;
   const tenantId = f.elements['tenantId'].value ? Number(f.elements['tenantId'].value) : null;
-  const tenant = tenantId ? await getTenantById(tenantId) : null;
+  const tenant = tenantId
+    ? (isRemoteApp() ? await getTenantByIdRemote(tenantId) : await getTenantById(tenantId))
+    : null;
   const payload = {
     tenantId,
     tenantName: tenant ? `${tenant.firstName || ''} ${tenant.lastName || ''}`.trim() : '',
@@ -4776,6 +4894,7 @@ paymentForm?.addEventListener('submit', async e => {
       }).catch(rej);
     });
     if (!tenant) {
+      payload.tenantId = existing?.tenantId ?? payload.tenantId;
       payload.tenantName = existing?.tenantName || '';
       payload.apartmentNumber = existing?.apartmentNumber || '';
     }
@@ -5529,7 +5648,7 @@ document.getElementById('payments-list')?.addEventListener('click', async e => {
       const rec = allPayments.find(p => p.id === id);
       if (!rec) return alert('לא נמצא רישום');
 
-      await populateTenantSelects();
+      await populateTenantSelects(true, 'payment', rec.tenantId || null);
       if (!paymentForm) return;
       paymentForm.editId = rec.id;
       if (paymentSubmitBtn) paymentSubmitBtn.textContent = 'עדכן';

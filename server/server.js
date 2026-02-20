@@ -213,7 +213,18 @@ function respondDbError(res, err) {
   app.use(express.json({ limit: '2mb' }));
   
   // Serve static files from parent directory (the app files)
-  app.use(express.static(path.join(__dirname, '..')));
+  app.use(express.static(path.join(__dirname, '..'), {
+    etag: false,
+    lastModified: false,
+    setHeaders: (res, filePath) => {
+      if (/\.(html|js|css)$/i.test(filePath)) {
+        res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+        res.setHeader('Pragma', 'no-cache');
+        res.setHeader('Expires', '0');
+        res.setHeader('Surrogate-Control', 'no-store');
+      }
+    }
+  }));
 
   app.get('/mom', (req, res) => {
     res.sendFile(path.join(__dirname, '..', 'mom.html'));
