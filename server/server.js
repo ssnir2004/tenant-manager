@@ -219,10 +219,6 @@ function respondDbError(res, err) {
     res.sendFile(path.join(__dirname, '..', 'mom.html'));
   });
 
-  app.get('/parents', (req, res) => {
-    res.sendFile(path.join(__dirname, '..', 'mom.html'));
-  });
-
   app.get('/public/mom-data', async (req, res) => {
     try {
       const payments = await db.all('SELECT * FROM payments');
