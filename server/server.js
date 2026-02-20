@@ -219,6 +219,10 @@ function respondDbError(res, err) {
     res.sendFile(path.join(__dirname, '..', 'mom.html'));
   });
 
+  app.get('/parents', (req, res) => {
+    res.sendFile(path.join(__dirname, '..', 'mom.html'));
+  });
+
   app.get('/public/mom-data', async (req, res) => {
     try {
       const payments = await db.all('SELECT * FROM payments');
@@ -319,9 +323,49 @@ function respondDbError(res, err) {
         };
       });
 
+      const now = new Date();
+      const currentMonthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+      let currentMonthBalance = 0;
+
+      if (allMonths.length > 0) {
+        const firstMonth = [...allMonths].sort()[0];
+        let [iterYear, iterMonth] = firstMonth.split('-').map(Number);
+        const [currYear, currMonth] = currentMonthKey.split('-').map(Number);
+        let cumulativeUntilCurrent = 0;
+
+        while (iterYear < currYear || (iterYear === currYear && iterMonth <= currMonth)) {
+          const key = `${iterYear}-${String(iterMonth).padStart(2, '0')}`;
+          let obligation = parentDefault;
+          parentPeriods.forEach(p => {
+            if (p.year === iterYear && p.months.includes(iterMonth)) obligation = p.amount;
+          });
+
+          if (parentExemptSet.has(key)) obligation = 0;
+
+          const reduction = parentReductions[key] || {};
+          const reductionAmount = Number(reduction.amount || 0);
+          const finalObligation = obligation - reductionAmount;
+          const paid = parentPaymentsByMonth.get(key) || 0;
+          const balance = paid - finalObligation;
+          cumulativeUntilCurrent += balance;
+
+          iterMonth++;
+          if (iterMonth > 12) {
+            iterMonth = 1;
+            iterYear++;
+          }
+        }
+
+        currentMonthBalance = cumulativeUntilCurrent;
+      }
+
+      const currentMonthDisplay = `${String(now.getMonth() + 1).padStart(2, '0')}/${now.getFullYear()}`;
+
       res.json({
         title: 'תשלום לאסתר ומיכאל',
-        rows
+        rows,
+        currentMonthBalance,
+        currentMonthDisplay
       });
     } catch (err) {
       console.error(err);

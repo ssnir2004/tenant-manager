@@ -18,6 +18,7 @@
   <main>
     <section class="content">
       <div class="card" id="mom-public-card">
+        <div id="mom-public-current-month" style="margin-bottom: 12px;"></div>
         <div id="mom-public-status" style="margin-bottom: 12px; color: #666;"></div>
         <div id="mom-public-table"></div>
       </div>
@@ -39,6 +40,7 @@
     async function loadMomTable() {
       const statusEl = document.getElementById('mom-public-status');
       const tableEl = document.getElementById('mom-public-table');
+      const currentMonthEl = document.getElementById('mom-public-current-month');
       if (statusEl) statusEl.textContent = 'טוען נתונים...';
 
       try {
@@ -46,6 +48,18 @@
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
         const rows = data?.rows || [];
+        const currentMonthBalance = Number(data?.currentMonthBalance || 0);
+        const currentMonthDisplay = data?.currentMonthDisplay || '';
+
+        if (currentMonthEl) {
+          const balanceColor = currentMonthBalance >= 0 ? '#27ae60' : '#e74c3c';
+          currentMonthEl.innerHTML = `
+            <div style="padding: 12px; border-radius: 8px; background: #f8f9fa; border: 1px solid #e9ecef;">
+              <div style="font-size: 16px; font-weight: 600; margin-bottom: 6px;">עודף דוח חודש ${escapeHtml(currentMonthDisplay)}</div>
+              <div style="font-size: 22px; font-weight: 700; color: ${balanceColor}; direction: ltr; text-align: left;">₪${formatCurrency(currentMonthBalance)}</div>
+            </div>
+          `;
+        }
 
         if (!rows.length) {
           if (statusEl) statusEl.textContent = '';
