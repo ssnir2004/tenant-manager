@@ -35,9 +35,44 @@ function buildPostgresConfig() {
   };
 }
 
+const POSTGRES_CAMEL_CASE_IDENTIFIERS = [
+  'firstName',
+  'lastName',
+  'nationalId',
+  'startDate',
+  'endDate',
+  'moveOutDate',
+  'rentAmount',
+  'arnonaAmount',
+  'apartmentNumber',
+  'electricityMeter',
+  'waterMeter',
+  'createdAt',
+  'tenantId',
+  'meterType',
+  'submittedByUserId',
+  'approvedByUserId',
+  'approvedAt',
+  'passwordHash',
+  'canWrite',
+  'canSubmitReadings',
+  'isActive',
+  'userId'
+];
+
+function normalizePostgresIdentifiers(sql) {
+  let normalized = sql;
+  for (const identifier of POSTGRES_CAMEL_CASE_IDENTIFIERS) {
+    const pattern = new RegExp(`(?<!")\\b${identifier}\\b(?!")`, 'g');
+    normalized = normalized.replace(pattern, `"${identifier}"`);
+  }
+  return normalized;
+}
+
 function normalizePostgresSql(sql) {
+  const sqlWithIdentifiers = normalizePostgresIdentifiers(sql);
   let index = 0;
-  return sql.replace(/\?/g, () => `$${++index}`);
+  return sqlWithIdentifiers.replace(/\?/g, () => `$${++index}`);
 }
 
 async function execSchema(db, schema) {
