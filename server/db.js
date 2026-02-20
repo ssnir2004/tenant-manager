@@ -1,7 +1,5 @@
 const path = require('path');
 const fs = require('fs');
-const sqlite3 = require('sqlite3');
-const { open } = require('sqlite');
 let Pool;
 
 try {
@@ -108,6 +106,15 @@ async function initDb() {
   const dataDir = path.dirname(DB_PATH);
   if (!fs.existsSync(dataDir)) {
     fs.mkdirSync(dataDir, { recursive: true });
+  }
+
+  let sqlite3;
+  let open;
+  try {
+    sqlite3 = require('sqlite3');
+    ({ open } = require('sqlite'));
+  } catch (err) {
+    throw new Error('SQLite mode requires sqlite and sqlite3 packages. Install dependencies before running without DATABASE_URL.');
   }
 
   const db = await open({
