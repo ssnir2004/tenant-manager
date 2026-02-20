@@ -868,7 +868,10 @@ function respondDbError(res, err) {
     res.json({ ok: true });
   });
 
-  app.listen(PORT, () => {
-    console.log(`Server running on http://localhost:${PORT}`);
+  app.listen(PORT, '0.0.0.0', () => {
+    console.log(`Server running on 0.0.0.0:${PORT}`);
   });
-})();
+})().catch(err => {
+  console.error('Server startup failed:', err);
+  process.exit(1);
+});
