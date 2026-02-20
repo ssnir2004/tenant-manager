@@ -19,6 +19,8 @@
     <section class="content">
       <div class="card" id="mom-public-card">
         <div id="mom-public-current-month" style="margin-bottom: 12px;"></div>
+        <div id="mom-public-net" style="margin-bottom: 12px;"></div>
+        <div id="mom-public-yearly" style="margin-bottom: 12px;"></div>
         <div id="mom-public-status" style="margin-bottom: 12px; color: #666;"></div>
         <div id="mom-public-table"></div>
       </div>
@@ -41,6 +43,8 @@
       const statusEl = document.getElementById('mom-public-status');
       const tableEl = document.getElementById('mom-public-table');
       const currentMonthEl = document.getElementById('mom-public-current-month');
+      const netEl = document.getElementById('mom-public-net');
+      const yearlyEl = document.getElementById('mom-public-yearly');
       if (statusEl) statusEl.textContent = 'טוען נתונים...';
 
       try {
@@ -50,6 +54,8 @@
         const rows = data?.rows || [];
         const currentMonthBalance = Number(data?.currentMonthBalance || 0);
         const currentMonthDisplay = data?.currentMonthDisplay || '';
+        const netBalance = Number(data?.netBalance || 0);
+        const yearlyIncome = Array.isArray(data?.yearlyIncome) ? data.yearlyIncome : [];
 
         if (currentMonthEl) {
           const balanceColor = currentMonthBalance >= 0 ? '#27ae60' : '#e74c3c';
@@ -59,6 +65,46 @@
               <div style="font-size: 22px; font-weight: 700; color: ${balanceColor}; direction: ltr; text-align: left;">₪${formatCurrency(currentMonthBalance)}</div>
             </div>
           `;
+        }
+
+        if (netEl) {
+          const netColor = netBalance >= 0 ? '#27ae60' : '#e74c3c';
+          netEl.innerHTML = `
+            <div style="padding: 12px; border-radius: 8px; background: #f8f9fa; border: 1px solid #e9ecef;">
+              <div style="font-size: 16px; font-weight: 600; margin-bottom: 6px;">נטו אסתר ומיכאל</div>
+              <div style="font-size: 22px; font-weight: 700; color: ${netColor}; direction: ltr; text-align: left;">₪${formatCurrency(netBalance)}</div>
+            </div>
+          `;
+        }
+
+        if (yearlyEl) {
+          if (yearlyIncome.length === 0) {
+            yearlyEl.innerHTML = '';
+          } else {
+            const maxValue = Math.max(...yearlyIncome.map(item => Math.abs(item.amount || 0)), 1);
+            const rowsHtml = yearlyIncome.map(item => {
+              const widthPct = Math.round((Math.abs(item.amount || 0) / maxValue) * 100);
+              const barColor = 'linear-gradient(135deg, #3498db 0%, #2980b9 100%)';
+              return `
+                <div style="display: grid; grid-template-columns: 70px 1fr 120px; gap: 12px; align-items: center;">
+                  <div style="font-size: 13px; font-weight: 600; color: #333;">${item.year}</div>
+                  <div style="height: 18px; background: #eef2f5; border-radius: 8px; overflow: hidden;">
+                    <div style="height: 100%; width: ${widthPct}%; background: ${barColor}; border-radius: 8px;"></div>
+                  </div>
+                  <div style="font-size: 13px; color: #2c3e50; text-align: right; direction: ltr; font-weight: 600;">₪${formatCurrency(item.amount)}</div>
+                </div>
+              `;
+            }).join('');
+
+            yearlyEl.innerHTML = `
+              <div style="padding: 12px; border-radius: 8px; background: #f8f9fa; border: 1px solid #e9ecef;">
+                <div style="font-size: 16px; font-weight: 600; margin-bottom: 10px;">גרף הכנסות שנתיות - אסתר ומיכאל</div>
+                <div style="display: grid; gap: 10px;">
+                  ${rowsHtml}
+                </div>
+              </div>
+            `;
+          }
         }
 
         if (!rows.length) {

@@ -319,6 +319,18 @@ function respondDbError(res, err) {
         };
       });
 
+      const netBalance = rows.length ? Number(rows[rows.length - 1].cumulativeBalance || 0) : 0;
+
+      const yearlyIncomeMap = new Map();
+      parentPaymentsByMonth.forEach((amount, key) => {
+        const year = Number(key.slice(0, 4));
+        if (!Number.isFinite(year)) return;
+        yearlyIncomeMap.set(year, (yearlyIncomeMap.get(year) || 0) + Number(amount || 0));
+      });
+      const yearlyIncome = Array.from(yearlyIncomeMap.entries())
+        .sort((a, b) => a[0] - b[0])
+        .map(([year, amount]) => ({ year, amount: Number(amount || 0) }));
+
       const now = new Date();
       const currentMonthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
       let currentMonthBalance = 0;
@@ -360,6 +372,8 @@ function respondDbError(res, err) {
       res.json({
         title: 'תשלום לאסתר ומיכאל',
         rows,
+        netBalance,
+        yearlyIncome,
         currentMonthBalance,
         currentMonthDisplay
       });
