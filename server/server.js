@@ -319,7 +319,8 @@ function respondDbError(res, err) {
         };
       });
 
-      const netBalance = rows.length ? Number(rows[rows.length - 1].cumulativeBalance || 0) : 0;
+      const totalIncome = Array.from(parentPaymentsByMonth.values())
+        .reduce((sum, amount) => sum + Number(amount || 0), 0);
 
       const yearlyIncomeMap = new Map();
       parentPaymentsByMonth.forEach((amount, key) => {
@@ -372,7 +373,7 @@ function respondDbError(res, err) {
       res.json({
         title: 'תשלום לאסתר ומיכאל',
         rows,
-        netBalance,
+        totalIncome,
         yearlyIncome,
         currentMonthBalance,
         currentMonthDisplay

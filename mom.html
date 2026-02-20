@@ -54,7 +54,7 @@
         const rows = data?.rows || [];
         const currentMonthBalance = Number(data?.currentMonthBalance || 0);
         const currentMonthDisplay = data?.currentMonthDisplay || '';
-        const netBalance = Number(data?.netBalance || 0);
+        const totalIncome = Number(data?.totalIncome || 0);
         const yearlyIncome = Array.isArray(data?.yearlyIncome) ? data.yearlyIncome : [];
 
         if (currentMonthEl) {
@@ -68,11 +68,10 @@
         }
 
         if (netEl) {
-          const netColor = netBalance >= 0 ? '#27ae60' : '#e74c3c';
           netEl.innerHTML = `
             <div style="padding: 12px; border-radius: 8px; background: #f8f9fa; border: 1px solid #e9ecef;">
-              <div style="font-size: 16px; font-weight: 600; margin-bottom: 6px;">נטו אסתר ומיכאל</div>
-              <div style="font-size: 22px; font-weight: 700; color: ${netColor}; direction: ltr; text-align: left;">₪${formatCurrency(netBalance)}</div>
+              <div style="font-size: 16px; font-weight: 600; margin-bottom: 6px;">סך הכנסות אסתר ומיכאל</div>
+              <div style="font-size: 22px; font-weight: 700; color: #2c3e50; direction: ltr; text-align: left;">₪${formatCurrency(totalIncome)}</div>
             </div>
           `;
         }
