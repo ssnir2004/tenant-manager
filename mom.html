@@ -30,7 +30,7 @@
   <script>
     function formatCurrency(value) {
       const num = Number(value || 0);
-      return num.toLocaleString('he-IL', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      return num.toLocaleString('he-IL', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
     }
 
     function escapeHtml(value) {
