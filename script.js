@@ -2122,68 +2122,59 @@ async function generateTenantPdfBlob(row, monthValue, filename = '') {
   if (!jsPDFClass) {
     throw new Error('jsPDF לא זמין בדפדפן');
   }
-
-  const w = row.water || {};
-  const e = row.electric || {};
-  const total = Number(row.total ?? 0).toFixed(2);
-  const pdf = new jsPDFClass('p', 'mm', 'a4');
-
-  let y = 16;
-  pdf.setFont('helvetica', 'bold');
-  pdf.setFontSize(14);
-  pdf.text(`Tenant Bill Report ${formatMonthEu(monthValue)}`, 105, y, { align: 'center' });
-
-  y += 8;
-  pdf.setFont('helvetica', 'normal');
-  pdf.setFontSize(11);
-  pdf.text(`Tenant: ${row.tenantName || '-'}`, 14, y);
-  y += 6;
-  pdf.text(`Apartment: ${row.apartment || '-'}`, 14, y);
-  y += 8;
-
-  const tableHead = [['Type', 'Meter', 'Start Reading', 'Start Date', 'End Reading', 'End Date', 'Cost (NIS)']];
-  const tableBody = [
-    [
-      'Water',
-      row.waterMeter || '-',
-      w.startValue ?? '-',
-      formatDateEu(w.startDate ?? '') || '-',
-      w.endValue ?? '-',
-      formatDateEu(w.endDate ?? '') || '-',
-      Number(w.cost ?? 0).toFixed(2)
-    ],
-    [
-      'Electricity',
-      row.electricMeter || '-',
-      e.startValue ?? '-',
-      formatDateEu(e.startDate ?? '') || '-',
-      e.endValue ?? '-',
-      formatDateEu(e.endDate ?? '') || '-',
-      Number(e.cost ?? 0).toFixed(2)
-    ]
-  ];
-
-  if (pdf.autoTable && typeof pdf.autoTable === 'function') {
-    pdf.autoTable({
-      head: tableHead,
-      body: tableBody,
-      startY: y,
-      styles: { fontSize: 10 },
-      headStyles: { fillColor: [43, 108, 176], textColor: [255, 255, 255] },
-      margin: { left: 14, right: 14 }
-    });
-    y = (pdf.lastAutoTable?.finalY || y) + 10;
-  } else {
-    tableBody.forEach(r => {
-      pdf.text(`${r[0]} | Meter: ${r[1]} | Cost: ${r[6]}`, 14, y);
-      y += 6;
-    });
-    y += 2;
+  if (typeof window.html2canvas !== 'function') {
+    throw new Error('html2canvas לא זמין בדפדפן');
   }
 
-  pdf.setFont('helvetica', 'bold');
-  pdf.text(`Total: NIS ${total}`, 14, y);
-  return pdf.output('blob');
+  const wrapper = document.createElement('div');
+  wrapper.style.position = 'fixed';
+  wrapper.style.left = '0';
+  wrapper.style.top = '0';
+  wrapper.style.width = '794px';
+  wrapper.style.background = '#fff';
+  wrapper.style.opacity = '0';
+  wrapper.style.pointerEvents = 'none';
+  wrapper.style.zIndex = '-1';
+  wrapper.innerHTML = buildTenantPdfContentHtml(row, monthValue);
+  document.body.appendChild(wrapper);
+
+  try {
+    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    const canvas = await window.html2canvas(wrapper, {
+      scale: 2,
+      backgroundColor: '#ffffff',
+      useCORS: true,
+      windowWidth: wrapper.scrollWidth,
+      windowHeight: wrapper.scrollHeight,
+      scrollX: 0,
+      scrollY: 0
+    });
+
+    const imageData = canvas.toDataURL('image/png');
+    const pdf = new jsPDFClass('p', 'mm', 'a4');
+    const pageWidth = pdf.internal.pageSize.getWidth();
+    const pageHeight = pdf.internal.pageSize.getHeight();
+    const margin = 8;
+    const renderWidth = pageWidth - margin * 2;
+    const renderHeight = (canvas.height * renderWidth) / canvas.width;
+
+    if (renderHeight <= pageHeight - margin * 2) {
+      pdf.addImage(imageData, 'PNG', margin, margin, renderWidth, renderHeight);
+    } else {
+      let remainingHeight = renderHeight;
+      let yOffset = 0;
+      while (remainingHeight > 0) {
+        if (yOffset > 0) pdf.addPage();
+        pdf.addImage(imageData, 'PNG', margin, margin - yOffset, renderWidth, renderHeight);
+        remainingHeight -= (pageHeight - margin * 2);
+        yOffset += (pageHeight - margin * 2);
+      }
+    }
+
+    return pdf.output('blob');
+  } finally {
+    wrapper.remove();
+  }
 }
 
 async function shareTenantReportToWhatsApp(row, monthValue) {
