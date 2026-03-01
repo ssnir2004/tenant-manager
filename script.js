@@ -1907,7 +1907,7 @@ function renderBillsReport(report) {
           <th>דייר</th>
           <th>דירה</th>
           <th>PDF</th>
-          <th>WhatsApp</th>
+          <th>שיתוף</th>
           <th>מונה מים</th>
           <th>קריאת מים התחלה</th>
           <th>תאריך התחלה</th>
@@ -1934,7 +1934,7 @@ function renderBillsReport(report) {
         <td>${r.tenantName || '-'}</td>
         <td>${r.apartment || '-'}</td>
         <td><button class="btn-pdf" data-row-index="${idx}" data-tenant="${r.apartment}">PDF</button></td>
-        <td><button class="btn-whatsapp-pdf" data-row-index="${idx}" data-tenant="${r.apartment}">WhatsApp</button></td>
+        <td><button class="btn-whatsapp-pdf" data-row-index="${idx}" data-tenant="${r.apartment}" title="שיתוף דוח">📤</button></td>
         <td>${r.waterMeter || '-'}</td>
         <td>${w.startValue ?? '-'}</td>
         <td>${formatDateEu(w.startDate ?? '') || '-'}</td>
@@ -2128,11 +2128,11 @@ async function generateTenantPdfBlob(row, monthValue, filename = '') {
 
   const wrapper = document.createElement('div');
   wrapper.style.position = 'fixed';
-  wrapper.style.left = '0';
+  wrapper.style.left = '-10000px';
   wrapper.style.top = '0';
   wrapper.style.width = '794px';
   wrapper.style.background = '#fff';
-  wrapper.style.opacity = '0';
+  wrapper.style.opacity = '1';
   wrapper.style.pointerEvents = 'none';
   wrapper.style.zIndex = '-1';
   wrapper.innerHTML = buildTenantPdfContentHtml(row, monthValue);
