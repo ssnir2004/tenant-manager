@@ -780,6 +780,17 @@ function getPaymentsFilters() {
   return { text, tenantId, account, method, from, to };
 }
 
+function getReadingsFilters() {
+  const text = (document.getElementById('readings-filter-text')?.value || '').trim().toLowerCase();
+  const tenantIdRaw = document.getElementById('readings-filter-tenant')?.value || '';
+  const tenantId = tenantIdRaw ? Number(tenantIdRaw) : null;
+  const meterType = document.getElementById('readings-filter-type')?.value || '';
+  const paid = document.getElementById('readings-filter-paid')?.value || '';
+  const from = document.getElementById('readings-filter-from')?.value || '';
+  const to = document.getElementById('readings-filter-to')?.value || '';
+  return { text, tenantId, meterType, paid, from, to };
+}
+
 function bindPaymentsFilters() {
   const triggerIds = [
     'payments-filter-text',
@@ -815,6 +826,46 @@ function bindPaymentsFilters() {
       if (from) from.value = '';
       if (to) to.value = '';
       renderPayments().catch(console.error);
+    });
+    clearBtn.dataset.bound = '1';
+  }
+}
+
+function bindReadingsFilters() {
+  const triggerIds = [
+    'readings-filter-text',
+    'readings-filter-tenant',
+    'readings-filter-type',
+    'readings-filter-paid',
+    'readings-filter-from',
+    'readings-filter-to'
+  ];
+
+  triggerIds.forEach(id => {
+    const el = document.getElementById(id);
+    if (!el || el.dataset.bound === '1') return;
+    const handler = () => { renderReadings().catch(console.error); };
+    el.addEventListener('change', handler);
+    if (id === 'readings-filter-text') el.addEventListener('input', handler);
+    el.dataset.bound = '1';
+  });
+
+  const clearBtn = document.getElementById('readings-filter-clear');
+  if (clearBtn && clearBtn.dataset.bound !== '1') {
+    clearBtn.addEventListener('click', () => {
+      const text = document.getElementById('readings-filter-text');
+      const tenant = document.getElementById('readings-filter-tenant');
+      const type = document.getElementById('readings-filter-type');
+      const paid = document.getElementById('readings-filter-paid');
+      const from = document.getElementById('readings-filter-from');
+      const to = document.getElementById('readings-filter-to');
+      if (text) text.value = '';
+      if (tenant) tenant.value = '';
+      if (type) type.value = '';
+      if (paid) paid.value = '';
+      if (from) from.value = '';
+      if (to) to.value = '';
+      renderReadings().catch(console.error);
     });
     clearBtn.dataset.bound = '1';
   }
@@ -2512,6 +2563,7 @@ async function renderArchive() {
 }
 
 async function renderReadings() {
+  bindReadingsFilters();
   const list = document.getElementById('readings-list');
   if (!list) return;
   list.innerHTML = '';
@@ -2524,9 +2576,21 @@ async function renderReadings() {
     const allowWrite = canWriteCurrentUser();
     const showStatus = isRemoteApp();
 
-    if (all.length === 0) { list.innerHTML = '<p>אין קריאות</p>'; return; }
-
     const tenantMap = new Map(tenants.map(t => [t.id, t]));
+
+    const tenantFilterEl = document.getElementById('readings-filter-tenant');
+    if (tenantFilterEl) {
+      const prevSelected = tenantFilterEl.value;
+      tenantFilterEl.innerHTML = `<option value="">כל הדיירים</option>${tenants.map(t => {
+        const name = `${t.firstName || ''} ${t.lastName || ''}`.trim();
+        const label = `${t.apartmentNumber || '-'}: ${name || '-'}`;
+        return `<option value="${t.id}">${label}</option>`;
+      }).join('')}`;
+      const selectedExists = tenants.some(t => String(t.id) === String(prevSelected));
+      tenantFilterEl.value = selectedExists ? prevSelected : '';
+    }
+
+    if (all.length === 0) { list.innerHTML = '<p>אין קריאות</p>'; return; }
     
     // Try to auto-link readings without tenantId to matching tenants by name
     if (allowWrite) {
@@ -2548,7 +2612,35 @@ async function renderReadings() {
       }
     }
     
-    const sorted = all.slice();
+    const filters = getReadingsFilters();
+    const filtered = all.filter(r => {
+      const t = tenantMap.get(r.tenantId);
+      const name = t ? `${t.firstName || ''} ${t.lastName || ''}`.trim() : (r.tenantName || '');
+      const apartment = t?.apartmentNumber || r.apartmentNumber || '';
+      const notes = r.notes || '';
+
+      if (filters.tenantId && Number(r.tenantId) !== Number(filters.tenantId)) return false;
+      if (filters.meterType && String(r.meterType || '') !== filters.meterType) return false;
+      if (filters.paid === 'paid' && !r.paid) return false;
+      if (filters.paid === 'unpaid' && !!r.paid) return false;
+
+      const iso = parseDateToIso(r.date);
+      if (filters.from && (!iso || iso < filters.from)) return false;
+      if (filters.to && (!iso || iso > filters.to)) return false;
+
+      if (filters.text) {
+        const haystack = `${name} ${apartment} ${notes} ${meterTypeLabel(r.meterType)} ${r.value ?? ''}`.toLowerCase();
+        if (!haystack.includes(filters.text)) return false;
+      }
+      return true;
+    });
+
+    if (filtered.length === 0) {
+      list.innerHTML = '<p>אין קריאות לפי הסינון שנבחר</p>';
+      return;
+    }
+
+    const sorted = filtered.slice();
     if (readingsSort.key) {
       const dir = readingsSort.dir === 'asc' ? 1 : -1;
       sorted.sort((a, b) => compareReadings(a, b, tenantMap, readingsSort.key) * dir);
