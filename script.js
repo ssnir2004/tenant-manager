@@ -5388,15 +5388,49 @@ document.getElementById('readings-list')?.addEventListener('click', async e => {
             }).catch(rej);
           });
       if (!rec) return alert('לא נמצא רישום');
-      const newValRaw = prompt('ערוך ערך קריאה (ללא יחידות):', String(rec.value ?? ''));
-      if (newValRaw === null) return;
-      const newVal = Number(String(newValRaw).trim());
-      if (!Number.isFinite(newVal)) return alert('ערך קריאה לא תקין');
+
+      const tenants = await getAllTenants(true);
+      const tenantMap = new Map(tenants.map(t => [Number(t.id), t]));
+      const currentTenant = tenantMap.get(Number(rec.tenantId || 0));
 
       const newDateRaw = prompt('ערוך תאריך (DD/MM/YYYY):', formatDateEu(rec.date));
       if (newDateRaw === null) return;
       const parsedDate = parseDateToIso(newDateRaw);
       if (!parsedDate) return alert('תאריך לא תקין');
+
+      const apartmentDefault = String(currentTenant?.apartmentNumber || rec.apartmentNumber || '');
+      const apartmentInput = prompt('ערוך דירה (מספר דירה):', apartmentDefault);
+      if (apartmentInput === null) return;
+      const apartment = String(apartmentInput || '').trim();
+
+      let tenantId = Number(rec.tenantId || 0) || null;
+      let tenantName = String(rec.tenantName || '').trim();
+      if (apartment) {
+        const candidates = tenants.filter(t => String(t.apartmentNumber || '').trim() === apartment);
+        if (candidates.length > 0) {
+          const readTs = dateValueFromAny(parsedDate);
+          const inRange = candidates.filter(t => {
+            const startTs = t.startDate ? dateValueFromAny(t.startDate) : Number.NEGATIVE_INFINITY;
+            const endSource = t.moveOutDate || t.endDate || '';
+            const endTs = endSource ? dateValueFromAny(endSource) : Number.POSITIVE_INFINITY;
+            return readTs >= startTs && readTs <= endTs;
+          });
+          const picked = (inRange[0] || candidates[0]);
+          tenantId = Number(picked.id);
+          tenantName = `${picked.firstName || ''} ${picked.lastName || ''}`.trim();
+        }
+      }
+
+      const meterDefault = rec.meterType === 'water' ? 'מים' : 'חשמל';
+      const meterRaw = prompt('ערוך סוג מונה (חשמל/מים):', meterDefault);
+      if (meterRaw === null) return;
+      const meterNorm = String(meterRaw).trim().toLowerCase();
+      const meterType = ['water', 'מים', 'w'].includes(meterNorm) ? 'water' : 'electricity';
+
+      const newValRaw = prompt('ערוך ערך קריאה (ללא יחידות):', String(rec.value ?? ''));
+      if (newValRaw === null) return;
+      const newVal = Number(String(newValRaw).trim());
+      if (!Number.isFinite(newVal)) return alert('ערך קריאה לא תקין');
 
       const newNotes = prompt('ערוך הערות:', String(rec.notes || ''));
       if (newNotes === null) return;
@@ -5411,11 +5445,26 @@ document.getElementById('readings-list')?.addEventListener('click', async e => {
           ? false
           : !!rec.paid;
 
+      let nextStatus = rec.status || 'approved';
+      if (isRemoteApp()) {
+        const statusRaw = prompt('ערוך סטטוס (approved/pending/rejected):', String(nextStatus));
+        if (statusRaw === null) return;
+        const normalizedStatus = String(statusRaw).trim().toLowerCase();
+        if (['approved', 'pending', 'rejected'].includes(normalizedStatus)) {
+          nextStatus = normalizedStatus;
+        }
+      }
+
       await updateReading(id, {
+        tenantId,
+        tenantName,
+        apartmentNumber: apartment,
+        meterType,
         value: newVal,
         date: parsedDate,
         notes: String(newNotes || '').trim(),
-        paid
+        paid,
+        status: nextStatus
       });
       await renderReadings();
       alert('קריאה עודכנה');
