@@ -5358,6 +5358,167 @@ document.getElementById('bills-report')?.addEventListener('click', e => {
   openPdfWindow(html);
 });
 
+let readingEditCurrentId = null;
+let readingEditTenants = [];
+
+function closeReadingEditModal() {
+  const modal = document.getElementById('reading-edit-modal');
+  if (!modal) return;
+  modal.classList.add('hidden');
+  modal.style.display = 'none';
+  readingEditCurrentId = null;
+}
+
+async function getReadingByIdLocal(id) {
+  return await new Promise((res, rej) => {
+    getTx('readings', 'readonly').then(tx => {
+      const req = tx.objectStore('readings').get(id);
+      req.onsuccess = () => res(req.result || null);
+      req.onerror = () => rej(req.error);
+    }).catch(rej);
+  });
+}
+
+function sortTenantsForReadingModal(tenants) {
+  return tenants.slice().sort((a, b) => {
+    const aAptRaw = String(a.apartmentNumber || '').trim();
+    const bAptRaw = String(b.apartmentNumber || '').trim();
+    const aAptNum = Number(aAptRaw);
+    const bAptNum = Number(bAptRaw);
+    const aIsNum = !Number.isNaN(aAptNum);
+    const bIsNum = !Number.isNaN(bAptNum);
+    if (aIsNum && bIsNum && aAptNum !== bAptNum) return aAptNum - bAptNum;
+    if (aIsNum && !bIsNum) return -1;
+    if (!aIsNum && bIsNum) return 1;
+    const aName = `${a.firstName || ''} ${a.lastName || ''}`.trim();
+    const bName = `${b.firstName || ''} ${b.lastName || ''}`.trim();
+    return aName.localeCompare(bName, 'he');
+  });
+}
+
+async function fillReadingEditTenantOptions(selectedTenantId = null) {
+  const select = document.getElementById('reading-edit-tenant');
+  if (!select) return;
+
+  readingEditTenants = isRemoteApp()
+    ? await getAllTenantsRemote(true)
+    : await getAllTenants(true);
+  const sorted = sortTenantsForReadingModal(readingEditTenants);
+
+  select.innerHTML = '<option value="">ללא דייר</option>';
+  sorted.forEach(t => {
+    const option = document.createElement('option');
+    const fullName = `${t.firstName || ''} ${t.lastName || ''}`.trim() || '-';
+    const status = t.archived ? ' (לא פעיל)' : ' (פעיל)';
+    option.value = String(t.id);
+    option.textContent = `${t.apartmentNumber || '-'}: ${fullName}${status}`;
+    select.appendChild(option);
+  });
+
+  if (selectedTenantId) {
+    select.value = String(selectedTenantId);
+  }
+}
+
+async function openReadingEditModal(readingId) {
+  const rec = isRemoteApp()
+    ? await getReadingByIdRemote(readingId)
+    : await getReadingByIdLocal(readingId);
+  if (!rec) {
+    alert('לא נמצא רישום');
+    return;
+  }
+
+  readingEditCurrentId = Number(readingId);
+  await fillReadingEditTenantOptions(rec.tenantId || null);
+
+  document.getElementById('reading-edit-apartment').value = String(rec.apartmentNumber || '').trim();
+  document.getElementById('reading-edit-date').value = formatDateEu(rec.date || '');
+  document.getElementById('reading-edit-meter-type').value = rec.meterType === 'water' ? 'water' : 'electricity';
+  document.getElementById('reading-edit-value').value = String(rec.value ?? '');
+  document.getElementById('reading-edit-notes').value = rec.notes || '';
+  document.getElementById('reading-edit-paid').checked = !!rec.paid;
+
+  const statusRow = document.getElementById('reading-edit-status-row');
+  const statusSelect = document.getElementById('reading-edit-status');
+  if (statusRow && statusSelect) {
+    if (isRemoteApp()) {
+      statusRow.style.display = '';
+      const recStatus = String(rec.status || 'approved').toLowerCase();
+      statusSelect.value = ['approved', 'pending', 'rejected'].includes(recStatus) ? recStatus : 'approved';
+    } else {
+      statusRow.style.display = 'none';
+      statusSelect.value = 'approved';
+    }
+  }
+
+  const modal = document.getElementById('reading-edit-modal');
+  if (!modal) return;
+  modal.classList.remove('hidden');
+  modal.style.display = 'flex';
+}
+
+document.getElementById('reading-edit-tenant')?.addEventListener('change', e => {
+  const tenantId = Number(e.target.value || 0);
+  if (!tenantId) return;
+  const tenant = readingEditTenants.find(t => Number(t.id) === tenantId);
+  if (!tenant) return;
+  document.getElementById('reading-edit-apartment').value = String(tenant.apartmentNumber || '').trim();
+});
+
+document.getElementById('reading-edit-cancel')?.addEventListener('click', () => {
+  closeReadingEditModal();
+});
+
+document.getElementById('reading-edit-save')?.addEventListener('click', async () => {
+  if (!readingEditCurrentId) return;
+
+  const dateRaw = document.getElementById('reading-edit-date').value.trim();
+  const parsedDate = parseDateToIso(dateRaw);
+  if (!parsedDate) {
+    alert('תאריך לא תקין');
+    return;
+  }
+
+  const valueRaw = document.getElementById('reading-edit-value').value;
+  const value = Number(valueRaw);
+  if (!Number.isFinite(value)) {
+    alert('ערך קריאה לא תקין');
+    return;
+  }
+
+  const selectedTenantId = Number(document.getElementById('reading-edit-tenant').value || 0);
+  const selectedTenant = selectedTenantId
+    ? readingEditTenants.find(t => Number(t.id) === selectedTenantId) || null
+    : null;
+
+  const patch = {
+    tenantId: selectedTenant ? Number(selectedTenant.id) : null,
+    tenantName: selectedTenant ? `${selectedTenant.firstName || ''} ${selectedTenant.lastName || ''}`.trim() : '',
+    apartmentNumber: document.getElementById('reading-edit-apartment').value.trim(),
+    meterType: document.getElementById('reading-edit-meter-type').value,
+    value,
+    date: parsedDate,
+    notes: document.getElementById('reading-edit-notes').value.trim(),
+    paid: document.getElementById('reading-edit-paid').checked
+  };
+
+  if (isRemoteApp()) {
+    const nextStatus = String(document.getElementById('reading-edit-status').value || 'approved').toLowerCase();
+    patch.status = ['approved', 'pending', 'rejected'].includes(nextStatus) ? nextStatus : 'approved';
+  }
+
+  try {
+    await updateReading(readingEditCurrentId, patch);
+    closeReadingEditModal();
+    await renderReadings();
+    alert('קריאה עודכנה');
+  } catch (err) {
+    console.error(err);
+    alert('שגיאה בעדכון: ' + err.message);
+  }
+});
+
 // Reading edit/delete handlers (delegated)
 document.getElementById('readings-list')?.addEventListener('click', async e => {
   const header = e.target.closest('th[data-key]');
@@ -5378,96 +5539,7 @@ document.getElementById('readings-list')?.addEventListener('click', async e => {
   if (editBtn) {
     const id = Number(editBtn.dataset.id);
     try {
-      const rec = isRemoteApp()
-        ? await getReadingByIdRemote(id)
-        : await new Promise((res, rej) => {
-            getTx('readings', 'readonly').then(tx => {
-              const r = tx.objectStore('readings').get(id);
-              r.onsuccess = () => res(r.result);
-              r.onerror = () => rej(r.error);
-            }).catch(rej);
-          });
-      if (!rec) return alert('לא נמצא רישום');
-
-      const tenants = await getAllTenants(true);
-      const tenantMap = new Map(tenants.map(t => [Number(t.id), t]));
-      const currentTenant = tenantMap.get(Number(rec.tenantId || 0));
-
-      const newDateRaw = prompt('ערוך תאריך (DD/MM/YYYY):', formatDateEu(rec.date));
-      if (newDateRaw === null) return;
-      const parsedDate = parseDateToIso(newDateRaw);
-      if (!parsedDate) return alert('תאריך לא תקין');
-
-      const apartmentDefault = String(currentTenant?.apartmentNumber || rec.apartmentNumber || '');
-      const apartmentInput = prompt('ערוך דירה (מספר דירה):', apartmentDefault);
-      if (apartmentInput === null) return;
-      const apartment = String(apartmentInput || '').trim();
-
-      let tenantId = Number(rec.tenantId || 0) || null;
-      let tenantName = String(rec.tenantName || '').trim();
-      if (apartment) {
-        const candidates = tenants.filter(t => String(t.apartmentNumber || '').trim() === apartment);
-        if (candidates.length > 0) {
-          const readTs = dateValueFromAny(parsedDate);
-          const inRange = candidates.filter(t => {
-            const startTs = t.startDate ? dateValueFromAny(t.startDate) : Number.NEGATIVE_INFINITY;
-            const endSource = t.moveOutDate || t.endDate || '';
-            const endTs = endSource ? dateValueFromAny(endSource) : Number.POSITIVE_INFINITY;
-            return readTs >= startTs && readTs <= endTs;
-          });
-          const picked = (inRange[0] || candidates[0]);
-          tenantId = Number(picked.id);
-          tenantName = `${picked.firstName || ''} ${picked.lastName || ''}`.trim();
-        }
-      }
-
-      const meterDefault = rec.meterType === 'water' ? 'מים' : 'חשמל';
-      const meterRaw = prompt('ערוך סוג מונה (חשמל/מים):', meterDefault);
-      if (meterRaw === null) return;
-      const meterNorm = String(meterRaw).trim().toLowerCase();
-      const meterType = ['water', 'מים', 'w'].includes(meterNorm) ? 'water' : 'electricity';
-
-      const newValRaw = prompt('ערוך ערך קריאה (ללא יחידות):', String(rec.value ?? ''));
-      if (newValRaw === null) return;
-      const newVal = Number(String(newValRaw).trim());
-      if (!Number.isFinite(newVal)) return alert('ערך קריאה לא תקין');
-
-      const newNotes = prompt('ערוך הערות:', String(rec.notes || ''));
-      if (newNotes === null) return;
-
-      const paidDefault = rec.paid ? 'כן' : 'לא';
-      const paidRaw = prompt('האם הקריאה שולמה? (כן/לא):', paidDefault);
-      if (paidRaw === null) return;
-      const paidNormalized = String(paidRaw).trim().toLowerCase();
-      const paid = ['כן', 'yes', 'true', '1', 'y'].includes(paidNormalized)
-        ? true
-        : ['לא', 'no', 'false', '0', 'n'].includes(paidNormalized)
-          ? false
-          : !!rec.paid;
-
-      let nextStatus = rec.status || 'approved';
-      if (isRemoteApp()) {
-        const statusRaw = prompt('ערוך סטטוס (approved/pending/rejected):', String(nextStatus));
-        if (statusRaw === null) return;
-        const normalizedStatus = String(statusRaw).trim().toLowerCase();
-        if (['approved', 'pending', 'rejected'].includes(normalizedStatus)) {
-          nextStatus = normalizedStatus;
-        }
-      }
-
-      await updateReading(id, {
-        tenantId,
-        tenantName,
-        apartmentNumber: apartment,
-        meterType,
-        value: newVal,
-        date: parsedDate,
-        notes: String(newNotes || '').trim(),
-        paid,
-        status: nextStatus
-      });
-      await renderReadings();
-      alert('קריאה עודכנה');
+      await openReadingEditModal(id);
     } catch (err) { console.error(err); alert('שגיאה בעדכון: ' + err.message); }
     return;
   }

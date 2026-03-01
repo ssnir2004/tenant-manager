@@ -12,17 +12,7 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.31/jspdf.plugin.autotable.min.js"></script>
 </head>
 <body>
-  <header>
-    <div class="header-content">
-      <div class="header-title">
-        <h1>ניהול דיירים — טרומפלדור 31, נהריה</h1>
-      </div>
-      <div class="auth-area">
-        <span id="auth-status" class="auth-status">לא מחובר</span>
-        <button id="auth-action-btn" class="auth-btn hidden">התחבר</button>
-      </div>
-    </div>
-  </header>
+כן
 
   <main>
     <aside class="sidebar">
@@ -542,6 +532,101 @@
     </div>
   </div>
 
+  <!-- Edit Tenant Modal -->
+  <div id="tenant-edit-modal" class="modal hidden">
+    <div class="modal-content">
+      <h2 style="margin-top: 0;">עריכת דייר</h2>
+      <div class="row">
+        <label>בחר דייר (כולל לא פעילים)
+          <select id="tenant-edit-select"></select>
+        </label>
+      </div>
+      <div class="row"><input id="tenant-edit-first-name" type="text" placeholder="שם" required></div>
+      <div class="row"><input id="tenant-edit-last-name" type="text" placeholder="שם משפחה" required></div>
+      <div class="row"><input id="tenant-edit-national-id" type="text" placeholder="ת.ז."></div>
+      <div class="row"><input id="tenant-edit-phone" type="text" placeholder="טלפון"></div>
+      <div class="row">
+        <label><input id="tenant-edit-active" type="checkbox"> דייר פעיל</label>
+      </div>
+      <div class="row">
+        <label>תאריך התחלה
+          <input id="tenant-edit-start-date" type="text" placeholder="DD/MM/YYYY">
+        </label>
+      </div>
+      <div class="row">
+        <label>תאריך סיום
+          <input id="tenant-edit-end-date" type="text" placeholder="DD/MM/YYYY">
+        </label>
+      </div>
+      <div class="row"><input id="tenant-edit-rent-amount" type="number" placeholder="סכום שכירות"></div>
+      <div class="row"><input id="tenant-edit-arnona-amount" type="number" placeholder="ארנונה"></div>
+      <div class="row"><input id="tenant-edit-apartment-number" type="text" placeholder="מספר דירה"></div>
+      <div class="row"><input id="tenant-edit-electricity-meter" type="text" placeholder="מונה חשמל"></div>
+      <div class="row"><input id="tenant-edit-water-meter" type="text" placeholder="מונה מים"></div>
+      <div class="row"><textarea id="tenant-edit-notes" placeholder="הערות"></textarea></div>
+      <div class="modal-actions">
+        <button id="tenant-edit-save" type="button">שמור</button>
+        <button id="tenant-edit-cancel" type="button">בטל</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Edit Reading Modal -->
+  <div id="reading-edit-modal" class="modal hidden">
+    <div class="modal-content">
+      <h2 style="margin-top: 0;">עריכת קריאה</h2>
+      <div class="row">
+        <label>דייר (כולל לא פעילים)
+          <select id="reading-edit-tenant"></select>
+        </label>
+      </div>
+      <div class="row">
+        <label>דירה
+          <input id="reading-edit-apartment" type="text" placeholder="מספר דירה">
+        </label>
+      </div>
+      <div class="row">
+        <label>תאריך קריאה
+          <input id="reading-edit-date" type="text" placeholder="DD/MM/YYYY">
+        </label>
+      </div>
+      <div class="row">
+        <label>סוג מונה
+          <select id="reading-edit-meter-type">
+            <option value="electricity">חשמל</option>
+            <option value="water">מים</option>
+          </select>
+        </label>
+      </div>
+      <div class="row">
+        <label>ערך קריאה
+          <input id="reading-edit-value" type="number" step="0.01" placeholder="0">
+        </label>
+      </div>
+      <div class="row">
+        <label>הערות
+          <textarea id="reading-edit-notes" placeholder="הערות"></textarea>
+        </label>
+      </div>
+      <div class="row">
+        <label><input id="reading-edit-paid" type="checkbox"> שולם</label>
+      </div>
+      <div class="row" id="reading-edit-status-row">
+        <label>סטטוס
+          <select id="reading-edit-status">
+            <option value="approved">approved</option>
+            <option value="pending">pending</option>
+            <option value="rejected">rejected</option>
+          </select>
+        </label>
+      </div>
+      <div class="modal-actions">
+        <button id="reading-edit-save" type="button">שמור</button>
+        <button id="reading-edit-cancel" type="button">בטל</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Edit Tenant Dates Modal -->
   <div id="edit-dates-modal" class="modal hidden">
     <div class="modal-content">
@@ -578,6 +663,6 @@
     </div>
   </div>
 
-  <script src="script.js?v=2026022102" defer></script>
+  <script src="script.js?v=2026030101" defer></script>
 </body>
 </html>
