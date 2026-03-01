@@ -2097,6 +2097,15 @@ function buildTenantPdfContentHtml(row, monthValue) {
         </div>
 
         <div class="section"><strong>סה"כ לתשלום: ${total} ₪</strong></div>
+        <div class="section" style="margin-top: 20px; border-top: 1px solid #ddd; padding-top: 12px; font-size: 13px;">
+          <strong>הערת תשלום:</strong><br>
+          ניתן לשלם בביט 052-3277732 ניר<br>
+          או לחשבון:<br>
+          הבינלאומי, מספר בנק 31<br>
+          מספר סניף 052 - נהריה<br>
+          מספר חשבון: 374989<br>
+          ע"ש ניר וליאור כהן
+        </div>
       </div>
   `;
 }
