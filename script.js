@@ -2118,32 +2118,72 @@ function buildTenantReportPdfFilename(row, monthValue) {
 }
 
 async function generateTenantPdfBlob(row, monthValue, filename = '') {
-  if (typeof window.html2pdf !== 'function') {
-    throw new Error('html2pdf לא זמין בדפדפן');
+  const jsPDFClass = window.jspdf?.jsPDF || window.jsPDF?.jsPDF || window.jsPDF;
+  if (!jsPDFClass) {
+    throw new Error('jsPDF לא זמין בדפדפן');
   }
 
-  const wrapper = document.createElement('div');
-  wrapper.style.position = 'fixed';
-  wrapper.style.left = '-10000px';
-  wrapper.style.top = '0';
-  wrapper.style.width = '794px';
-  wrapper.style.background = '#fff';
-  wrapper.style.zIndex = '-1';
-  wrapper.innerHTML = buildTenantPdfContentHtml(row, monthValue);
-  document.body.appendChild(wrapper);
+  const w = row.water || {};
+  const e = row.electric || {};
+  const total = Number(row.total ?? 0).toFixed(2);
+  const pdf = new jsPDFClass('p', 'mm', 'a4');
 
-  try {
-    const worker = window.html2pdf().set({
-      margin: [8, 8, 8, 8],
-      filename: filename || buildTenantReportPdfFilename(row, monthValue),
-      image: { type: 'jpeg', quality: 0.98 },
-      html2canvas: { scale: 2, useCORS: true },
-      jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
-    }).from(wrapper);
-    return await worker.outputPdf('blob');
-  } finally {
-    wrapper.remove();
+  let y = 16;
+  pdf.setFont('helvetica', 'bold');
+  pdf.setFontSize(14);
+  pdf.text(`Tenant Bill Report ${formatMonthEu(monthValue)}`, 105, y, { align: 'center' });
+
+  y += 8;
+  pdf.setFont('helvetica', 'normal');
+  pdf.setFontSize(11);
+  pdf.text(`Tenant: ${row.tenantName || '-'}`, 14, y);
+  y += 6;
+  pdf.text(`Apartment: ${row.apartment || '-'}`, 14, y);
+  y += 8;
+
+  const tableHead = [['Type', 'Meter', 'Start Reading', 'Start Date', 'End Reading', 'End Date', 'Cost (NIS)']];
+  const tableBody = [
+    [
+      'Water',
+      row.waterMeter || '-',
+      w.startValue ?? '-',
+      formatDateEu(w.startDate ?? '') || '-',
+      w.endValue ?? '-',
+      formatDateEu(w.endDate ?? '') || '-',
+      Number(w.cost ?? 0).toFixed(2)
+    ],
+    [
+      'Electricity',
+      row.electricMeter || '-',
+      e.startValue ?? '-',
+      formatDateEu(e.startDate ?? '') || '-',
+      e.endValue ?? '-',
+      formatDateEu(e.endDate ?? '') || '-',
+      Number(e.cost ?? 0).toFixed(2)
+    ]
+  ];
+
+  if (pdf.autoTable && typeof pdf.autoTable === 'function') {
+    pdf.autoTable({
+      head: tableHead,
+      body: tableBody,
+      startY: y,
+      styles: { fontSize: 10 },
+      headStyles: { fillColor: [43, 108, 176], textColor: [255, 255, 255] },
+      margin: { left: 14, right: 14 }
+    });
+    y = (pdf.lastAutoTable?.finalY || y) + 10;
+  } else {
+    tableBody.forEach(r => {
+      pdf.text(`${r[0]} | Meter: ${r[1]} | Cost: ${r[6]}`, 14, y);
+      y += 6;
+    });
+    y += 2;
   }
+
+  pdf.setFont('helvetica', 'bold');
+  pdf.text(`Total: NIS ${total}`, 14, y);
+  return pdf.output('blob');
 }
 
 async function shareTenantReportToWhatsApp(row, monthValue) {
@@ -2158,9 +2198,14 @@ async function shareTenantReportToWhatsApp(row, monthValue) {
   }
 
   const shareText = `דוח חשבונות לחודש ${formatMonthEu(monthValue)} · דירה ${row.apartment || '-'}`;
-  const file = new File([pdfBlob], filename, { type: 'application/pdf' });
+  let file = null;
+  try {
+    file = new File([pdfBlob], filename, { type: 'application/pdf' });
+  } catch (err) {
+    file = null;
+  }
 
-  if (navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
+  if (file && navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
     try {
       await navigator.share({
         title: 'דוח חשבונות',
