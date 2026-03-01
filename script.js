@@ -2139,18 +2139,54 @@ function sortTenantsByMeter(tenants, meterKey) {
   });
 }
 
-function buildBulkList(containerId, tenants, meterKey, unitLabel) {
+function buildLatestReadingMap(readings, meterType) {
+  const map = new Map();
+  (readings || [])
+    .filter(r => r && r.meterType === meterType && r.tenantId)
+    .forEach(r => {
+      const tenantId = Number(r.tenantId);
+      const existing = map.get(tenantId);
+      if (!existing) {
+        map.set(tenantId, r);
+        return;
+      }
+
+      const currentDateValue = dateValueFromAny(r.date);
+      const existingDateValue = dateValueFromAny(existing.date);
+      if (currentDateValue > existingDateValue) {
+        map.set(tenantId, r);
+        return;
+      }
+      if (currentDateValue === existingDateValue && Number(r.id || 0) > Number(existing.id || 0)) {
+        map.set(tenantId, r);
+      }
+    });
+  return map;
+}
+
+function formatReadingValue(value) {
+  const num = Number(value);
+  if (!Number.isFinite(num)) return String(value ?? '');
+  return num.toLocaleString('he-IL', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+}
+
+function buildBulkList(containerId, tenants, meterKey, unitLabel, latestReadingsByTenant = new Map()) {
   const container = document.getElementById(containerId);
   if (!container) return;
   container.innerHTML = '';
   tenants.forEach(t => {
     const meter = t[meterKey] || '';
+    const latest = latestReadingsByTenant.get(Number(t.id));
+    const previousReadingText = latest
+      ? `${formatReadingValue(latest.value)} (${formatDateEu(latest.date)})`
+      : 'אין קריאה קודמת';
     const row = document.createElement('div');
     row.className = 'bulk-row';
     row.innerHTML = `
       <div class="bulk-main">
         <div class="bulk-title">דירה ${t.apartmentNumber || '-'} · ${t.firstName || ''} ${t.lastName || ''}</div>
         <div class="bulk-sub">מונה: ${meter || 'לא מוגדר'}</div>
+        <div class="bulk-sub">קריאה קודמת: ${previousReadingText}</div>
       </div>
       <input class="bulk-value" type="number" step="0.01" data-tenant-id="${t.id}" placeholder="קריאה (${unitLabel})">
     `;
@@ -4410,10 +4446,13 @@ showMomBtn?.addEventListener('click', async () => {
 showReadingsBtn?.addEventListener('click', async () => {
   setActiveButton('show-readings');
   const tenants = await getAllTenants(false);
+  const readings = await getAllReadings();
+  const latestElectricityByTenant = buildLatestReadingMap(readings, 'electricity');
+  const latestWaterByTenant = buildLatestReadingMap(readings, 'water');
   const sortedElec = sortTenantsByMeter(tenants, 'electricityMeter');
   const sortedWater = sortTenantsByMeter(tenants, 'waterMeter');
-  buildBulkList('bulk-electricity-list', sortedElec, 'electricityMeter', 'קוט"ש');
-  buildBulkList('bulk-water-list', sortedWater, 'waterMeter', 'מ"ק');
+  buildBulkList('bulk-electricity-list', sortedElec, 'electricityMeter', 'קוט"ש', latestElectricityByTenant);
+  buildBulkList('bulk-water-list', sortedWater, 'waterMeter', 'מ"ק', latestWaterByTenant);
   await renderReadings();
   const monthInput = document.getElementById('bill-month');
   if (monthInput && !monthInput.value) {
