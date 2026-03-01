@@ -121,6 +121,7 @@ const APARTMENT_TO_CORRECT_METER = {
   '4': '4',
   '5': '2'
 };
+const READINGS_ALIGNMENT_SETTING_KEY = 'readingsTenantAlignment_2026_03_01_done';
 
 function normalizeApartment(value) {
   return String(value || '').trim();
@@ -130,8 +131,58 @@ function normalizeMeter(value) {
   return String(value || '').trim();
 }
 
-function buildWaterReassignmentNote(oldMeter, newMeter, readingValue) {
-  return `מתאריך 01/03/2026 שונה ממונה ${oldMeter} למונה ${newMeter}; קריאה: ${readingValue ?? ''}`;
+function buildWaterReassignmentNote(oldMeter, newMeter) {
+  return `מתאריך 01/03/2026 שונה ממונה ${oldMeter} למונה ${newMeter}`;
+}
+
+function dateToNumber(value) {
+  const iso = parseDateToIso(value);
+  if (!iso) return null;
+  return Number(iso.replace(/-/g, ''));
+}
+
+function getTenantEndDate(tenant) {
+  return tenant?.moveOutDate || tenant?.endDate || '';
+}
+
+function isTenantInApartmentOnDate(tenant, readingDateNumber) {
+  if (!tenant || !readingDateNumber) return false;
+  const start = dateToNumber(tenant.startDate);
+  const end = dateToNumber(getTenantEndDate(tenant));
+  if (start && readingDateNumber < start) return false;
+  if (end && readingDateNumber > end) return false;
+  return true;
+}
+
+function pickBestTenantForDate(candidates, readingDateNumber) {
+  if (!Array.isArray(candidates) || candidates.length === 0 || !readingDateNumber) return null;
+
+  const exactMatches = candidates.filter(t => isTenantInApartmentOnDate(t, readingDateNumber));
+  if (exactMatches.length > 0) {
+    return exactMatches.sort((a, b) => (dateToNumber(b.startDate) || 0) - (dateToNumber(a.startDate) || 0))[0];
+  }
+
+  const beforeOrSame = candidates
+    .filter(t => {
+      const start = dateToNumber(t.startDate);
+      return !start || start <= readingDateNumber;
+    })
+    .sort((a, b) => (dateToNumber(b.startDate) || 0) - (dateToNumber(a.startDate) || 0));
+  if (beforeOrSame.length > 0) return beforeOrSame[0];
+
+  return candidates
+    .slice()
+    .sort((a, b) => (dateToNumber(a.startDate) || Number.MAX_SAFE_INTEGER) - (dateToNumber(b.startDate) || Number.MAX_SAFE_INTEGER))[0] || null;
+}
+
+function normalizeReadingNote(note) {
+  const raw = String(note || '').trim();
+  if (!raw) return '';
+  const parts = raw
+    .split('|')
+    .map(part => part.replace(/;\s*קריאה:\s*[^|]*/g, '').trim())
+    .filter(Boolean);
+  return parts.join(' | ');
 }
 
 async function ensureWaterMeterReassignment(db) {
@@ -177,7 +228,7 @@ async function ensureWaterMeterReassignment(db) {
 
     let nextNote = String(reading.notes || '').trim();
     if (meterChanged) {
-      const noteText = buildWaterReassignmentNote(originalMeter, newMeter, reading.value);
+      const noteText = buildWaterReassignmentNote(originalMeter, newMeter);
       if (!nextNote.includes('שונה ממונה')) {
         nextNote = nextNote ? `${nextNote} | ${noteText}` : noteText;
       }
@@ -198,6 +249,59 @@ async function ensureWaterMeterReassignment(db) {
     [WATER_METER_REASSIGNMENT_SETTING_KEY, 'done']
   );
   console.log('Applied water meter reassignment migration (2026-03-01).');
+}
+
+async function ensureReadingsTenantAlignment(db) {
+  const marker = await db.get('SELECT value FROM settings WHERE key = ?', [READINGS_ALIGNMENT_SETTING_KEY]);
+  if (marker && String(marker.value || '') === 'done') return;
+
+  const tenants = await db.all('SELECT * FROM tenants');
+  const readings = await db.all('SELECT * FROM readings');
+  if (!tenants.length || !readings.length) {
+    await db.run(
+      'INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value',
+      [READINGS_ALIGNMENT_SETTING_KEY, 'done']
+    );
+    return;
+  }
+
+  const tenantById = new Map(tenants.map(t => [Number(t.id), t]));
+  const tenantsByApartment = new Map();
+  for (const tenant of tenants) {
+    const apartment = normalizeApartment(tenant.apartmentNumber);
+    if (!apartment) continue;
+    if (!tenantsByApartment.has(apartment)) tenantsByApartment.set(apartment, []);
+    tenantsByApartment.get(apartment).push(tenant);
+  }
+
+  for (const reading of readings) {
+    const currentTenant = tenantById.get(Number(reading.tenantId || 0));
+    const apartment = normalizeApartment(currentTenant?.apartmentNumber);
+    const readingDateNumber = dateToNumber(reading.date);
+    const cleanedNote = normalizeReadingNote(reading.notes);
+    let targetTenantId = Number(reading.tenantId || 0) || null;
+
+    if (apartment && readingDateNumber) {
+      const candidates = tenantsByApartment.get(apartment) || [];
+      const bestTenant = pickBestTenantForDate(candidates, readingDateNumber);
+      if (bestTenant) targetTenantId = Number(bestTenant.id);
+    }
+
+    const needsTenantUpdate = Number(targetTenantId || 0) !== Number(reading.tenantId || 0);
+    const needsNoteUpdate = cleanedNote !== String(reading.notes || '').trim();
+    if (!needsTenantUpdate && !needsNoteUpdate) continue;
+
+    await db.run(
+      'UPDATE readings SET tenantId = ?, notes = ? WHERE id = ?',
+      [targetTenantId, cleanedNote, reading.id]
+    );
+  }
+
+  await db.run(
+    'INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value',
+    [READINGS_ALIGNMENT_SETTING_KEY, 'done']
+  );
+  console.log('Applied readings tenant alignment migration (2026-03-01).');
 }
 
 async function ensureInitialAdmin(db) {
@@ -308,6 +412,7 @@ function respondDbError(res, err) {
   }
 
   await ensureWaterMeterReassignment(db);
+  await ensureReadingsTenantAlignment(db);
 
   await ensureInitialAdmin(db);
 
