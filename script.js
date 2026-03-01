@@ -76,14 +76,14 @@ async function apiRequest(path, options = {}) {
 
 function normalizeTenantRow(row) {
   if (!row) return row;
-    const normalizedRow = {
+  const normalizedRow = {
     ...row,
     archived: !!row.archived,
     active: row.active === undefined ? true : !!row.active
-  };ש 
-    normalizedRow.waterMeter = row.waterMeter || '';
-    normalizedRow.electricityMeter = row.electricityMeter || '';
-    return normalizedRow;
+  };
+  normalizedRow.waterMeter = row.waterMeter || '';
+  normalizedRow.electricityMeter = row.electricityMeter || '';
+  return normalizedRow;
 }
 
 function showAuthModal() {
