@@ -25,6 +25,7 @@ CREATE TABLE IF NOT EXISTS readings (
   date TEXT,
   value DOUBLE PRECISION,
   paid INTEGER DEFAULT 0,
+  notes TEXT,
   "createdAt" TEXT,
   status TEXT DEFAULT 'approved',
   "submittedByUserId" INTEGER,

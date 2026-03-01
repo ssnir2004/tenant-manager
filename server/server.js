@@ -99,6 +99,107 @@ function isGrandmaAccount(accountValue) {
   return raw === 'חשבון אסתר ומיכאל' || raw === 'אסתר ומיכאל';
 }
 
+const WATER_METER_REASSIGNMENT_SETTING_KEY = 'waterMeterReassignment_2026_03_01_done';
+const OLD_METER_TO_APARTMENT = {
+  '1': '1',
+  '2': '3',
+  '3': '5',
+  '4': '4',
+  '5': '2'
+};
+const OLD_METER_TO_NEW_METER = {
+  '1': '1',
+  '2': '5',
+  '3': '2',
+  '4': '4',
+  '5': '3'
+};
+const APARTMENT_TO_CORRECT_METER = {
+  '1': '1',
+  '2': '3',
+  '3': '5',
+  '4': '4',
+  '5': '2'
+};
+
+function normalizeApartment(value) {
+  return String(value || '').trim();
+}
+
+function normalizeMeter(value) {
+  return String(value || '').trim();
+}
+
+function buildWaterReassignmentNote(oldMeter, newMeter, readingValue) {
+  return `מתאריך 01/03/2026 שונה ממונה ${oldMeter} למונה ${newMeter}; קריאה: ${readingValue ?? ''}`;
+}
+
+async function ensureWaterMeterReassignment(db) {
+  const marker = await db.get('SELECT value FROM settings WHERE key = ?', [WATER_METER_REASSIGNMENT_SETTING_KEY]);
+  if (marker && String(marker.value || '') === 'done') return;
+
+  const tenants = await db.all('SELECT * FROM tenants');
+  if (!tenants.length) {
+    await db.run(
+      'INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value',
+      [WATER_METER_REASSIGNMENT_SETTING_KEY, 'done']
+    );
+    return;
+  }
+
+  const tenantById = new Map(tenants.map(t => [Number(t.id), t]));
+  const tenantByApartment = new Map(tenants.map(t => [normalizeApartment(t.apartmentNumber), t]));
+  const originalMeterByTenantId = new Map(tenants.map(t => [Number(t.id), normalizeMeter(t.waterMeter)]));
+
+  for (const tenant of tenants) {
+    const apartment = normalizeApartment(tenant.apartmentNumber);
+    const correctMeter = APARTMENT_TO_CORRECT_METER[apartment];
+    if (!correctMeter) continue;
+    if (normalizeMeter(tenant.waterMeter) === correctMeter) continue;
+    await db.run('UPDATE tenants SET waterMeter = ? WHERE id = ?', [correctMeter, tenant.id]);
+    tenant.waterMeter = correctMeter;
+  }
+
+  const waterReadings = await db.all('SELECT * FROM readings WHERE meterType = ?', ['water']);
+  for (const reading of waterReadings) {
+    const currentTenantId = Number(reading.tenantId || 0);
+    if (!currentTenantId) continue;
+    const originalMeter = normalizeMeter(originalMeterByTenantId.get(currentTenantId));
+    if (!originalMeter) continue;
+
+    const targetApartment = OLD_METER_TO_APARTMENT[originalMeter];
+    if (!targetApartment) continue;
+    const targetTenant = tenantByApartment.get(targetApartment);
+    if (!targetTenant) continue;
+
+    const newMeter = OLD_METER_TO_NEW_METER[originalMeter] || normalizeMeter(targetTenant.waterMeter);
+    const meterChanged = originalMeter !== newMeter;
+
+    let nextNote = String(reading.notes || '').trim();
+    if (meterChanged) {
+      const noteText = buildWaterReassignmentNote(originalMeter, newMeter, reading.value);
+      if (!nextNote.includes('שונה ממונה')) {
+        nextNote = nextNote ? `${nextNote} | ${noteText}` : noteText;
+      }
+    }
+
+    const needsTenantUpdate = Number(targetTenant.id) !== currentTenantId;
+    const needsNoteUpdate = String(reading.notes || '').trim() !== nextNote;
+    if (!needsTenantUpdate && !needsNoteUpdate) continue;
+
+    await db.run(
+      'UPDATE readings SET tenantId = ?, notes = ? WHERE id = ?',
+      [targetTenant.id, nextNote, reading.id]
+    );
+  }
+
+  await db.run(
+    'INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value',
+    [WATER_METER_REASSIGNMENT_SETTING_KEY, 'done']
+  );
+  console.log('Applied water meter reassignment migration (2026-03-01).');
+}
+
 async function ensureInitialAdmin(db) {
   if (!ADMIN_EMAIL || !ADMIN_PASSWORD) return;
   const normalizedEmail = String(ADMIN_EMAIL).toLowerCase().trim();
@@ -205,6 +306,8 @@ function respondDbError(res, err) {
     console.error('JWT_SECRET is required. Set it in the environment or .env file.');
     process.exit(1);
   }
+
+  await ensureWaterMeterReassignment(db);
 
   await ensureInitialAdmin(db);
 
@@ -689,8 +792,8 @@ function respondDbError(res, err) {
 
     try {
       const result = await db.run(
-        'INSERT INTO readings (tenantId, meterType, date, value, paid, createdAt, status, submittedByUserId, approvedByUserId, approvedAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-        [tenantId, r.meterType || '', r.date || '', r.value ?? null, toBooleanInt(r.paid) ?? 0, now, status, submittedByUserId, approvedByUserId, approvedAt]
+        'INSERT INTO readings (tenantId, meterType, date, value, paid, notes, createdAt, status, submittedByUserId, approvedByUserId, approvedAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        [tenantId, r.meterType || '', r.date || '', r.value ?? null, toBooleanInt(r.paid) ?? 0, r.notes || '', now, status, submittedByUserId, approvedByUserId, approvedAt]
       );
       const row = await db.get('SELECT * FROM readings WHERE id = ?', [result.lastID]);
       res.json(row);
@@ -717,8 +820,8 @@ function respondDbError(res, err) {
     }
     try {
       await db.run(
-        'UPDATE readings SET tenantId = ?, meterType = ?, date = ?, value = ?, paid = ?, status = ?, approvedByUserId = ?, approvedAt = ? WHERE id = ?',
-        [r.tenantId ?? null, r.meterType || '', r.date || '', r.value ?? null, toBooleanInt(r.paid) ?? 0, r.status || 'approved', approvedByUserId, approvedAt, req.params.id]
+        'UPDATE readings SET tenantId = ?, meterType = ?, date = ?, value = ?, paid = ?, notes = ?, status = ?, approvedByUserId = ?, approvedAt = ? WHERE id = ?',
+        [r.tenantId ?? null, r.meterType || '', r.date || '', r.value ?? null, toBooleanInt(r.paid) ?? 0, r.notes || '', r.status || 'approved', approvedByUserId, approvedAt, req.params.id]
       );
       const row = await db.get('SELECT * FROM readings WHERE id = ?', [req.params.id]);
       if (!row) {

@@ -76,11 +76,14 @@ async function apiRequest(path, options = {}) {
 
 function normalizeTenantRow(row) {
   if (!row) return row;
-  return {
+    const normalizedRow = {
     ...row,
     archived: !!row.archived,
     active: row.active === undefined ? true : !!row.active
   };ש 
+    normalizedRow.waterMeter = row.waterMeter || '';
+    normalizedRow.electricityMeter = row.electricityMeter || '';
+    return normalizedRow;
 }
 
 function showAuthModal() {
@@ -2478,13 +2481,14 @@ async function renderReadings() {
           <td>${name || '-'}</td>
           <td>${meterTypeLabel(r.meterType)}</td>
           <td>${r.value ?? ''}</td>
+          <td>${r.notes || '-'}</td>
           ${paidCell}
           <td>${linkCell}</td>
           ${statusCell}
           <td>${actionsCell}</td>
         </tr>
         <tr class="reading-detail-row hidden" data-reading-id="${r.id}">
-          <td colspan="${showStatus ? 9 : 8}"></td>
+          <td colspan="${showStatus ? 10 : 9}"></td>
         </tr>
       `;
     }).join('');
@@ -2499,6 +2503,7 @@ async function renderReadings() {
             <th data-key="tenant">דייר</th>
             <th data-key="type">סוג</th>
             <th data-key="value">ערך</th>
+            <th>הערות</th>
             <th data-key="paid">שולם</th>
             <th>קישור</th>
             ${statusHeader}
@@ -4466,7 +4471,7 @@ showReadingsBtn?.addEventListener('click', async () => {
   const latestElectricityByTenant = buildLatestReadingMap(readings, 'electricity');
   const latestWaterByTenant = buildLatestReadingMap(readings, 'water');
   const sortedElec = sortTenantsByMeter(tenants, 'electricityMeter');
-  const sortedWater = sortTenantsByApartment(tenants);
+  const sortedWater = sortTenantsByMeter(tenants, 'waterMeter');
   buildBulkList('bulk-electricity-list', sortedElec, 'electricityMeter', 'קוט"ש', latestElectricityByTenant);
   buildBulkList('bulk-water-list', sortedWater, 'waterMeter', 'מ"ק', latestWaterByTenant);
   await renderReadings();

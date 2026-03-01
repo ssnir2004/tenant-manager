@@ -170,6 +170,7 @@ async function migrateSchema(db) {
   await ensureColumn(db, 'readings', 'approvedByUserId', 'INTEGER', readingsColumns);
   await ensureColumn(db, 'readings', 'approvedAt', 'TEXT', readingsColumns);
   await ensureColumn(db, 'readings', 'paid', 'INTEGER DEFAULT 0', readingsColumns);
+  await ensureColumn(db, 'readings', 'notes', 'TEXT', readingsColumns);
 
   const expensesColumns = await getTableColumns(db, 'expenses');
   await ensureColumn(db, 'expenses', 'paid', 'INTEGER DEFAULT 0', expensesColumns);
