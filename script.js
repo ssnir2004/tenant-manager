@@ -5388,13 +5388,35 @@ document.getElementById('readings-list')?.addEventListener('click', async e => {
             }).catch(rej);
           });
       if (!rec) return alert('לא נמצא רישום');
-      const newVal = prompt('ערוך ערך קריאה (ללא יחידות):', String(rec.value));
-      if (newVal === null) return;
-      const newDate = prompt('ערוך תאריך (DD/MM/YYYY):', formatDateEu(rec.date));
-      if (newDate === null) return;
-      const parsedDate = parseDateToIso(newDate);
+      const newValRaw = prompt('ערוך ערך קריאה (ללא יחידות):', String(rec.value ?? ''));
+      if (newValRaw === null) return;
+      const newVal = Number(String(newValRaw).trim());
+      if (!Number.isFinite(newVal)) return alert('ערך קריאה לא תקין');
+
+      const newDateRaw = prompt('ערוך תאריך (DD/MM/YYYY):', formatDateEu(rec.date));
+      if (newDateRaw === null) return;
+      const parsedDate = parseDateToIso(newDateRaw);
       if (!parsedDate) return alert('תאריך לא תקין');
-      await updateReading(id, { value: Number(newVal), date: parsedDate });
+
+      const newNotes = prompt('ערוך הערות:', String(rec.notes || ''));
+      if (newNotes === null) return;
+
+      const paidDefault = rec.paid ? 'כן' : 'לא';
+      const paidRaw = prompt('האם הקריאה שולמה? (כן/לא):', paidDefault);
+      if (paidRaw === null) return;
+      const paidNormalized = String(paidRaw).trim().toLowerCase();
+      const paid = ['כן', 'yes', 'true', '1', 'y'].includes(paidNormalized)
+        ? true
+        : ['לא', 'no', 'false', '0', 'n'].includes(paidNormalized)
+          ? false
+          : !!rec.paid;
+
+      await updateReading(id, {
+        value: newVal,
+        date: parsedDate,
+        notes: String(newNotes || '').trim(),
+        paid
+      });
       await renderReadings();
       alert('קריאה עודכנה');
     } catch (err) { console.error(err); alert('שגיאה בעדכון: ' + err.message); }
