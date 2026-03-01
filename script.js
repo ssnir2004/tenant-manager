@@ -2139,6 +2139,22 @@ function sortTenantsByMeter(tenants, meterKey) {
   });
 }
 
+function sortTenantsByApartment(tenants) {
+  return tenants.slice().sort((a, b) => {
+    const aRaw = String(a.apartmentNumber || '').trim();
+    const bRaw = String(b.apartmentNumber || '').trim();
+    const aNum = Number(aRaw);
+    const bNum = Number(bRaw);
+    const aIsNum = !Number.isNaN(aNum);
+    const bIsNum = !Number.isNaN(bNum);
+
+    if (aIsNum && bIsNum) return aNum - bNum;
+    if (aIsNum) return -1;
+    if (bIsNum) return 1;
+    return aRaw.localeCompare(bRaw, 'he');
+  });
+}
+
 function buildLatestReadingMap(readings, meterType) {
   const map = new Map();
   (readings || [])
@@ -4450,7 +4466,7 @@ showReadingsBtn?.addEventListener('click', async () => {
   const latestElectricityByTenant = buildLatestReadingMap(readings, 'electricity');
   const latestWaterByTenant = buildLatestReadingMap(readings, 'water');
   const sortedElec = sortTenantsByMeter(tenants, 'electricityMeter');
-  const sortedWater = sortTenantsByMeter(tenants, 'waterMeter');
+  const sortedWater = sortTenantsByApartment(tenants);
   buildBulkList('bulk-electricity-list', sortedElec, 'electricityMeter', 'קוט"ש', latestElectricityByTenant);
   buildBulkList('bulk-water-list', sortedWater, 'waterMeter', 'מ"ק', latestWaterByTenant);
   await renderReadings();
