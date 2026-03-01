@@ -1907,6 +1907,7 @@ function renderBillsReport(report) {
           <th>דייר</th>
           <th>דירה</th>
           <th>PDF</th>
+          <th>WhatsApp</th>
           <th>מונה מים</th>
           <th>קריאת מים התחלה</th>
           <th>תאריך התחלה</th>
@@ -1925,14 +1926,15 @@ function renderBillsReport(report) {
       <tbody>
   `;
 
-  const body = report.rows.map(r => {
+  const body = report.rows.map((r, idx) => {
     const w = r.water || {};
     const e = r.electric || {};
     return `
       <tr>
         <td>${r.tenantName || '-'}</td>
         <td>${r.apartment || '-'}</td>
-        <td><button class="btn-pdf" data-tenant="${r.apartment}">PDF</button></td>
+        <td><button class="btn-pdf" data-row-index="${idx}" data-tenant="${r.apartment}">PDF</button></td>
+        <td><button class="btn-whatsapp-pdf" data-row-index="${idx}" data-tenant="${r.apartment}">WhatsApp</button></td>
         <td>${r.waterMeter || '-'}</td>
         <td>${w.startValue ?? '-'}</td>
         <td>${formatDateEu(w.startDate ?? '') || '-'}</td>
@@ -2032,24 +2034,34 @@ async function downloadCsv(content, filename) {
 }
 
 function buildTenantPdfHtml(row, monthValue) {
-  const w = row.water || {};
-  const e = row.electric || {};
-  const total = (row.total ?? 0).toFixed(2);
+  const content = buildTenantPdfContentHtml(row, monthValue);
   return `
     <html lang="he" dir="rtl">
       <head>
         <meta charset="UTF-8">
         <title>דוח דייר</title>
-        <style>
-          body{font-family:Arial, sans-serif; direction:rtl; padding:24px;}
-          h1{font-size:20px; margin-bottom:8px;}
-          table{width:100%; border-collapse:collapse; margin-top:12px;}
-          th,td{border:1px solid #ccc; padding:6px; font-size:12px;}
-          th{background:#f3f3f3;}
-          .section{margin-top:16px;}
-        </style>
       </head>
       <body>
+        ${content}
+      </body>
+    </html>
+  `;
+}
+
+function buildTenantPdfContentHtml(row, monthValue) {
+  const w = row.water || {};
+  const e = row.electric || {};
+  const total = (row.total ?? 0).toFixed(2);
+  return `
+      <style>
+        .tenant-pdf-root{font-family:Arial, sans-serif; direction:rtl; padding:24px;}
+        .tenant-pdf-root h1{font-size:20px; margin-bottom:8px;}
+        .tenant-pdf-root table{width:100%; border-collapse:collapse; margin-top:12px;}
+        .tenant-pdf-root th,.tenant-pdf-root td{border:1px solid #ccc; padding:6px; font-size:12px;}
+        .tenant-pdf-root th{background:#f3f3f3;}
+        .tenant-pdf-root .section{margin-top:16px;}
+      </style>
+      <div class="tenant-pdf-root">
         <h1>דוח חשבונות לחודש ${formatMonthEu(monthValue)}</h1>
         <div>דייר: ${row.tenantName || '-'}</div>
         <div>דירה: ${row.apartment || '-'}</div>
@@ -2085,8 +2097,7 @@ function buildTenantPdfHtml(row, monthValue) {
         </div>
 
         <div class="section"><strong>סה"כ לתשלום: ${total} ₪</strong></div>
-      </body>
-    </html>
+      </div>
   `;
 }
 
@@ -2098,6 +2109,74 @@ function openPdfWindow(html) {
   w.document.close();
   w.focus();
   w.print();
+}
+
+function buildTenantReportPdfFilename(row, monthValue) {
+  const month = String(monthValue || '').replace(/[^0-9-]/g, '');
+  const apt = String(row?.apartment || 'NA').replace(/[^0-9A-Za-zא-ת_-]/g, '-');
+  return `tenant_report_${month}_apt_${apt}.pdf`;
+}
+
+async function generateTenantPdfBlob(row, monthValue, filename = '') {
+  if (typeof window.html2pdf !== 'function') {
+    throw new Error('html2pdf לא זמין בדפדפן');
+  }
+
+  const wrapper = document.createElement('div');
+  wrapper.style.position = 'fixed';
+  wrapper.style.left = '-10000px';
+  wrapper.style.top = '0';
+  wrapper.style.width = '794px';
+  wrapper.style.background = '#fff';
+  wrapper.style.zIndex = '-1';
+  wrapper.innerHTML = buildTenantPdfContentHtml(row, monthValue);
+  document.body.appendChild(wrapper);
+
+  try {
+    const worker = window.html2pdf().set({
+      margin: [8, 8, 8, 8],
+      filename: filename || buildTenantReportPdfFilename(row, monthValue),
+      image: { type: 'jpeg', quality: 0.98 },
+      html2canvas: { scale: 2, useCORS: true },
+      jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+    }).from(wrapper);
+    return await worker.outputPdf('blob');
+  } finally {
+    wrapper.remove();
+  }
+}
+
+async function shareTenantReportToWhatsApp(row, monthValue) {
+  const filename = buildTenantReportPdfFilename(row, monthValue);
+  let pdfBlob;
+  try {
+    pdfBlob = await generateTenantPdfBlob(row, monthValue, filename);
+  } catch (err) {
+    console.error(err);
+    alert('לא ניתן ליצור קובץ PDF לשיתוף כרגע');
+    return;
+  }
+
+  const shareText = `דוח חשבונות לחודש ${formatMonthEu(monthValue)} · דירה ${row.apartment || '-'}`;
+  const file = new File([pdfBlob], filename, { type: 'application/pdf' });
+
+  if (navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
+    try {
+      await navigator.share({
+        title: 'דוח חשבונות',
+        text: shareText,
+        files: [file]
+      });
+      return;
+    } catch (err) {
+      if (err?.name === 'AbortError') return;
+      console.warn('Native share failed, falling back to download + WhatsApp link', err);
+    }
+  }
+
+  await saveBlobAs(pdfBlob, filename, 'application/pdf');
+  const waText = `${shareText}\nהקובץ נשמר אצלך, אפשר לצרף אותו עכשיו בוואטסאפ.`;
+  window.open(`https://wa.me/?text=${encodeURIComponent(waText)}`, '_blank');
 }
 
 // UI Elements
@@ -5348,14 +5427,28 @@ readingsClearBtn?.addEventListener('click', async () => {
   await renderReadings();
 });
 
-document.getElementById('bills-report')?.addEventListener('click', e => {
+document.getElementById('bills-report')?.addEventListener('click', async e => {
   const btn = e.target.closest('.btn-pdf');
-  if (!btn || !lastMonthlyReport) return;
-  const apartment = btn.dataset.tenant;
-  const row = lastMonthlyReport.rows.find(r => String(r.apartment) === String(apartment));
+  const waBtn = e.target.closest('.btn-whatsapp-pdf');
+  if ((!btn && !waBtn) || !lastMonthlyReport) return;
+
+  const selectedBtn = btn || waBtn;
+  const rowIndex = Number(selectedBtn.dataset.rowIndex);
+  const apartment = selectedBtn.dataset.tenant;
+  const row = Number.isFinite(rowIndex) && rowIndex >= 0
+    ? lastMonthlyReport.rows[rowIndex]
+    : lastMonthlyReport.rows.find(r => String(r.apartment) === String(apartment));
   if (!row) { alert('לא נמצא דייר'); return; }
-  const html = buildTenantPdfHtml(row, lastMonthlyReport.monthValue);
-  openPdfWindow(html);
+
+  if (btn) {
+    const html = buildTenantPdfHtml(row, lastMonthlyReport.monthValue);
+    openPdfWindow(html);
+    return;
+  }
+
+  if (waBtn) {
+    await shareTenantReportToWhatsApp(row, lastMonthlyReport.monthValue);
+  }
 });
 
 let readingEditCurrentId = null;
