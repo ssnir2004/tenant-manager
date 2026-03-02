@@ -1367,7 +1367,6 @@ async function renderReminders() {
   const highCount = all.filter(r => r.priority === 'high').length;
   container.innerHTML = `
     <div style="margin-bottom:8px; color:#333;">סה"כ ${all.length} תזכורות · דחופות: ${highCount}</div>
-    <div style="margin-bottom:10px; color:#666; font-size:13px;">ℹ️ קריאה ראשונה לכל דייר במים/חשמל היא קריאת בסיס ולכן לא יוצרת תזכורת תשלום.</div>
     ${activeSectionHtml}
     <div style="margin-top: 14px; border-top: 1px solid #eee; padding-top: 12px;">
       <h3 style="margin: 0 0 8px 0;">תזכורות ששוחררו</h3>
