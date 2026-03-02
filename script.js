@@ -908,7 +908,13 @@ function compareReadings(a, b, tenantMap, key) {
   const tB = tenantMap.get(b.tenantId) || {};
   switch (key) {
     case 'date':
-      return new Date(a.date) - new Date(b.date);
+      {
+        const aDate = dateValueFromAny(a.date);
+        const bDate = dateValueFromAny(b.date);
+        const safeA = Number.isNaN(aDate) ? Number.MAX_SAFE_INTEGER : aDate;
+        const safeB = Number.isNaN(bDate) ? Number.MAX_SAFE_INTEGER : bDate;
+        return safeA - safeB;
+      }
     case 'apartment':
       return Number(tA.apartmentNumber || a.apartmentNumber || 0) - Number(tB.apartmentNumber || b.apartmentNumber || 0);
     case 'tenant':
