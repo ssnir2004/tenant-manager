@@ -134,19 +134,22 @@
             <div id="bulk-water-status" class="bulk-status"></div>
           </div>
         </div>
-        <div class="row" style="margin-top: 12px; display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 8px; align-items: end;">
-          <label>בחר שנה
-            <select id="bill-year"></select>
-          </label>
-          <label>בחר חודש
-            <select id="bill-month-select"></select>
-          </label>
+        <div class="section-container" style="margin-top: 12px;">
+          <div class="row" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 8px; align-items: end;">
+            <label>בחר שנה
+              <select id="bill-year"></select>
+            </label>
+            <label>בחר חודש
+              <select id="bill-month-select"></select>
+            </label>
+          </div>
+          <div class="actions" style="margin-top: 8px;">
+            <button id="generate-bills" type="button">הפק חשבונות לחודש</button>
+            <button id="export-bills-report" type="button">ייצא דוח CSV</button>
+          </div>
+          <small style="display: block; color: #666; margin-top: 8px; margin-bottom: 8px;">הקובץ יישמר בשם: <strong>bills_MM-YYYY.csv</strong></small>
+          <div id="bills-report"></div>
         </div>
-        <div class="actions">
-          <button id="generate-bills" type="button">הפק חשבונות לחודש</button>
-          <button id="export-bills-report" type="button">ייצא דוח CSV</button>
-        </div>
-        <small style="display: block; color: #666; margin-top: 8px; margin-bottom: 8px;">הקובץ יישמר בשם: <strong>bills_MM-YYYY.csv</strong></small>
         <div class="row" style="margin-top: 12px;">
           <label>CSV לקריאות (כותרות באנגלית)
             <input id="readings-csv-upload" type="file" accept=".csv">
@@ -159,7 +162,6 @@
         </div>
         <small style="display: block; color: #666; margin-top: 5px;">הקובץ יישמר בשם: <strong>readings.csv</strong></small>
         <div id="readings-csv-status" style="margin-top: 10px; color: #27ae60;"></div>
-        <div id="bills-report" class="section-container" style="margin-top: 12px;"></div>
         <div class="row section-container" style="margin-top: 12px; display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; align-items: end;">
           <label>חיפוש
             <input id="readings-filter-text" type="text" placeholder="שם דייר / דירה / הערה">
