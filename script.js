@@ -1008,6 +1008,80 @@ async function setManualReminders(list) {
   await setSetting('manualReminders', sanitizeManualReminders(list));
 }
 
+async function getReleasedAutoReminderIds() {
+  const saved = await getSetting('releasedAutoReminders');
+  if (!Array.isArray(saved)) return [];
+  return saved.map(id => String(id || '').trim()).filter(Boolean);
+}
+
+async function setReleasedAutoReminderIds(list) {
+  const cleaned = Array.from(new Set((Array.isArray(list) ? list : []).map(id => String(id || '').trim()).filter(Boolean)));
+  await setSetting('releasedAutoReminders', cleaned);
+}
+
+function buildTenantTargetDate(tenant) {
+  const moveOutIso = parseDateToIso(tenant?.moveOutDate || '');
+  if (moveOutIso) return { kind: 'moveout', iso: moveOutIso };
+  const contractIso = parseDateToIso(tenant?.endDate || '');
+  if (contractIso) return { kind: 'contract', iso: contractIso };
+  return null;
+}
+
+function tenantTargetKindLabel(kind) {
+  if (kind === 'moveout') return 'עזיבה';
+  return 'חוזה';
+}
+
+async function buildUpcomingKeyDates() {
+  const [tenants, payments] = await Promise.all([
+    getAllTenants(true),
+    getAllPayments()
+  ]);
+  const todayIso = currentIsoDate();
+  const tenantMap = new Map(tenants.map(t => [Number(t.id), t]));
+
+  const upcomingDeposits = payments
+    .filter(p => String(p?.method || '') === 'check')
+    .map(p => {
+      const dueIso = parseDateToIso(p.date || '');
+      if (!dueIso || dueIso < todayIso) return null;
+      const tenant = tenantMap.get(Number(p.tenantId));
+      const tenantName = tenant
+        ? `${tenant.firstName || ''} ${tenant.lastName || ''}`.trim()
+        : (p.tenantName || 'ללא שיוך');
+      const apartment = tenant?.apartmentNumber || p.apartmentNumber || '-';
+      return {
+        id: `up-check-${p.id}`,
+        dueDate: dueIso,
+        title: `דירה ${apartment}`,
+        details: `${tenantName || '-'} · ₪${formatCurrency(p.amount || 0)}`
+      };
+    })
+    .filter(Boolean)
+    .sort((a, b) => a.dueDate.localeCompare(b.dueDate));
+
+  const upcomingContracts = tenants
+    .map(t => {
+      const target = buildTenantTargetDate(t);
+      if (!target || !target.iso || target.iso < todayIso) return null;
+      const name = `${t.firstName || ''} ${t.lastName || ''}`.trim() || 'ללא שם';
+      const apartment = t.apartmentNumber || '-';
+      return {
+        id: `up-target-${t.id}-${target.iso}`,
+        dueDate: target.iso,
+        title: `דירה ${apartment}`,
+        details: `${name} · ${tenantTargetKindLabel(target.kind)}`
+      };
+    })
+    .filter(Boolean)
+    .sort((a, b) => a.dueDate.localeCompare(b.dueDate));
+
+  return {
+    upcomingDeposits,
+    upcomingContracts
+  };
+}
+
 async function buildAutomaticReminders() {
   const [tenants, readings, payments, config] = await Promise.all([
     getAllTenants(true),
@@ -1024,37 +1098,22 @@ async function buildAutomaticReminders() {
     const tenantName = `${t.firstName || ''} ${t.lastName || ''}`.trim() || 'ללא שם';
     const apartment = t.apartmentNumber || '-';
 
-    const contractIso = parseDateToIso(t.endDate || '');
-    if (contractIso) {
-      const days = daysBetweenIso(todayIso, contractIso);
-      if (Number.isFinite(days) && days >= 0 && days <= config.contractDays) {
-        reminders.push({
-          id: `contract-${t.id}-${contractIso}`,
-          type: 'auto',
-          priority: days <= 7 ? 'high' : 'medium',
-          title: `חוזה עומד להסתיים (דירה ${apartment})`,
-          details: `${tenantName} · בעוד ${days} ימים`,
-          dueDate: contractIso,
-          source: 'חוזה'
-        });
-      }
-    }
-
-    const moveOutIso = parseDateToIso(t.moveOutDate || '');
-    if (moveOutIso) {
-      const days = daysBetweenIso(todayIso, moveOutIso);
-      if (Number.isFinite(days) && days >= 0 && days <= config.contractDays) {
-        reminders.push({
-          id: `moveout-${t.id}-${moveOutIso}`,
-          type: 'auto',
-          priority: days <= 7 ? 'high' : 'medium',
-          title: `עזיבת דייר מתקרבת (דירה ${apartment})`,
-          details: `${tenantName} · בעוד ${days} ימים`,
-          dueDate: moveOutIso,
-          source: 'עזיבה'
-        });
-      }
-    }
+    const target = buildTenantTargetDate(t);
+    if (!target?.iso) return;
+    const days = daysBetweenIso(todayIso, target.iso);
+    if (!Number.isFinite(days) || days < 0 || days > config.contractDays) return;
+    const isMoveOut = target.kind === 'moveout';
+    reminders.push({
+      id: `${target.kind}-${t.id}-${target.iso}`,
+      type: 'auto',
+      priority: days <= 7 ? 'high' : 'medium',
+      title: isMoveOut
+        ? `עזיבת דייר מתקרבת (דירה ${apartment})`
+        : `חוזה עומד להסתיים (דירה ${apartment})`,
+      details: `${tenantName} · בעוד ${days} ימים`,
+      dueDate: target.iso,
+      source: isMoveOut ? 'עזיבה' : 'חוזה'
+    });
   });
 
   readings
@@ -1152,10 +1211,12 @@ async function renderReminders() {
   if (contractDaysInput) contractDaysInput.disabled = !canWrite;
   if (checkDaysInput) checkDaysInput.disabled = !canWrite;
 
-  const [config, autoReminders, manualReminders] = await Promise.all([
+  const [config, autoReminders, manualReminders, releasedAutoIds, upcoming] = await Promise.all([
     getRemindersConfig(),
     buildAutomaticReminders(),
-    getManualReminders()
+    getManualReminders(),
+    getReleasedAutoReminderIds(),
+    buildUpcomingKeyDates()
   ]);
 
   if (contractDaysInput && !contractDaysInput.value) {
@@ -1166,6 +1227,10 @@ async function renderReminders() {
   }
 
   const todayIso = currentIsoDate();
+  const releasedSet = new Set(releasedAutoIds.map(id => String(id)));
+  const activeAutoRows = autoReminders.filter(item => !releasedSet.has(String(item.id)));
+  const releasedAutoRows = autoReminders.filter(item => releasedSet.has(String(item.id)));
+
   const manualRows = manualReminders.map(item => {
     const dueIso = parseDateToIso(item.dueDate || '');
     const overdue = !item.done && dueIso && dueIso < todayIso;
@@ -1183,7 +1248,7 @@ async function renderReminders() {
     };
   });
 
-  const all = [...autoReminders, ...manualRows].sort((a, b) => {
+  const all = [...activeAutoRows, ...manualRows].sort((a, b) => {
     const aDue = parseDateToIso(a.dueDate || '') || '9999-12-31';
     const bDue = parseDateToIso(b.dueDate || '') || '9999-12-31';
     if (aDue !== bDue) return aDue.localeCompare(bDue);
@@ -1191,19 +1256,17 @@ async function renderReminders() {
     return (pOrder[a.priority] ?? 9) - (pOrder[b.priority] ?? 9);
   });
 
-  if (!all.length) {
-    container.innerHTML = '<p style="color:#666;">אין תזכורות כרגע 🎉</p>';
-    return;
-  }
-
   const rows = all.map(r => {
     const dueText = r.dueDate ? formatDateEu(r.dueDate) : 'ללא תאריך';
-    const actions = r.type === 'manual'
-      ? `
+    let actions = '—';
+    if (r.type === 'manual') {
+      actions = `
         <button class="btn-toggle-manual-reminder" data-id="${escapeHtml(r.rawId)}" ${canWrite ? '' : 'disabled'}>${r.done ? '↩️ החזר' : '✅ סמן הושלם'}</button>
         <button class="btn-delete-manual-reminder" data-id="${escapeHtml(r.rawId)}" ${canWrite ? '' : 'disabled'}>🗑️ מחק</button>
-      `
-      : '—';
+      `;
+    } else if (r.type === 'auto') {
+      actions = `<button class="btn-release-auto-reminder" data-id="${escapeHtml(r.id)}" ${canWrite ? '' : 'disabled'}>🕊️ שחרר</button>`;
+    }
     const titleStyle = r.done ? 'text-decoration: line-through; color: #666;' : '';
     return `
       <tr>
@@ -1217,22 +1280,94 @@ async function renderReminders() {
     `;
   }).join('');
 
+  const releasedRowsHtml = releasedAutoRows.map(r => {
+    const dueText = r.dueDate ? formatDateEu(r.dueDate) : 'ללא תאריך';
+    return `
+      <tr>
+        <td>${renderReminderPriorityBadge(r.priority)}</td>
+        <td>${escapeHtml(r.title)}</td>
+        <td>${escapeHtml(r.details || '-')}</td>
+        <td>${escapeHtml(r.source || '-')}</td>
+        <td>${dueText}</td>
+        <td><button class="btn-restore-auto-reminder" data-id="${escapeHtml(r.id)}" ${canWrite ? '' : 'disabled'}>↩️ החזר</button></td>
+      </tr>
+    `;
+  }).join('');
+
+  const upcomingDepositRows = (upcoming.upcomingDeposits || []).slice(0, 12).map(item => `
+    <tr>
+      <td>${formatDateEu(item.dueDate)}</td>
+      <td>${escapeHtml(item.title)}</td>
+      <td>${escapeHtml(item.details)}</td>
+    </tr>
+  `).join('');
+
+  const upcomingContractRows = (upcoming.upcomingContracts || []).slice(0, 12).map(item => `
+    <tr>
+      <td>${formatDateEu(item.dueDate)}</td>
+      <td>${escapeHtml(item.title)}</td>
+      <td>${escapeHtml(item.details)}</td>
+    </tr>
+  `).join('');
+
+  const activeSectionHtml = all.length
+    ? `
+      <table class="payments-table">
+        <thead>
+          <tr>
+            <th>עדיפות</th>
+            <th>נושא</th>
+            <th>פרטים</th>
+            <th>מקור</th>
+            <th>יעד</th>
+            <th>פעולות</th>
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>
+    `
+    : '<p style="color:#666; margin-bottom: 12px;">אין תזכורות פעילות כרגע 🎉</p>';
+
   const highCount = all.filter(r => r.priority === 'high').length;
   container.innerHTML = `
     <div style="margin-bottom:8px; color:#333;">סה"כ ${all.length} תזכורות · דחופות: ${highCount}</div>
-    <table class="payments-table">
-      <thead>
-        <tr>
-          <th>עדיפות</th>
-          <th>נושא</th>
-          <th>פרטים</th>
-          <th>מקור</th>
-          <th>יעד</th>
-          <th>פעולות</th>
-        </tr>
-      </thead>
-      <tbody>${rows}</tbody>
-    </table>
+    ${activeSectionHtml}
+    <div style="margin-top: 14px; border-top: 1px solid #eee; padding-top: 12px;">
+      <h3 style="margin: 0 0 8px 0;">תזכורות ששוחררו</h3>
+      ${releasedAutoRows.length ? `
+      <table class="payments-table">
+        <thead>
+          <tr>
+            <th>עדיפות</th>
+            <th>נושא</th>
+            <th>פרטים</th>
+            <th>מקור</th>
+            <th>יעד</th>
+            <th>פעולות</th>
+          </tr>
+        </thead>
+        <tbody>${releasedRowsHtml}</tbody>
+      </table>
+      ` : '<p style="color:#666;">אין תזכורות ששוחררו</p>'}
+    </div>
+    <div style="margin-top: 14px; border-top: 1px solid #eee; padding-top: 12px;">
+      <h3 style="margin: 0 0 8px 0;">מועדי הפקדה קרובים (צ׳קים)</h3>
+      ${(upcoming.upcomingDeposits || []).length ? `
+      <table class="payments-table">
+        <thead><tr><th>תאריך</th><th>דירה</th><th>פרטים</th></tr></thead>
+        <tbody>${upcomingDepositRows}</tbody>
+      </table>
+      ` : '<p style="color:#666;">אין מועדי הפקדה קרובים</p>'}
+    </div>
+    <div style="margin-top: 14px; border-top: 1px solid #eee; padding-top: 12px;">
+      <h3 style="margin: 0 0 8px 0;">מועדי סיום/עזיבה קרובים</h3>
+      ${(upcoming.upcomingContracts || []).length ? `
+      <table class="payments-table">
+        <thead><tr><th>תאריך</th><th>דירה</th><th>פרטים</th></tr></thead>
+        <tbody>${upcomingContractRows}</tbody>
+      </table>
+      ` : '<p style="color:#666;">אין מועדי סיום/עזיבה קרובים</p>'}
+    </div>
   `;
 
   await maybeNotifyForReminders(all);
@@ -5065,6 +5200,30 @@ document.getElementById('enable-browser-notifications')?.addEventListener('click
 });
 
 document.getElementById('reminders-list')?.addEventListener('click', async e => {
+  const releaseAutoBtn = e.target.closest('.btn-release-auto-reminder');
+  if (releaseAutoBtn) {
+    if (!canWriteCurrentUser()) return;
+    const targetId = String(releaseAutoBtn.dataset.id || '');
+    if (!targetId) return;
+    const current = await getReleasedAutoReminderIds();
+    current.push(targetId);
+    await setReleasedAutoReminderIds(current);
+    await renderReminders();
+    return;
+  }
+
+  const restoreAutoBtn = e.target.closest('.btn-restore-auto-reminder');
+  if (restoreAutoBtn) {
+    if (!canWriteCurrentUser()) return;
+    const targetId = String(restoreAutoBtn.dataset.id || '');
+    if (!targetId) return;
+    const current = await getReleasedAutoReminderIds();
+    const next = current.filter(id => String(id) !== targetId);
+    await setReleasedAutoReminderIds(next);
+    await renderReminders();
+    return;
+  }
+
   const toggleBtn = e.target.closest('.btn-toggle-manual-reminder');
   if (toggleBtn) {
     if (!canWriteCurrentUser()) return;
