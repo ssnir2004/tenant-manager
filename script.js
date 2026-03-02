@@ -1829,7 +1829,8 @@ async function importTenantsCsv(text) {
     return Number.isFinite(num) ? num : null;
   };
 
-  const mergeTenantImportData = (existingTenant, importedData) => {
+  const mergeTenantImportData = (existingTenant, importedData, options = {}) => {
+    const allowNameUpdate = options.allowNameUpdate !== false;
     const merged = { ...existingTenant };
     const applyIfValue = (field, value) => {
       if (value === null || value === undefined) return;
@@ -1838,8 +1839,10 @@ async function importTenantsCsv(text) {
       merged[field] = value;
     };
 
-    applyIfValue('firstName', importedData.firstName);
-    applyIfValue('lastName', importedData.lastName);
+    if (allowNameUpdate) {
+      applyIfValue('firstName', importedData.firstName);
+      applyIfValue('lastName', importedData.lastName);
+    }
     applyIfValue('nationalId', importedData.nationalId);
     applyIfValue('phone', importedData.phone);
     applyIfValue('startDate', importedData.startDate);
@@ -1867,6 +1870,24 @@ async function importTenantsCsv(text) {
     if (!byNamePartsMap.has(key)) byNamePartsMap.set(key, []);
     const arr = byNamePartsMap.get(key);
     if (!arr.some(t => Number(t.id) === Number(tenant.id))) arr.push(tenant);
+  };
+
+  const removeTenantFromIndexes = (tenant, byApartmentMap, byNamePartsMap) => {
+    const aptKey = String(tenant.apartmentNumber || '').trim();
+    if (aptKey && byApartmentMap.get(aptKey)?.id === tenant.id) {
+      byApartmentMap.delete(aptKey);
+    }
+    const first = normalizeName(tenant.firstName || '');
+    const last = normalizeName(tenant.lastName || '');
+    if (!first || !last) return;
+    const key = `${first}|${last}`;
+    if (!byNamePartsMap.has(key)) return;
+    const filtered = (byNamePartsMap.get(key) || []).filter(t => Number(t.id) !== Number(tenant.id));
+    if (filtered.length === 0) {
+      byNamePartsMap.delete(key);
+    } else {
+      byNamePartsMap.set(key, filtered);
+    }
   };
 
   const useRemote = window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1';
@@ -1906,25 +1927,36 @@ async function importTenantsCsv(text) {
       ? (byNameParts.get(nameMatchKey) || [])
       : [];
 
+    const hasName = !!(normalizeName(data.firstName) && normalizeName(data.lastName));
     let existingTenant = null;
-    if (nameMatches.length === 1) {
-      existingTenant = nameMatches[0];
-    } else if (nameMatches.length > 1) {
-      existingTenant = data.apartmentNumber
-        ? (nameMatches.find(t => String(t.apartmentNumber || '').trim() === data.apartmentNumber) || nameMatches[0])
-        : nameMatches[0];
-    }
-    if (!existingTenant && apartmentNumber) {
+    let matchMode = 'none';
+
+    if (hasName) {
+      if (nameMatches.length === 1) {
+        existingTenant = nameMatches[0];
+        matchMode = 'name';
+      } else if (nameMatches.length > 1) {
+        existingTenant = data.apartmentNumber
+          ? (nameMatches.find(t => String(t.apartmentNumber || '').trim() === data.apartmentNumber) || null)
+          : null;
+        if (existingTenant) matchMode = 'name';
+      }
+    } else if (apartmentNumber) {
       existingTenant = byApartment.get(apartmentNumber) || null;
+      if (existingTenant) matchMode = 'apartment';
     }
 
     if (existingTenant) {
-      const mergedData = mergeTenantImportData(existingTenant, data);
+      const before = { ...existingTenant };
+      const mergedData = mergeTenantImportData(existingTenant, data, {
+        allowNameUpdate: matchMode === 'name'
+      });
       if (useRemote) {
         await updateTenantRemote(existingTenant.id, mergedData);
       } else {
         await updateTenant(existingTenant.id, mergedData);
       }
+      removeTenantFromIndexes(before, byApartment, byNameParts);
       Object.assign(existingTenant, mergedData);
       addTenantToIndexes(existingTenant, byApartment, byNameParts);
       updated++;
