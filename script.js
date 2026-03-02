@@ -2660,7 +2660,28 @@ function renderBillsReport(report) {
     `;
   }).join('');
 
-  container.innerHTML = `${header}${tableHeader}${body}</tbody></table>`;
+  const totals = report.rows.reduce((acc, row) => {
+    acc.water += Number(row?.water?.cost || 0);
+    acc.electric += Number(row?.electric?.cost || 0);
+    acc.total += Number(row?.total || 0);
+    return acc;
+  }, { water: 0, electric: 0, total: 0 });
+
+  const footer = `
+      </tbody>
+      <tfoot>
+        <tr>
+          <td colspan="9"><strong>סה"כ</strong></td>
+          <td><strong>${totals.water.toFixed(2)}</strong></td>
+          <td colspan="5"></td>
+          <td><strong>${totals.electric.toFixed(2)}</strong></td>
+          <td><strong>${totals.total.toFixed(2)}</strong></td>
+        </tr>
+      </tfoot>
+    </table>
+  `;
+
+  container.innerHTML = `${header}${tableHeader}${body}${footer}`;
 }
 
 function reportToCsv(report) {
