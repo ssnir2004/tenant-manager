@@ -1094,6 +1094,35 @@ async function buildAutomaticReminders() {
   const reminders = [];
   const tenantMap = new Map(tenants.map(t => [Number(t.id), t]));
 
+  const readingsByTenantAndMeter = new Map();
+  readings.forEach(r => {
+    if (!r?.meterType) return;
+    const hasTenantId = r.tenantId !== null && r.tenantId !== undefined && String(r.tenantId).trim() !== '';
+    const tenantKey = hasTenantId
+      ? `id:${Number(r.tenantId)}`
+      : `name:${String(r.tenantName || '').trim().toLowerCase()}|apt:${String(r.apartmentNumber || '').trim()}`;
+    const key = `${tenantKey}|${String(r.meterType)}`;
+    if (!readingsByTenantAndMeter.has(key)) readingsByTenantAndMeter.set(key, []);
+    readingsByTenantAndMeter.get(key).push(r);
+  });
+
+  const baselineReadingIds = new Set();
+  readingsByTenantAndMeter.forEach(group => {
+    const sorted = group.slice().sort((a, b) => {
+      const da = dateValueFromAny(a?.date);
+      const db = dateValueFromAny(b?.date);
+      if (Number.isFinite(da) && Number.isFinite(db) && da !== db) return da - db;
+      const ca = dateValueFromAny(a?.createdAt);
+      const cb = dateValueFromAny(b?.createdAt);
+      if (Number.isFinite(ca) && Number.isFinite(cb) && ca !== cb) return ca - cb;
+      return Number(a?.id || 0) - Number(b?.id || 0);
+    });
+    const first = sorted[0];
+    if (first?.id !== undefined && first?.id !== null) {
+      baselineReadingIds.add(String(first.id));
+    }
+  });
+
   tenants.forEach(t => {
     const tenantName = `${t.firstName || ''} ${t.lastName || ''}`.trim() || 'ללא שם';
     const apartment = t.apartmentNumber || '-';
@@ -1117,7 +1146,7 @@ async function buildAutomaticReminders() {
   });
 
   readings
-    .filter(r => !r?.paid)
+    .filter(r => !r?.paid && !baselineReadingIds.has(String(r?.id)))
     .forEach(r => {
       const tenant = tenantMap.get(Number(r.tenantId));
       const tenantName = tenant
