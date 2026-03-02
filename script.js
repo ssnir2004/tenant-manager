@@ -1798,16 +1798,63 @@ async function importTenantsCsv(text) {
     ? (legacyNoHeader ? 11 : (depositDayIdx === undefined ? 14 : 15))
     : headerMap['archived'];
 
+  const parseOptionalNumber = value => {
+    const raw = String(value ?? '').replace(/,/g, '').trim();
+    if (!raw) return null;
+    const num = Number(raw);
+    return Number.isFinite(num) ? num : null;
+  };
+
+  const mergeTenantImportData = (existingTenant, importedData) => {
+    const merged = { ...existingTenant };
+    const applyIfValue = (field, value) => {
+      if (value === null || value === undefined) return;
+      const asText = String(value).trim();
+      if (!asText) return;
+      merged[field] = value;
+    };
+
+    applyIfValue('firstName', importedData.firstName);
+    applyIfValue('lastName', importedData.lastName);
+    applyIfValue('nationalId', importedData.nationalId);
+    applyIfValue('phone', importedData.phone);
+    applyIfValue('startDate', importedData.startDate);
+    applyIfValue('endDate', importedData.endDate);
+    applyIfValue('moveOutDate', importedData.moveOutDate);
+    if (importedData.rentAmount !== null && importedData.rentAmount !== undefined) merged.rentAmount = importedData.rentAmount;
+    if (importedData.arnonaAmount !== null && importedData.arnonaAmount !== undefined) merged.arnonaAmount = importedData.arnonaAmount;
+    applyIfValue('depositDay', importedData.depositDay);
+    applyIfValue('apartmentNumber', importedData.apartmentNumber);
+    applyIfValue('electricityMeter', importedData.electricityMeter);
+    applyIfValue('waterMeter', importedData.waterMeter);
+    applyIfValue('notes', importedData.notes);
+    merged.archived = !!importedData.archived;
+    merged.active = !merged.archived;
+    return merged;
+  };
+
+  const addTenantToIndexes = (tenant, byApartmentMap, byNamePartsMap) => {
+    const aptKey = String(tenant.apartmentNumber || '').trim();
+    if (aptKey) byApartmentMap.set(aptKey, tenant);
+    const first = normalizeName(tenant.firstName || '');
+    const last = normalizeName(tenant.lastName || '');
+    if (!first || !last) return;
+    const key = `${first}|${last}`;
+    if (!byNamePartsMap.has(key)) byNamePartsMap.set(key, []);
+    const arr = byNamePartsMap.get(key);
+    if (!arr.some(t => Number(t.id) === Number(tenant.id))) arr.push(tenant);
+  };
+
   const useRemote = window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1';
   const existing = useRemote ? await getAllTenantsRemote(true) : await getAllTenants(true);
   const byApartment = new Map(existing.map(t => [String(t.apartmentNumber || ''), t]));
+  const byNameParts = buildTenantNamePartsIndex(existing);
 
   let total = 0, success = 0, updated = 0;
 
   for (let i = startIdx; i < rows.length; i++) {
     const row = rows[i];
     const apartmentNumber = String(row[0] || '').trim();
-    if (!apartmentNumber) continue;
 
     const data = {
       firstName: String(row[idx('first_name', 1)] || '').trim(),
@@ -1817,8 +1864,8 @@ async function importTenantsCsv(text) {
       startDate: normalizeDateString(row[idx('start_date', startDateIdx)]),
       endDate: normalizeDateString(row[idx('end_date', endDateIdx)]),
       moveOutDate: moveOutDateIdx >= 0 ? normalizeDateString(row[idx('move_out_date', moveOutDateIdx)]) : '',
-      rentAmount: Number(String(row[idx('rent_amount', rentIdx)] || '').replace(/,/g, '')) || 0,
-      arnonaAmount: arnonaIdx === null ? 0 : Number(String(row[idx('arnona_amount', arnonaIdx)] || '').replace(/,/g, '')) || 0,
+      rentAmount: parseOptionalNumber(row[idx('rent_amount', rentIdx)]),
+      arnonaAmount: arnonaIdx === null ? null : parseOptionalNumber(row[idx('arnona_amount', arnonaIdx)]),
       electricityMeter: String(row[idx('electricity_meter', elecIdx)] || '').trim(),
       waterMeter: String(row[idx('water_meter', waterIdx)] || '').trim(),
       depositDay: normalizeDepositDay(depositDayIdx === undefined ? '' : row[idx('deposit_day', depositDayIdx)]),
@@ -1827,21 +1874,49 @@ async function importTenantsCsv(text) {
       archived: activeIdx === undefined ? parseCsvBoolean(row[archivedIdx]) : !parseCsvBoolean(row[activeIdx])
     };
 
+    if (!data.apartmentNumber && !data.firstName && !data.lastName) continue;
+
     total++;
-    const existingTenant = byApartment.get(apartmentNumber);
+    const nameMatchKey = `${normalizeName(data.firstName)}|${normalizeName(data.lastName)}`;
+    const nameMatches = (normalizeName(data.firstName) && normalizeName(data.lastName))
+      ? (byNameParts.get(nameMatchKey) || [])
+      : [];
+
+    let existingTenant = null;
+    if (nameMatches.length === 1) {
+      existingTenant = nameMatches[0];
+    } else if (nameMatches.length > 1) {
+      existingTenant = data.apartmentNumber
+        ? (nameMatches.find(t => String(t.apartmentNumber || '').trim() === data.apartmentNumber) || nameMatches[0])
+        : nameMatches[0];
+    }
+    if (!existingTenant && apartmentNumber) {
+      existingTenant = byApartment.get(apartmentNumber) || null;
+    }
+
     if (existingTenant) {
+      const mergedData = mergeTenantImportData(existingTenant, data);
       if (useRemote) {
-        await updateTenantRemote(existingTenant.id, data);
+        await updateTenantRemote(existingTenant.id, mergedData);
       } else {
-        await updateTenant(existingTenant.id, data);
+        await updateTenant(existingTenant.id, mergedData);
       }
+      Object.assign(existingTenant, mergedData);
+      addTenantToIndexes(existingTenant, byApartment, byNameParts);
       updated++;
     } else {
+      const createData = {
+        ...data,
+        rentAmount: data.rentAmount ?? 0,
+        arnonaAmount: data.arnonaAmount ?? 0
+      };
       if (useRemote) {
-        await addTenantRemote(data);
+        const created = await addTenantRemote(createData);
+        addTenantToIndexes(created, byApartment, byNameParts);
       } else {
-        const id = await addTenant(data);
-        if (data.archived) await updateTenant(id, { archived: true });
+        const id = await addTenant(createData);
+        if (createData.archived) await updateTenant(id, { archived: true });
+        addTenantToIndexes({ ...createData, id }, byApartment, byNameParts);
       }
       success++;
     }
