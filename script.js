@@ -81,6 +81,7 @@ function normalizeTenantRow(row) {
     archived: !!row.archived,
     active: row.active === undefined ? true : !!row.active
   };
+  normalizedRow.depositDay = normalizeDepositDay(row.depositDay);
   normalizedRow.waterMeter = row.waterMeter || '';
   normalizedRow.electricityMeter = row.electricityMeter || '';
   return normalizedRow;
@@ -406,6 +407,7 @@ function extractTenantFields(t) {
     moveOutDate: t.moveOutDate || '',
     rentAmount: t.rentAmount ?? null,
     arnonaAmount: t.arnonaAmount ?? null,
+    depositDay: normalizeDepositDay(t.depositDay),
     apartmentNumber: t.apartmentNumber || '',
     electricityMeter: t.electricityMeter || '',
     waterMeter: t.waterMeter || '',
@@ -964,6 +966,36 @@ function currentIsoDate() {
   return `${yyyy}-${mm}-${dd}`;
 }
 
+function normalizeDepositDay(value) {
+  if (value === null || value === undefined) return '';
+  const raw = String(value).trim();
+  if (!raw) return '';
+  const day = Number(raw);
+  if (!Number.isInteger(day) || day < 1 || day > 31) return '';
+  return String(day);
+}
+
+function nextDepositDateIsoForDay(dayValue, todayIso = currentIsoDate()) {
+  const day = Number(normalizeDepositDay(dayValue));
+  if (!Number.isInteger(day)) return '';
+  const today = new Date(`${todayIso}T00:00:00`);
+  if (Number.isNaN(today.getTime())) return '';
+
+  const buildDate = monthOffset => {
+    const year = today.getFullYear();
+    const month = today.getMonth() + monthOffset;
+    const lastDayInMonth = new Date(year, month + 1, 0).getDate();
+    const targetDay = Math.min(day, lastDayInMonth);
+    const target = new Date(year, month, targetDay);
+    const yyyy = target.getFullYear();
+    const mm = String(target.getMonth() + 1).padStart(2, '0');
+    const dd = String(target.getDate()).padStart(2, '0');
+    return `${yyyy}-${mm}-${dd}`;
+  };
+
+  return day >= today.getDate() ? buildDate(0) : buildDate(1);
+}
+
 function daysBetweenIso(fromIso, toIso) {
   if (!fromIso || !toIso) return Number.NaN;
   const from = new Date(`${fromIso}T00:00:00`);
@@ -1033,28 +1065,23 @@ function tenantTargetKindLabel(kind) {
 }
 
 async function buildUpcomingKeyDates() {
-  const [tenants, payments] = await Promise.all([
-    getAllTenants(true),
-    getAllPayments()
-  ]);
+  const tenants = await getAllTenants(true);
   const todayIso = currentIsoDate();
-  const tenantMap = new Map(tenants.map(t => [Number(t.id), t]));
 
-  const upcomingDeposits = payments
-    .filter(p => String(p?.method || '') === 'check')
-    .map(p => {
-      const dueIso = parseDateToIso(p.date || '');
+  const upcomingDeposits = tenants
+    .filter(t => !t.archived)
+    .map(t => {
+      const depositDay = normalizeDepositDay(t.depositDay);
+      if (!depositDay) return null;
+      const dueIso = nextDepositDateIsoForDay(depositDay, todayIso);
       if (!dueIso || dueIso < todayIso) return null;
-      const tenant = tenantMap.get(Number(p.tenantId));
-      const tenantName = tenant
-        ? `${tenant.firstName || ''} ${tenant.lastName || ''}`.trim()
-        : (p.tenantName || 'ללא שיוך');
-      const apartment = tenant?.apartmentNumber || p.apartmentNumber || '-';
+      const tenantName = `${t.firstName || ''} ${t.lastName || ''}`.trim() || 'ללא שם';
+      const apartment = t.apartmentNumber || '-';
       return {
-        id: `up-check-${p.id}`,
+        id: `up-deposit-${t.id}-${dueIso}`,
         dueDate: dueIso,
         title: `דירה ${apartment}`,
-        details: `${tenantName || '-'} · ₪${formatCurrency(p.amount || 0)}`
+        details: `${tenantName} · יום הפקדה ${depositDay}`
       };
     })
     .filter(Boolean)
@@ -1387,7 +1414,7 @@ async function renderReminders() {
       ` : '<p style="color:#666;">אין תזכורות ששוחררו</p>'}
     </div>
     <div style="margin-top: 14px; border-top: 1px solid #eee; padding-top: 12px;">
-      <h3 style="margin: 0 0 8px 0;">מועדי הפקדה קרובים (צ׳קים)</h3>
+      <h3 style="margin: 0 0 8px 0;">מועדי הפקדה קרובים (לפי יום הפקדה לדייר)</h3>
       ${(upcoming.upcomingDeposits || []).length ? `
       <table class="payments-table">
         <thead><tr><th>תאריך</th><th>דירה</th><th>פרטים</th></tr></thead>
@@ -1716,7 +1743,7 @@ function findTenantByNameParts(namePartsIndex, firstName, lastName) {
 async function exportTenantsCsv() {
   const tenants = await getAllTenants(true);
   const rows = [
-    ['apartment', 'first_name', 'last_name', 'national_id', 'phone', 'active', 'start_date', 'end_date', 'move_out_date', 'rent_amount', 'arnona_amount', 'electricity_meter', 'water_meter', 'notes', 'archived']
+    ['apartment', 'first_name', 'last_name', 'national_id', 'phone', 'active', 'start_date', 'end_date', 'move_out_date', 'rent_amount', 'arnona_amount', 'electricity_meter', 'water_meter', 'deposit_day', 'notes', 'archived']
   ];
 
   tenants.slice().sort((a, b) => Number(a.apartmentNumber || 0) - Number(b.apartmentNumber || 0)).forEach(t => {
@@ -1734,6 +1761,7 @@ async function exportTenantsCsv() {
       t.arnonaAmount ?? '',
       t.electricityMeter || '',
       t.waterMeter || '',
+      normalizeDepositDay(t.depositDay),
       t.notes || '',
       t.archived ? 'true' : 'false'
     ]);
@@ -1764,9 +1792,10 @@ async function importTenantsCsv(text) {
   const arnonaIdx = legacyNoHeader ? null : 10;
   const elecIdx = legacyNoHeader ? 8 : 11;
   const waterIdx = legacyNoHeader ? 9 : 12;
-  const notesIdx = legacyNoHeader ? 10 : 13;
+  const depositDayIdx = headerMap['deposit_day'];
+  const notesIdx = legacyNoHeader ? 10 : (depositDayIdx === undefined ? 13 : 14);
   const archivedIdx = headerMap['archived'] === undefined
-    ? (legacyNoHeader ? 11 : (activeIdx === undefined ? 14 : 14))
+    ? (legacyNoHeader ? 11 : (depositDayIdx === undefined ? 14 : 15))
     : headerMap['archived'];
 
   const useRemote = window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1';
@@ -1792,6 +1821,7 @@ async function importTenantsCsv(text) {
       arnonaAmount: arnonaIdx === null ? 0 : Number(String(row[idx('arnona_amount', arnonaIdx)] || '').replace(/,/g, '')) || 0,
       electricityMeter: String(row[idx('electricity_meter', elecIdx)] || '').trim(),
       waterMeter: String(row[idx('water_meter', waterIdx)] || '').trim(),
+      depositDay: normalizeDepositDay(depositDayIdx === undefined ? '' : row[idx('deposit_day', depositDayIdx)]),
       notes: String(row[idx('notes', notesIdx)] || '').trim(),
       apartmentNumber: apartmentNumber,
       archived: activeIdx === undefined ? parseCsvBoolean(row[archivedIdx]) : !parseCsvBoolean(row[activeIdx])
@@ -2936,6 +2966,7 @@ async function renderTenantsTable() {
         <td>${name || '-'}</td>
         <td>${t.phone || '-'}</td>
         <td>${status}</td>
+        <td>${normalizeDepositDay(t.depositDay) || '-'}</td>
         <td>${rent}</td>
         <td>${arnona}</td>
         <td>${t.electricityMeter || '-'}</td>
@@ -2956,6 +2987,7 @@ async function renderTenantsTable() {
           <th>דייר</th>
           <th>טלפון</th>
           <th>סטטוס</th>
+          <th>יום הפקדה</th>
           <th>שכירות</th>
           <th>ארנונה</th>
           <th>מונה חשמל</th>
@@ -2992,6 +3024,7 @@ async function renderArchive() {
         <td>${name || '-'}</td>
         <td>${t.phone || '-'}</td>
         <td>לא פעיל</td>
+        <td>${normalizeDepositDay(t.depositDay) || '-'}</td>
         <td>${rent}</td>
         <td>${arnona}</td>
         <td>${t.electricityMeter || '-'}</td>
@@ -3016,6 +3049,7 @@ async function renderArchive() {
           <th>דייר</th>
           <th>טלפון</th>
           <th>סטטוס</th>
+          <th>יום הפקדה</th>
           <th>שכירות</th>
           <th>ארנונה</th>
           <th>מונה חשמל</th>
@@ -5647,6 +5681,7 @@ tenantForm?.addEventListener('submit', async e => {
     if (!parsedEnd) { alert('תאריך סיום לא תקין'); return; }
     data.endDate = parsedEnd;
   }
+  data.depositDay = normalizeDepositDay(data.depositDay);
   if (f.editId) await updateTenant(Number(f.editId), data); else await addTenant(data);
   show(tenantForm);
   await renderTenants();
@@ -5860,7 +5895,7 @@ const syncStatusEl = document.getElementById('sync-status');
 
 const TENANT_SYNC_FIELDS = [
   'firstName', 'lastName', 'nationalId', 'phone', 'startDate', 'endDate', 'moveOutDate',
-  'rentAmount', 'arnonaAmount', 'apartmentNumber', 'electricityMeter', 'waterMeter',
+  'rentAmount', 'arnonaAmount', 'depositDay', 'apartmentNumber', 'electricityMeter', 'waterMeter',
   'notes', 'archived', 'active'
 ];
 
@@ -6740,7 +6775,7 @@ tenantList?.addEventListener('click', async e => {
     show(tenantForm);
     tenantForm.editId = tenant.id;
     document.getElementById('form-title').textContent = 'ערוך דייר';
-    for (const k of ['firstName', 'lastName', 'nationalId', 'phone', 'rentAmount', 'arnonaAmount', 'apartmentNumber', 'electricityMeter', 'waterMeter', 'notes'])
+    for (const k of ['firstName', 'lastName', 'nationalId', 'phone', 'rentAmount', 'arnonaAmount', 'depositDay', 'apartmentNumber', 'electricityMeter', 'waterMeter', 'notes'])
       tenantForm.elements[k].value = tenant[k] || '';
     tenantForm.elements['startDate'].value = formatDateEu(tenant.startDate || '');
     tenantForm.elements['endDate'].value = formatDateEu(tenant.endDate || '');

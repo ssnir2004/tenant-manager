@@ -11,6 +11,7 @@ CREATE TABLE IF NOT EXISTS tenants (
   moveOutDate TEXT,
   rentAmount REAL,
   arnonaAmount REAL,
+  depositDay TEXT,
   apartmentNumber TEXT,
   electricityMeter TEXT,
   waterMeter TEXT,
