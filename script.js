@@ -1699,6 +1699,13 @@ function buildPaymentKey(tenantId, tenantName, apartmentNumber, date, amount, ac
   return `${idPart}|${date}|${amount}|${account}`;
 }
 
+function buildReadingImportKey(tenantId, tenantName, apartmentNumber, meterType, date) {
+  const name = normalizeName(tenantName);
+  const apt = String(apartmentNumber || '').trim();
+  const idPart = tenantId ? String(tenantId) : `${name}|${apt}`;
+  return `${idPart}|${meterType}|${date}`;
+}
+
 function buildTenantNameIndex(tenants) {
   const map = new Map();
   tenants.forEach(t => {
@@ -1981,32 +1988,6 @@ async function importTenantsCsv(text) {
   return { success, total, updated };
 }
 
-async function ensureTenant(apartmentNumber, name) {
-  const useRemote = isRemoteApp();
-  const tenants = useRemote ? await getAllTenantsRemote(true) : await getAllTenants(true);
-  const existing = tenants.find(t => String(t.apartmentNumber) === String(apartmentNumber));
-  if (existing) return existing;
-  const { firstName, lastName } = splitName(name);
-  const payload = {
-    firstName,
-    lastName,
-    apartmentNumber: String(apartmentNumber),
-    phone: '',
-    startDate: '',
-    endDate: '',
-    rentAmount: 0,
-    nationalId: '',
-    electricityMeter: '',
-    waterMeter: '',
-    notes: 'יובא מטבלת הפקדות'
-  };
-  if (useRemote) {
-    return await addTenantRemote(payload);
-  }
-  const id = await addTenant(payload);
-  return { id, apartmentNumber, firstName, lastName };
-}
-
 async function importDepositsFromCsv(csvText, accountValue) {
   const lines = csvText.split(/\r?\n/).filter(l => l.trim().length > 0);
   if (lines.length < 4) throw new Error('פורמט קובץ לא תקין');
@@ -2025,6 +2006,7 @@ async function importDepositsFromCsv(csvText, accountValue) {
   let total = 0;
   let success = 0;
   let skipped = 0;
+  let unmatched = 0;
 
   for (let r = 3; r < rows.length; r++) {
     const monthCell = rows[r][0];
@@ -2042,9 +2024,20 @@ async function importDepositsFromCsv(csvText, accountValue) {
       const amount = Number(String(valueRaw).replace(/,/g, ''));
       if (Number.isNaN(amount) || amount === 0) continue;
 
-      const tenant = findTenantByName(tenantIndex, name);
+      let tenant = findTenantByName(tenantIndex, name);
+      if (!tenant && name) {
+        const nameParts = splitName(name);
+        tenant = findTenantByNameParts(tenantPartsIndex, nameParts.firstName, nameParts.lastName);
+      }
+      if (!tenant && name) {
+        tenant = findTenantByNameMatch(tenants, name);
+      }
+      if (!tenant) unmatched++;
+
       const date = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-      const key = buildPaymentKey(tenant?.id, name, apt, date, amount, accountValue);
+      const resolvedName = tenant ? buildTenantName(tenant) : (name || '');
+      const resolvedApartment = tenant?.apartmentNumber || apt || '';
+      const key = buildPaymentKey(tenant?.id || null, resolvedName, resolvedApartment, date, amount, accountValue);
       if (existingSet.has(key)) {
         skipped++;
         continue;
@@ -2053,8 +2046,8 @@ async function importDepositsFromCsv(csvText, accountValue) {
       total++;
       await addPayment({
         tenantId: tenant?.id || null,
-        tenantName: tenant ? buildTenantName(tenant) : (name || ''),
-        apartmentNumber: tenant?.apartmentNumber || apt || '',
+        tenantName: resolvedName,
+        apartmentNumber: resolvedApartment,
         amount,
         method: 'check',
         account: accountValue,
@@ -2066,7 +2059,7 @@ async function importDepositsFromCsv(csvText, accountValue) {
     }
   }
 
-  return { success, total, skipped };
+  return { success, total, skipped, unmatched };
 }
 
 // Bills (legacy)
@@ -2381,20 +2374,11 @@ async function parseCSVAndImport(csvText, meterType = 'water') {
   const lines = csvText.trim().split('\n');
   const imported = { success: 0, total: 0, skipped: 0 };
 
-  const tenants = await getAllTenants(false);
-  const aptToTenant = {};
-  tenants.forEach(t => { aptToTenant[t.apartmentNumber] = t.id; });
-
-  for (let apt = 1; apt <= 5; apt++) {
-    if (!aptToTenant[String(apt)]) {
-      const id = await addTenant({ firstName: 'דייר', lastName: `דירה ${apt}`, apartmentNumber: String(apt), phone: '', startDate: '', endDate: '', rentAmount: 0, nationalId: '', electricityMeter: '', waterMeter: '', notes: 'יובא מ-CSV' });
-      aptToTenant[String(apt)] = id;
-    }
-  }
-
   const existing = await getAllReadings();
   const existingSet = new Set();
-  existing.forEach(r => existingSet.add(`${r.tenantId}-${r.meterType}-${r.date}`));
+  existing.forEach(r => {
+    existingSet.add(buildReadingImportKey(r.tenantId, r.tenantName, r.apartmentNumber, r.meterType, r.date));
+  });
 
   for (let i = 1; i < lines.length; i++) {
     const row = lines[i].split(',');
@@ -2412,10 +2396,8 @@ async function parseCSVAndImport(csvText, meterType = 'water') {
       const value = row[valIdx];
       if (!value || value.trim() === '') continue;
 
-      const tenantId = aptToTenant[String(apt)];
-      if (!tenantId) continue;
-
-      const key = `${tenantId}-${meterType}-${date}`;
+      const apartmentNumber = String(apt);
+      const key = buildReadingImportKey(null, '', apartmentNumber, meterType, date);
       if (existingSet.has(key)) {
         imported.skipped++;
         continue;
@@ -2423,7 +2405,7 @@ async function parseCSVAndImport(csvText, meterType = 'water') {
 
       imported.total++;
       try {
-        await addReading({ tenantId, meterType, value: Number(value), date });
+        await addReading({ tenantId: null, meterType, value: Number(value), date, tenantName: '', apartmentNumber });
         imported.success++;
         existingSet.add(key);
       } catch (e) {
@@ -6669,7 +6651,7 @@ async function importReadingsCsv(text) {
 
   const startIdx = rows[0][0]?.toLowerCase() === 'date' ? 1 : 0;
   const existing = await getAllReadings();
-  const existingSet = new Set(existing.map(r => `${r.tenantId}|${r.meterType}|${r.date}`));
+  const existingSet = new Set(existing.map(r => buildReadingImportKey(r.tenantId, r.tenantName, r.apartmentNumber, r.meterType, r.date)));
   const tenants = isRemoteApp() ? await getAllTenantsRemote(true) : await getAllTenants(true);
   const tenantIndex = buildTenantNameIndex(tenants);
   const tenantPartsIndex = buildTenantNamePartsIndex(tenants);
@@ -6700,19 +6682,21 @@ async function importReadingsCsv(text) {
     if (!tenant) {
       unmatched++;
       if (tenantName) unmatchedNames.add(tenantName);
-      continue;
     }
-    const key = `${tenant?.id || ''}|${meterType}|${date}`;
+    const resolvedTenantId = tenant?.id || null;
+    const resolvedName = tenant ? `${tenant.firstName || ''} ${tenant.lastName || ''}`.trim() : (tenantName || '');
+    const resolvedApartment = tenant?.apartmentNumber || apartment || '';
+    const key = buildReadingImportKey(resolvedTenantId, resolvedName, resolvedApartment, meterType, date);
     if (existingSet.has(key)) { skipped++; continue; }
 
     const readingPayload = {
-      tenantId: tenant?.id || null,
+      tenantId: resolvedTenantId,
       meterType,
       value,
       date,
       paid,
-      tenantName: tenant ? `${tenant.firstName || ''} ${tenant.lastName || ''}`.trim() : (tenantName || ''),
-      apartmentNumber: tenant?.apartmentNumber || apartment || ''
+      tenantName: resolvedName,
+      apartmentNumber: resolvedApartment
     };
     await addReading(readingPayload);
     existingSet.add(key);
@@ -6770,6 +6754,7 @@ async function importPaymentsCsvEnglish(text) {
 
   const tenants = await getAllTenants(true);
   const tenantIndex = buildTenantNameIndex(tenants);
+  const tenantPartsIndex = buildTenantNamePartsIndex(tenants);
 
   const existingPayments = await getAllPayments();
   const existingSet = new Set(existingPayments.map(p => buildPaymentKey(p.tenantId, p.tenantName, p.apartmentNumber, p.date, p.amount, p.account)));
@@ -6802,15 +6787,17 @@ async function importPaymentsCsvEnglish(text) {
     if (!tenant) {
       unmatched++;
       if (tenantName) unmatchedNames.add(tenantName);
-      continue;
     }
-    const key = buildPaymentKey(tenant?.id, tenantName, apartment, date, amount, account);
+    const resolvedTenantId = tenant?.id || null;
+    const resolvedName = tenant ? buildTenantName(tenant) : (tenantName || '');
+    const resolvedApartment = tenant?.apartmentNumber || apartment || '';
+    const key = buildPaymentKey(resolvedTenantId, resolvedName, resolvedApartment, date, amount, account);
     if (existingSet.has(key)) { skipped++; continue; }
 
     await addPayment({
-      tenantId: tenant?.id || null,
-      tenantName: tenant ? buildTenantName(tenant) : (tenantName || ''),
-      apartmentNumber: tenant?.apartmentNumber || apartment || '',
+      tenantId: resolvedTenantId,
+      tenantName: resolvedName,
+      apartmentNumber: resolvedApartment,
       amount,
       method,
       account,
