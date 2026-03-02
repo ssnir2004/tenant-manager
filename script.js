@@ -7294,12 +7294,53 @@ async function addSampleTenants() {
 async function renderIncomeSummary() {
   const payments = await getAllPayments();
   const expenses = await getAllExpenses();
+  const readings = await getAllReadings();
+  const waterPrice = Number(await getSetting('waterPrice') ?? 0);
+  const kvaCon = Number(await getSetting('kvaCon') ?? 0);
   const container = document.getElementById('income-summary');
   if (!container) return;
 
-  const myIncome = payments
+  const readingsByTenantMeter = new Map();
+  readings.forEach(r => {
+    if (!r?.tenantId || !r?.meterType) return;
+    const key = `${r.tenantId}|${r.meterType}`;
+    if (!readingsByTenantMeter.has(key)) readingsByTenantMeter.set(key, []);
+    readingsByTenantMeter.get(key).push(r);
+  });
+  readingsByTenantMeter.forEach(arr => {
+    arr.sort((a, b) => dateValueFromAny(a.date) - dateValueFromAny(b.date));
+  });
+
+  let paidReadingsIncome = 0;
+  readings
+    .filter(r => !!r.paid)
+    .forEach(r => {
+      const keyByTenant = `${r.tenantId}|${r.meterType}`;
+      const chain = readingsByTenantMeter.get(keyByTenant) || [];
+      const currentDateValue = dateValueFromAny(r.date);
+      if (Number.isNaN(currentDateValue)) return;
+
+      const previous = chain
+        .filter(item => item.id !== r.id && dateValueFromAny(item.date) < currentDateValue)
+        .sort((a, b) => dateValueFromAny(b.date) - dateValueFromAny(a.date))[0];
+
+      if (!previous) return;
+
+      const consumption = Number(r.value || 0) - Number(previous.value || 0);
+      let amount = 0;
+      if (r.meterType === 'electricity') {
+        amount = (kvaCon / 4) + (Math.max(0, consumption) * 0.65);
+      } else if (r.meterType === 'water') {
+        amount = Math.max(0, consumption) * waterPrice;
+      }
+      if (!amount) return;
+      paidReadingsIncome += amount;
+    });
+
+  const myIncomeFromPayments = payments
     .filter(p => accountValueFromCsv(p.account) === 'my')
     .reduce((sum, p) => sum + Number(p.amount || 0), 0);
+  const myIncome = myIncomeFromPayments + paidReadingsIncome;
   const grandmaIncome = payments
     .filter(p => accountValueFromCsv(p.account) === 'grandma')
     .reduce((sum, p) => sum + Number(p.amount || 0), 0);
