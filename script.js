@@ -124,6 +124,7 @@ function applyRoleUI() {
       'show-add',
       'show-archive',
       'show-settings',
+      'show-reminders',
       'show-expenses',
       'show-solar',
       'show-balance',
@@ -154,6 +155,9 @@ function applyRoleUI() {
       'generate-bills',
       'save-expense',
       'save-solar',
+      'save-reminders-settings',
+      'enable-browser-notifications',
+      'add-manual-reminder',
       'mom-payments-import-csv',
       'mom-payments-clear-all'
     ];
@@ -768,6 +772,10 @@ async function getAllPaymentsRemote() {
 
 const paymentsSort = { key: null, dir: 'asc' };
 const readingsSort = { key: null, dir: 'asc' };
+const REMINDER_DEFAULTS = {
+  contractDays: 30,
+  checkDays: 7
+};
 
 function getPaymentsFilters() {
   const text = (document.getElementById('payments-filter-text')?.value || '').trim().toLowerCase();
@@ -938,6 +946,297 @@ function formatCurrency(value) {
   const num = Number(value);
   if (Number.isNaN(num)) return '';
   return currencyFormatter.format(num);
+}
+
+function escapeHtml(value) {
+  return String(value || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function currentIsoDate() {
+  const now = new Date();
+  const yyyy = now.getFullYear();
+  const mm = String(now.getMonth() + 1).padStart(2, '0');
+  const dd = String(now.getDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+function daysBetweenIso(fromIso, toIso) {
+  if (!fromIso || !toIso) return Number.NaN;
+  const from = new Date(`${fromIso}T00:00:00`);
+  const to = new Date(`${toIso}T00:00:00`);
+  if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime())) return Number.NaN;
+  const diffMs = to.getTime() - from.getTime();
+  return Math.floor(diffMs / (1000 * 60 * 60 * 24));
+}
+
+function sanitizeManualReminders(items) {
+  if (!Array.isArray(items)) return [];
+  return items
+    .map(item => ({
+      id: String(item?.id || `${Date.now()}-${Math.random().toString(16).slice(2)}`),
+      text: String(item?.text || '').trim(),
+      dueDate: parseDateToIso(item?.dueDate || ''),
+      done: !!item?.done,
+      createdAt: item?.createdAt || new Date().toISOString()
+    }))
+    .filter(item => item.text);
+}
+
+async function getRemindersConfig() {
+  const saved = await getSetting('remindersConfig');
+  const contractDaysRaw = Number(saved?.contractDays);
+  const checkDaysRaw = Number(saved?.checkDays);
+  const contractDays = Number.isFinite(contractDaysRaw) && contractDaysRaw > 0
+    ? Math.floor(contractDaysRaw)
+    : REMINDER_DEFAULTS.contractDays;
+  const checkDays = Number.isFinite(checkDaysRaw) && checkDaysRaw > 0
+    ? Math.floor(checkDaysRaw)
+    : REMINDER_DEFAULTS.checkDays;
+  return { contractDays, checkDays };
+}
+
+async function getManualReminders() {
+  const saved = await getSetting('manualReminders');
+  return sanitizeManualReminders(saved);
+}
+
+async function setManualReminders(list) {
+  await setSetting('manualReminders', sanitizeManualReminders(list));
+}
+
+async function buildAutomaticReminders() {
+  const [tenants, readings, payments, config] = await Promise.all([
+    getAllTenants(true),
+    getAllReadings(),
+    getAllPayments(),
+    getRemindersConfig()
+  ]);
+
+  const todayIso = currentIsoDate();
+  const reminders = [];
+  const tenantMap = new Map(tenants.map(t => [Number(t.id), t]));
+
+  tenants.forEach(t => {
+    const tenantName = `${t.firstName || ''} ${t.lastName || ''}`.trim() || 'ללא שם';
+    const apartment = t.apartmentNumber || '-';
+
+    const contractIso = parseDateToIso(t.endDate || '');
+    if (contractIso) {
+      const days = daysBetweenIso(todayIso, contractIso);
+      if (Number.isFinite(days) && days >= 0 && days <= config.contractDays) {
+        reminders.push({
+          id: `contract-${t.id}-${contractIso}`,
+          type: 'auto',
+          priority: days <= 7 ? 'high' : 'medium',
+          title: `חוזה עומד להסתיים (דירה ${apartment})`,
+          details: `${tenantName} · בעוד ${days} ימים`,
+          dueDate: contractIso,
+          source: 'חוזה'
+        });
+      }
+    }
+
+    const moveOutIso = parseDateToIso(t.moveOutDate || '');
+    if (moveOutIso) {
+      const days = daysBetweenIso(todayIso, moveOutIso);
+      if (Number.isFinite(days) && days >= 0 && days <= config.contractDays) {
+        reminders.push({
+          id: `moveout-${t.id}-${moveOutIso}`,
+          type: 'auto',
+          priority: days <= 7 ? 'high' : 'medium',
+          title: `עזיבת דייר מתקרבת (דירה ${apartment})`,
+          details: `${tenantName} · בעוד ${days} ימים`,
+          dueDate: moveOutIso,
+          source: 'עזיבה'
+        });
+      }
+    }
+  });
+
+  readings
+    .filter(r => !r?.paid)
+    .forEach(r => {
+      const tenant = tenantMap.get(Number(r.tenantId));
+      const tenantName = tenant
+        ? `${tenant.firstName || ''} ${tenant.lastName || ''}`.trim()
+        : (r.tenantName || 'ללא שיוך');
+      const apartment = tenant?.apartmentNumber || r.apartmentNumber || '-';
+      const readingIso = parseDateToIso(r.date || '');
+      const age = readingIso ? daysBetweenIso(readingIso, todayIso) : Number.NaN;
+      reminders.push({
+        id: `reading-unpaid-${r.id}`,
+        type: 'auto',
+        priority: Number.isFinite(age) && age > 30 ? 'high' : 'medium',
+        title: `קריאה לא שולמה (דירה ${apartment})`,
+        details: `${tenantName || '-'} · ${meterTypeLabel(r.meterType)} · ערך ${r.value ?? '-'}${Number.isFinite(age) ? ` · מלפני ${age} ימים` : ''}`,
+        dueDate: readingIso,
+        source: 'קריאות'
+      });
+    });
+
+  payments
+    .filter(p => String(p?.method || '') === 'check')
+    .forEach(p => {
+      const checkIso = parseDateToIso(p.date || '');
+      const daysUntil = daysBetweenIso(todayIso, checkIso);
+      if (!Number.isFinite(daysUntil) || daysUntil < 0 || daysUntil > config.checkDays) return;
+      const tenant = tenantMap.get(Number(p.tenantId));
+      const tenantName = tenant
+        ? `${tenant.firstName || ''} ${tenant.lastName || ''}`.trim()
+        : (p.tenantName || 'ללא שיוך');
+      const apartment = tenant?.apartmentNumber || p.apartmentNumber || '-';
+      reminders.push({
+        id: `check-deposit-${p.id}`,
+        type: 'auto',
+        priority: daysUntil <= 1 ? 'high' : 'low',
+        title: `תזכורת הפקדת צ'ק (דירה ${apartment})`,
+        details: `${tenantName || '-'} · ₪${formatCurrency(p.amount || 0)} · בעוד ${daysUntil} ימים`,
+        dueDate: checkIso,
+        source: "צ'קים"
+      });
+    });
+
+  return reminders;
+}
+
+function renderReminderPriorityBadge(priority) {
+  if (priority === 'high') return '<span style="background:#fdecea;color:#b71c1c;padding:2px 8px;border-radius:999px;font-size:12px;">גבוה</span>';
+  if (priority === 'medium') return '<span style="background:#fff8e1;color:#8a6d3b;padding:2px 8px;border-radius:999px;font-size:12px;">בינוני</span>';
+  return '<span style="background:#e8f5e9;color:#1b5e20;padding:2px 8px;border-radius:999px;font-size:12px;">נמוך</span>';
+}
+
+async function maybeNotifyForReminders(reminders) {
+  if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
+  const todayIso = currentIsoDate();
+  const lastNotified = await getSetting('lastRemindersNotifyDate');
+  if (lastNotified === todayIso) return;
+
+  const urgentCount = reminders.filter(r => {
+    if (r.priority === 'high') return true;
+    const dueIso = parseDateToIso(r.dueDate || '');
+    return !!dueIso && dueIso <= todayIso;
+  }).length;
+  if (!urgentCount) return;
+
+  try {
+    new Notification('תזכורות דיירים', {
+      body: `יש ${urgentCount} תזכורות דחופות לטיפול היום`,
+      tag: 'tenant-reminders-daily'
+    });
+    await setSetting('lastRemindersNotifyDate', todayIso);
+  } catch (err) {
+    console.warn('Notification failed:', err);
+  }
+}
+
+async function renderReminders() {
+  const container = document.getElementById('reminders-list');
+  if (!container) return;
+
+  const canWrite = canWriteCurrentUser();
+  const textInput = document.getElementById('manual-reminder-text');
+  const dueInput = document.getElementById('manual-reminder-due');
+  const saveSettingsBtn = document.getElementById('save-reminders-settings');
+  const addManualBtn = document.getElementById('add-manual-reminder');
+  const contractDaysInput = document.getElementById('reminders-contract-days');
+  const checkDaysInput = document.getElementById('reminders-check-days');
+
+  if (textInput) textInput.disabled = !canWrite;
+  if (dueInput) dueInput.disabled = !canWrite;
+  if (saveSettingsBtn) saveSettingsBtn.disabled = !canWrite;
+  if (addManualBtn) addManualBtn.disabled = !canWrite;
+  if (contractDaysInput) contractDaysInput.disabled = !canWrite;
+  if (checkDaysInput) checkDaysInput.disabled = !canWrite;
+
+  const [config, autoReminders, manualReminders] = await Promise.all([
+    getRemindersConfig(),
+    buildAutomaticReminders(),
+    getManualReminders()
+  ]);
+
+  if (contractDaysInput && !contractDaysInput.value) {
+    contractDaysInput.value = String(config.contractDays);
+  }
+  if (checkDaysInput && !checkDaysInput.value) {
+    checkDaysInput.value = String(config.checkDays);
+  }
+
+  const todayIso = currentIsoDate();
+  const manualRows = manualReminders.map(item => {
+    const dueIso = parseDateToIso(item.dueDate || '');
+    const overdue = !item.done && dueIso && dueIso < todayIso;
+    const priority = overdue ? 'high' : 'low';
+    return {
+      id: `manual-${item.id}`,
+      type: 'manual',
+      priority,
+      title: item.text,
+      details: item.done ? 'הושלם' : 'תזכורת ידנית',
+      dueDate: dueIso,
+      source: 'ידני',
+      done: !!item.done,
+      rawId: item.id
+    };
+  });
+
+  const all = [...autoReminders, ...manualRows].sort((a, b) => {
+    const aDue = parseDateToIso(a.dueDate || '') || '9999-12-31';
+    const bDue = parseDateToIso(b.dueDate || '') || '9999-12-31';
+    if (aDue !== bDue) return aDue.localeCompare(bDue);
+    const pOrder = { high: 0, medium: 1, low: 2 };
+    return (pOrder[a.priority] ?? 9) - (pOrder[b.priority] ?? 9);
+  });
+
+  if (!all.length) {
+    container.innerHTML = '<p style="color:#666;">אין תזכורות כרגע 🎉</p>';
+    return;
+  }
+
+  const rows = all.map(r => {
+    const dueText = r.dueDate ? formatDateEu(r.dueDate) : 'ללא תאריך';
+    const actions = r.type === 'manual'
+      ? `
+        <button class="btn-toggle-manual-reminder" data-id="${escapeHtml(r.rawId)}" ${canWrite ? '' : 'disabled'}>${r.done ? '↩️ החזר' : '✅ סמן הושלם'}</button>
+        <button class="btn-delete-manual-reminder" data-id="${escapeHtml(r.rawId)}" ${canWrite ? '' : 'disabled'}>🗑️ מחק</button>
+      `
+      : '—';
+    const titleStyle = r.done ? 'text-decoration: line-through; color: #666;' : '';
+    return `
+      <tr>
+        <td>${renderReminderPriorityBadge(r.priority)}</td>
+        <td style="${titleStyle}">${escapeHtml(r.title)}</td>
+        <td>${escapeHtml(r.details || '-')}</td>
+        <td>${escapeHtml(r.source || '-')}</td>
+        <td>${dueText}</td>
+        <td style="display:flex; gap:6px; flex-wrap:wrap;">${actions}</td>
+      </tr>
+    `;
+  }).join('');
+
+  const highCount = all.filter(r => r.priority === 'high').length;
+  container.innerHTML = `
+    <div style="margin-bottom:8px; color:#333;">סה"כ ${all.length} תזכורות · דחופות: ${highCount}</div>
+    <table class="payments-table">
+      <thead>
+        <tr>
+          <th>עדיפות</th>
+          <th>נושא</th>
+          <th>פרטים</th>
+          <th>מקור</th>
+          <th>יעד</th>
+          <th>פעולות</th>
+        </tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>
+  `;
+
+  await maybeNotifyForReminders(all);
 }
 
 function formatPeriodDisplay(period) {
@@ -2282,13 +2581,14 @@ const archiveView = document.getElementById('archive-view');
 const readingsView = document.getElementById('readings-view');
 const settingsView = document.getElementById('settings-view');
 const paymentsView = document.getElementById('payments-view');
+const remindersView = document.getElementById('reminders-view');
 const balanceView = document.getElementById('balance-view');
 const dashboardView = document.getElementById('dashboard-view');
 const momView = document.getElementById('mom-view');
 const confirmModal = document.getElementById('confirm-modal');
 
 // UI Helpers
-function hideAll() { [tenantForm, archiveView, readingsView, settingsView, paymentsView, expensesView, solarView, balanceView, dashboardView, momView].forEach(x => x?.classList.add('hidden')); }
+function hideAll() { [tenantForm, archiveView, readingsView, settingsView, paymentsView, remindersView, expensesView, solarView, balanceView, dashboardView, momView].forEach(x => x?.classList.add('hidden')); }
 function show(el) { hideAll(); el?.classList.remove('hidden'); }
 function confirmDialog(msg) {
   return new Promise(res => {
@@ -4619,6 +4919,7 @@ const showArchiveBtn = document.getElementById('show-archive');
 const showSettingsBtn = document.getElementById('show-settings');
 const showReadingsBtn = document.getElementById('show-readings');
 const showPaymentsBtn = document.getElementById('show-payments');
+const showRemindersBtn = document.getElementById('show-reminders');
 const showExpensesBtn = document.getElementById('show-expenses');
 const showSolarBtn = document.getElementById('show-solar');
 const showBalanceBtn = document.getElementById('show-balance');
@@ -4646,6 +4947,11 @@ showPaymentsBtn?.addEventListener('click', async () => {
   resetPaymentFormMode();
   await renderPayments();
   show(paymentsView);
+});
+showRemindersBtn?.addEventListener('click', async () => {
+  setActiveButton('show-reminders');
+  await renderReminders();
+  show(remindersView);
 });
 showBalanceBtn?.addEventListener('click', async () => {
   setActiveButton('show-balance');
@@ -4704,6 +5010,84 @@ showReadingsBtn?.addEventListener('click', async () => {
   const reportContainer = document.getElementById('bills-report');
   if (reportContainer) reportContainer.innerHTML = '';
   show(readingsView);
+});
+
+document.getElementById('save-reminders-settings')?.addEventListener('click', async () => {
+  if (!canWriteCurrentUser()) return;
+  const contractDaysRaw = Number(document.getElementById('reminders-contract-days')?.value || REMINDER_DEFAULTS.contractDays);
+  const checkDaysRaw = Number(document.getElementById('reminders-check-days')?.value || REMINDER_DEFAULTS.checkDays);
+  const contractDays = Number.isFinite(contractDaysRaw) && contractDaysRaw > 0 ? Math.floor(contractDaysRaw) : REMINDER_DEFAULTS.contractDays;
+  const checkDays = Number.isFinite(checkDaysRaw) && checkDaysRaw > 0 ? Math.floor(checkDaysRaw) : REMINDER_DEFAULTS.checkDays;
+  await setSetting('remindersConfig', { contractDays, checkDays });
+  await renderReminders();
+});
+
+document.getElementById('add-manual-reminder')?.addEventListener('click', async () => {
+  if (!canWriteCurrentUser()) return;
+  const textEl = document.getElementById('manual-reminder-text');
+  const dueEl = document.getElementById('manual-reminder-due');
+  const text = String(textEl?.value || '').trim();
+  if (!text) {
+    alert('יש להזין תוכן תזכורת');
+    return;
+  }
+  const dueDate = parseDateToIso(dueEl?.value || '');
+  const current = await getManualReminders();
+  current.push({
+    id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+    text,
+    dueDate,
+    done: false,
+    createdAt: new Date().toISOString()
+  });
+  await setManualReminders(current);
+  if (textEl) textEl.value = '';
+  if (dueEl) dueEl.value = '';
+  await renderReminders();
+});
+
+document.getElementById('enable-browser-notifications')?.addEventListener('click', async () => {
+  if (typeof Notification === 'undefined') {
+    alert('הדפדפן לא תומך בהתראות');
+    return;
+  }
+  if (Notification.permission === 'granted') {
+    alert('התראות כבר פעילות');
+    return;
+  }
+  const permission = await Notification.requestPermission();
+  if (permission === 'granted') {
+    alert('התראות דפדפן הופעלו בהצלחה');
+    await setSetting('lastRemindersNotifyDate', '');
+    await renderReminders();
+  } else {
+    alert('לא ניתן להפעיל התראות דפדפן ללא אישור');
+  }
+});
+
+document.getElementById('reminders-list')?.addEventListener('click', async e => {
+  const toggleBtn = e.target.closest('.btn-toggle-manual-reminder');
+  if (toggleBtn) {
+    if (!canWriteCurrentUser()) return;
+    const targetId = String(toggleBtn.dataset.id || '');
+    const current = await getManualReminders();
+    const next = current.map(item => item.id === targetId ? { ...item, done: !item.done } : item);
+    await setManualReminders(next);
+    await renderReminders();
+    return;
+  }
+
+  const deleteBtn = e.target.closest('.btn-delete-manual-reminder');
+  if (deleteBtn) {
+    if (!canWriteCurrentUser()) return;
+    const targetId = String(deleteBtn.dataset.id || '');
+    const ok = await confirmDialog('למחוק את התזכורת?');
+    if (!ok) return;
+    const current = await getManualReminders();
+    const next = current.filter(item => item.id !== targetId);
+    await setManualReminders(next);
+    await renderReminders();
+  }
 });
 
 // Close buttons

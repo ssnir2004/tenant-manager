@@ -23,6 +23,7 @@
         <button id="show-settings">הגדרות</button>
         <button id="show-readings">קריאות</button>
         <button id="show-payments">הכנסות</button>
+        <button id="show-reminders">🔔 תזכורות</button>
         <button id="show-expenses">💸 הוצאות</button>
         <button id="show-solar">☀️ גג סולרי</button>
         <button id="show-balance">מאזן</button>
@@ -333,6 +334,38 @@
           <button id="payments-filter-clear" type="button">נקה סינון</button>
         </div>
         <div id="payments-list" style="margin-top: 12px;"></div>
+      </div>
+
+      <!-- Reminders View -->
+      <div id="reminders-view" class="card hidden">
+        <h2>🔔 תזכורות חינמיות</h2>
+        <p style="margin-top: 0; color: #666;">ללא עלות: תזכורות בתוך האפליקציה + התראות דפדפן מקומיות (ללא SMS).</p>
+
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; align-items: end; margin-bottom: 12px;">
+          <label>חוזה מסתיים בעוד (ימים)
+            <input id="reminders-contract-days" type="number" min="1" step="1" placeholder="30">
+          </label>
+          <label>צ'ק להפקדה בעוד (ימים)
+            <input id="reminders-check-days" type="number" min="1" step="1" placeholder="7">
+          </label>
+          <button id="save-reminders-settings" type="button">שמור הגדרות</button>
+          <button id="enable-browser-notifications" type="button">אפשר התראות דפדפן</button>
+        </div>
+
+        <div style="border-top: 1px solid #eee; padding-top: 12px; margin-top: 12px;">
+          <h3 style="margin-top: 0;">תזכורת ידנית</h3>
+          <div style="display: grid; grid-template-columns: 1fr 180px auto; gap: 8px; align-items: end;">
+            <label>תוכן
+              <input id="manual-reminder-text" type="text" placeholder="לדוגמה: לדבר עם דירה 3 על חידוש חוזה">
+            </label>
+            <label>תאריך יעד
+              <input id="manual-reminder-due" type="date">
+            </label>
+            <button id="add-manual-reminder" type="button">הוסף</button>
+          </div>
+        </div>
+
+        <div id="reminders-list" style="margin-top: 14px;"></div>
       </div>
 
       <!-- Expenses View -->
@@ -694,6 +727,6 @@
     </div>
   </div>
 
-  <script src="script.js?v=2026030201" defer></script>
+  <script src="script.js?v=2026030202" defer></script>
 </body>
 </html>
