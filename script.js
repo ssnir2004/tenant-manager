@@ -124,7 +124,6 @@ function applyRoleUI() {
       'show-add',
       'show-archive',
       'show-settings',
-      'show-reminders',
       'show-expenses',
       'show-solar',
       'show-balance',
