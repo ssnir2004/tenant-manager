@@ -67,11 +67,36 @@ async function apiRequest(path, options = {}) {
     return await apiRequest(path, { ...options, _retry: true });
   }
   if (!res.ok) {
+    const contentType = String(res.headers.get('content-type') || '').toLowerCase();
     const text = await res.text();
-    const message = text ? `HTTP ${res.status} ${text}` : `HTTP ${res.status}`;
+    let body = text || '';
+    if (contentType.includes('text/html')) body = '';
+    body = body.replace(/\s+/g, ' ').trim();
+    if (body.length > 300) body = `${body.slice(0, 300)}...`;
+    const serverFallback = res.status >= 500 ? 'שגיאת שרת זמנית. נסה שוב בעוד דקה.' : '';
+    const message = body
+      ? `HTTP ${res.status} ${body}`
+      : (serverFallback ? `HTTP ${res.status} ${serverFallback}` : `HTTP ${res.status}`);
     throw new Error(message);
   }
   return res.json();
+}
+
+function waitMs(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function isTransientApiError(err) {
+  const msg = String(err?.message || '').toLowerCase();
+  if (!msg) return false;
+  return (
+    msg.includes('http 429') ||
+    msg.includes('http 502') ||
+    msg.includes('http 503') ||
+    msg.includes('http 504') ||
+    msg.includes('failed to fetch') ||
+    msg.includes('networkerror')
+  );
 }
 
 function normalizeTenantRow(row) {
@@ -500,6 +525,20 @@ async function addReadingRemote(reading) {
     method: 'POST',
     body: JSON.stringify(payload)
   });
+}
+
+async function addReadingWithRetry(reading, maxAttempts = 4) {
+  let lastError = null;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      return await addReading(reading);
+    } catch (err) {
+      lastError = err;
+      if (!isTransientApiError(err) || attempt === maxAttempts) throw err;
+      await waitMs(500 * attempt);
+    }
+  }
+  throw lastError || new Error('שגיאה בהוספת קריאה');
 }
 
 async function getReadingsByTenant(tenantId) {
@@ -6288,7 +6327,8 @@ readingsImportBtn?.addEventListener('click', async () => {
     const text = await readCsvWithEncoding(file);
     const res = await importReadingsCsv(text);
     const unmatchedText = res.unmatched ? `, ${res.unmatched} ללא התאמה` : '';
-    if (statusEl) statusEl.textContent = `יובאו ${res.success}/${res.total} קריאות (${res.skipped} כפילויות דולגו${unmatchedText}) ✓`;
+    const failedText = res.failed ? `, ${res.failed} נכשלו (שרת/רשת)` : '';
+    if (statusEl) statusEl.textContent = `יובאו ${res.success}/${res.total} קריאות (${res.skipped} כפילויות דולגו${unmatchedText}${failedText}) ✓`;
   } catch (e) {
     if (statusEl) statusEl.textContent = `שגיאה: ${e.message}`;
   }
@@ -6662,7 +6702,7 @@ async function importReadingsCsv(text) {
   const tenantIndex = buildTenantNameIndex(tenants);
   const tenantPartsIndex = buildTenantNamePartsIndex(tenants);
 
-  let total = 0, success = 0, skipped = 0, unmatched = 0;
+  let total = 0, success = 0, skipped = 0, unmatched = 0, failed = 0;
   const unmatchedNames = new Set();
 
   for (let i = startIdx; i < rows.length; i++) {
@@ -6704,16 +6744,21 @@ async function importReadingsCsv(text) {
       tenantName: resolvedName,
       apartmentNumber: resolvedApartment
     };
-    await addReading(readingPayload);
-    existingSet.add(key);
-    success++;
+    try {
+      await addReadingWithRetry(readingPayload);
+      existingSet.add(key);
+      success++;
+    } catch (err) {
+      failed++;
+      console.error('Failed importing reading row:', { rowIndex: i, row, error: err });
+    }
   }
 
   if (unmatchedNames.size > 0) {
     console.warn('Unmatched tenant names in readings import:', Array.from(unmatchedNames));
   }
 
-  return { success, total, skipped, unmatched };
+  return { success, total, skipped, unmatched, failed };
 }
 
 async function exportPaymentsCsvEnglish() {
