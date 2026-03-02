@@ -1775,27 +1775,51 @@ async function importTenantsCsv(text) {
   const lines = text.split(/\r?\n/).filter(l => l.trim().length > 0);
   if (lines.length < 2) throw new Error('קובץ ריק');
   const rows = lines.map(parseCsvLine);
-  const startIdx = rows[0][0]?.toLowerCase() === 'apartment' ? 1 : 0;
+  const normalizeHeaderToken = value => String(value || '').trim().toLowerCase().replace(/[\s-]+/g, '_');
+  const firstRowHeaders = (rows[0] || []).map(normalizeHeaderToken);
+  const knownHeaders = new Set([
+    'apartment', 'first_name', 'firstname', 'last_name', 'lastname', 'national_id', 'nationalid',
+    'phone', 'active', 'start_date', 'startdate', 'end_date', 'enddate', 'move_out_date', 'moveoutdate',
+    'rent_amount', 'rentamount', 'arnona_amount', 'arnonaamount', 'electricity_meter', 'electricitymeter',
+    'water_meter', 'watermeter', 'deposit_day', 'depositday', 'notes', 'archived'
+  ]);
+  const headerHits = firstRowHeaders.filter(h => knownHeaders.has(h)).length;
+  const hasHeader = headerHits >= 2;
+  const startIdx = hasHeader ? 1 : 0;
 
   const headerMap = {};
-  if (startIdx === 1) {
-    rows[0].forEach((h, i) => { headerMap[String(h || '').trim().toLowerCase()] = i; });
+  if (hasHeader) {
+    rows[0].forEach((h, i) => { headerMap[normalizeHeaderToken(h)] = i; });
   }
-  const idx = (name, fallback) => (headerMap[name] === undefined ? fallback : headerMap[name]);
+
+  const findHeaderIndex = (aliases, fallback) => {
+    for (const alias of aliases) {
+      const idx = headerMap[normalizeHeaderToken(alias)];
+      if (idx !== undefined) return idx;
+    }
+    return hasHeader ? -1 : fallback;
+  };
+
+  const cellValue = (row, index) => (index >= 0 ? row[index] : '');
+
   const activeIdx = headerMap['active'];
-  const hasHeader = startIdx === 1;
   const legacyNoHeader = !hasHeader && rows[0].length <= 12;
-  const startDateIdx = legacyNoHeader ? 5 : 6;
-  const endDateIdx = legacyNoHeader ? 6 : 7;
-  const moveOutDateIdx = legacyNoHeader ? -1 : 8;
-  const rentIdx = legacyNoHeader ? 7 : 9;
-  const arnonaIdx = legacyNoHeader ? null : 10;
-  const elecIdx = legacyNoHeader ? 8 : 11;
-  const waterIdx = legacyNoHeader ? 9 : 12;
-  const depositDayIdx = headerMap['deposit_day'];
-  const notesIdx = legacyNoHeader ? 10 : (depositDayIdx === undefined ? 13 : 14);
+  const apartmentIdx = findHeaderIndex(['apartment', 'apartment_number', 'apartmentnumber'], 0);
+  const firstNameIdx = findHeaderIndex(['first_name', 'firstname', 'firstName'], 1);
+  const lastNameIdx = findHeaderIndex(['last_name', 'lastname', 'lastName'], 2);
+  const nationalIdIdx = findHeaderIndex(['national_id', 'nationalid', 'nationalId'], 3);
+  const phoneIdx = findHeaderIndex(['phone'], 4);
+  const startDateIdx = findHeaderIndex(['start_date', 'startdate', 'startDate'], legacyNoHeader ? 5 : 6);
+  const endDateIdx = findHeaderIndex(['end_date', 'enddate', 'endDate'], legacyNoHeader ? 6 : 7);
+  const moveOutDateIdx = findHeaderIndex(['move_out_date', 'moveoutdate', 'moveOutDate'], legacyNoHeader ? -1 : 8);
+  const rentIdx = findHeaderIndex(['rent_amount', 'rentamount', 'rentAmount'], legacyNoHeader ? 7 : 9);
+  const arnonaIdx = findHeaderIndex(['arnona_amount', 'arnonaamount', 'arnonaAmount'], legacyNoHeader ? -1 : 10);
+  const elecIdx = findHeaderIndex(['electricity_meter', 'electricitymeter', 'electricityMeter'], legacyNoHeader ? 8 : 11);
+  const waterIdx = findHeaderIndex(['water_meter', 'watermeter', 'waterMeter'], legacyNoHeader ? 9 : 12);
+  const depositDayIdx = findHeaderIndex(['deposit_day', 'depositday', 'depositDay'], -1);
+  const notesIdx = findHeaderIndex(['notes'], legacyNoHeader ? 10 : 13);
   const archivedIdx = headerMap['archived'] === undefined
-    ? (legacyNoHeader ? 11 : (depositDayIdx === undefined ? 14 : 15))
+    ? (legacyNoHeader ? 11 : (depositDayIdx < 0 ? 14 : 15))
     : headerMap['archived'];
 
   const parseOptionalNumber = value => {
@@ -1854,24 +1878,24 @@ async function importTenantsCsv(text) {
 
   for (let i = startIdx; i < rows.length; i++) {
     const row = rows[i];
-    const apartmentNumber = String(row[0] || '').trim();
+    const apartmentNumber = String(cellValue(row, apartmentIdx) || '').trim();
 
     const data = {
-      firstName: String(row[idx('first_name', 1)] || '').trim(),
-      lastName: String(row[idx('last_name', 2)] || '').trim(),
-      nationalId: String(row[idx('national_id', 3)] || '').trim(),
-      phone: String(row[idx('phone', 4)] || '').trim(),
-      startDate: normalizeDateString(row[idx('start_date', startDateIdx)]),
-      endDate: normalizeDateString(row[idx('end_date', endDateIdx)]),
-      moveOutDate: moveOutDateIdx >= 0 ? normalizeDateString(row[idx('move_out_date', moveOutDateIdx)]) : '',
-      rentAmount: parseOptionalNumber(row[idx('rent_amount', rentIdx)]),
-      arnonaAmount: arnonaIdx === null ? null : parseOptionalNumber(row[idx('arnona_amount', arnonaIdx)]),
-      electricityMeter: String(row[idx('electricity_meter', elecIdx)] || '').trim(),
-      waterMeter: String(row[idx('water_meter', waterIdx)] || '').trim(),
-      depositDay: normalizeDepositDay(depositDayIdx === undefined ? '' : row[idx('deposit_day', depositDayIdx)]),
-      notes: String(row[idx('notes', notesIdx)] || '').trim(),
+      firstName: String(cellValue(row, firstNameIdx) || '').trim(),
+      lastName: String(cellValue(row, lastNameIdx) || '').trim(),
+      nationalId: String(cellValue(row, nationalIdIdx) || '').trim(),
+      phone: String(cellValue(row, phoneIdx) || '').trim(),
+      startDate: normalizeDateString(cellValue(row, startDateIdx)),
+      endDate: normalizeDateString(cellValue(row, endDateIdx)),
+      moveOutDate: moveOutDateIdx >= 0 ? normalizeDateString(cellValue(row, moveOutDateIdx)) : '',
+      rentAmount: parseOptionalNumber(cellValue(row, rentIdx)),
+      arnonaAmount: arnonaIdx < 0 ? null : parseOptionalNumber(cellValue(row, arnonaIdx)),
+      electricityMeter: String(cellValue(row, elecIdx) || '').trim(),
+      waterMeter: String(cellValue(row, waterIdx) || '').trim(),
+      depositDay: normalizeDepositDay(depositDayIdx < 0 ? '' : cellValue(row, depositDayIdx)),
+      notes: String(cellValue(row, notesIdx) || '').trim(),
       apartmentNumber: apartmentNumber,
-      archived: activeIdx === undefined ? parseCsvBoolean(row[archivedIdx]) : !parseCsvBoolean(row[activeIdx])
+      archived: activeIdx === undefined ? parseCsvBoolean(cellValue(row, archivedIdx)) : !parseCsvBoolean(cellValue(row, activeIdx))
     };
 
     if (!data.apartmentNumber && !data.firstName && !data.lastName) continue;
