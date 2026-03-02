@@ -1129,6 +1129,7 @@ async function buildAutomaticReminders() {
       reminders.push({
         id: `reading-unpaid-${r.id}`,
         type: 'auto',
+        readingId: Number(r.id),
         priority: Number.isFinite(age) && age > 30 ? 'high' : 'medium',
         title: `קריאה לא שולמה (דירה ${apartment})`,
         details: `${tenantName || '-'} · ${meterTypeLabel(r.meterType)} · ערך ${r.value ?? '-'}${Number.isFinite(age) ? ` · מלפני ${age} ימים` : ''}`,
@@ -1265,7 +1266,10 @@ async function renderReminders() {
         <button class="btn-delete-manual-reminder" data-id="${escapeHtml(r.rawId)}" ${canWrite ? '' : 'disabled'}>🗑️ מחק</button>
       `;
     } else if (r.type === 'auto') {
-      actions = `<button class="btn-release-auto-reminder" data-id="${escapeHtml(r.id)}" ${canWrite ? '' : 'disabled'}>🕊️ שחרר</button>`;
+      const markPaidBtn = (r.source === 'קריאות' && Number.isFinite(Number(r.readingId)))
+        ? `<button class="btn-mark-reading-paid" data-reading-id="${Number(r.readingId)}" ${canWrite ? '' : 'disabled'}>💰 סמן כשולם</button>`
+        : '';
+      actions = `${markPaidBtn}<button class="btn-release-auto-reminder" data-id="${escapeHtml(r.id)}" ${canWrite ? '' : 'disabled'}>🕊️ שחרר</button>`;
     }
     const titleStyle = r.done ? 'text-decoration: line-through; color: #666;' : '';
     return `
@@ -1282,6 +1286,9 @@ async function renderReminders() {
 
   const releasedRowsHtml = releasedAutoRows.map(r => {
     const dueText = r.dueDate ? formatDateEu(r.dueDate) : 'ללא תאריך';
+    const markPaidBtn = (r.source === 'קריאות' && Number.isFinite(Number(r.readingId)))
+      ? `<button class="btn-mark-reading-paid" data-reading-id="${Number(r.readingId)}" ${canWrite ? '' : 'disabled'}>💰 סמן כשולם</button>`
+      : '';
     return `
       <tr>
         <td>${renderReminderPriorityBadge(r.priority)}</td>
@@ -1289,7 +1296,7 @@ async function renderReminders() {
         <td>${escapeHtml(r.details || '-')}</td>
         <td>${escapeHtml(r.source || '-')}</td>
         <td>${dueText}</td>
-        <td><button class="btn-restore-auto-reminder" data-id="${escapeHtml(r.id)}" ${canWrite ? '' : 'disabled'}>↩️ החזר</button></td>
+        <td style="display:flex; gap:6px; flex-wrap:wrap;">${markPaidBtn}<button class="btn-restore-auto-reminder" data-id="${escapeHtml(r.id)}" ${canWrite ? '' : 'disabled'}>↩️ החזר</button></td>
       </tr>
     `;
   }).join('');
@@ -5200,6 +5207,19 @@ document.getElementById('enable-browser-notifications')?.addEventListener('click
 });
 
 document.getElementById('reminders-list')?.addEventListener('click', async e => {
+  const markPaidBtn = e.target.closest('.btn-mark-reading-paid');
+  if (markPaidBtn) {
+    if (!canWriteCurrentUser()) return;
+    const readingId = Number(markPaidBtn.dataset.readingId || 0);
+    if (!readingId) return;
+    await updateReading(readingId, { paid: true });
+    if (readingsView && !readingsView.classList.contains('hidden')) {
+      await renderReadings();
+    }
+    await renderReminders();
+    return;
+  }
+
   const releaseAutoBtn = e.target.closest('.btn-release-auto-reminder');
   if (releaseAutoBtn) {
     if (!canWriteCurrentUser()) return;
