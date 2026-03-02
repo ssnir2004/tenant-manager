@@ -134,9 +134,12 @@
             <div id="bulk-water-status" class="bulk-status"></div>
           </div>
         </div>
-        <div class="row" style="margin-top: 12px;">
-          <label>בחר חודש לחיוב
-            <input id="bill-month" type="text" placeholder="MM/YYYY">
+        <div class="row" style="margin-top: 12px; display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 8px; align-items: end;">
+          <label>בחר שנה
+            <select id="bill-year"></select>
+          </label>
+          <label>בחר חודש
+            <select id="bill-month-select"></select>
           </label>
         </div>
         <div class="actions">
@@ -728,6 +731,6 @@
     </div>
   </div>
 
-  <script src="script.js?v=2026030217" defer></script>
+  <script src="script.js?v=2026030218" defer></script>
 </body>
 </html>

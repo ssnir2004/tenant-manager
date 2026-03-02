@@ -2495,6 +2495,48 @@ function formatMonthEu(value) {
   return `${String(parsed.month).padStart(2, '0')}/${parsed.year}`;
 }
 
+function getSelectedBillMonthValue() {
+  const yearSelect = document.getElementById('bill-year');
+  const monthSelect = document.getElementById('bill-month-select');
+  const year = String(yearSelect?.value || '').trim();
+  const month = String(monthSelect?.value || '').trim();
+  if (year && month) return `${year}-${month.padStart(2, '0')}`;
+  return String(document.getElementById('bill-month')?.value || '').trim();
+}
+
+function initBillMonthSelectors() {
+  const yearSelect = document.getElementById('bill-year');
+  const monthSelect = document.getElementById('bill-month-select');
+  if (!yearSelect || !monthSelect) return;
+
+  if (!monthSelect.dataset.initialized) {
+    const monthLabels = [
+      '01 - ינואר', '02 - פברואר', '03 - מרץ', '04 - אפריל', '05 - מאי', '06 - יוני',
+      '07 - יולי', '08 - אוגוסט', '09 - ספטמבר', '10 - אוקטובר', '11 - נובמבר', '12 - דצמבר'
+    ];
+    monthSelect.innerHTML = monthLabels.map((label, idx) => {
+      const value = String(idx + 1).padStart(2, '0');
+      return `<option value="${value}">${label}</option>`;
+    }).join('');
+    monthSelect.dataset.initialized = '1';
+  }
+
+  if (!yearSelect.dataset.initialized) {
+    const now = new Date();
+    const currentYear = now.getFullYear();
+    const years = [];
+    for (let year = currentYear + 1; year >= currentYear - 10; year--) years.push(year);
+    yearSelect.innerHTML = years.map(year => `<option value="${year}">${year}</option>`).join('');
+    yearSelect.dataset.initialized = '1';
+  }
+
+  if (!yearSelect.value || !monthSelect.value) {
+    const now = new Date();
+    yearSelect.value = String(now.getFullYear());
+    monthSelect.value = String(now.getMonth() + 1).padStart(2, '0');
+  }
+}
+
 function isInMonth(dateStr, year, month) {
   const iso = parseDateToIso(dateStr);
   if (!iso) return false;
@@ -2565,7 +2607,7 @@ async function buildMonthlyReport(monthValue) {
 
   const waterPrice = Number(await getSetting('waterPrice') ?? 0);
   const kvaCon = Number(await getSetting('kvaCon') ?? 0);
-  const tenants = await getAllTenants(false);
+  const tenants = await getAllTenants(true);
   const allReadings = await getAllReadings();
 
   const rows = tenants.map(t => {
@@ -2580,6 +2622,7 @@ async function buildMonthlyReport(monthValue) {
 
     const waterReport = calculateMeterReportFromPair(waterPrev, waterCurrent, waterPrice);
     const elecReport = calculateElectricityReportFromPair(elecPrev, elecCurrent, kvaCon);
+    const hasMonthReading = !!(waterCurrent || elecCurrent);
 
     const total = (waterReport?.cost || 0) + (elecReport?.cost || 0);
     const displayInfo = resolveReadingDisplayInfo(t, waterCurrent, elecCurrent);
@@ -2591,9 +2634,10 @@ async function buildMonthlyReport(monthValue) {
       electricMeter: t.electricityMeter || '',
       water: waterReport,
       electric: elecReport,
-      total
+      total,
+      hasMonthReading
     };
-  });
+  }).filter(r => r.hasMonthReading);
 
   return { monthValue: normalized, rows };
 }
@@ -5380,11 +5424,7 @@ showReadingsBtn?.addEventListener('click', async () => {
   buildBulkList('bulk-electricity-list', sortedElec, 'electricityMeter', 'קוט"ש', latestElectricityByTenant);
   buildBulkList('bulk-water-list', sortedWater, 'waterMeter', 'מ"ק', latestWaterByTenant);
   await renderReadings();
-  const monthInput = document.getElementById('bill-month');
-  if (monthInput && !monthInput.value) {
-    const now = new Date();
-    monthInput.value = `${String(now.getMonth() + 1).padStart(2, '0')}/${now.getFullYear()}`;
-  }
+  initBillMonthSelectors();
   const today = formatDateEu(new Date().toISOString().slice(0, 10));
   const elecDate = document.getElementById('bulk-electricity-date');
   const waterDate = document.getElementById('bulk-water-date');
@@ -6301,7 +6341,7 @@ syncAllBtn?.addEventListener('click', async () => {
 const generateBillsBtn = document.getElementById('generate-bills');
 generateBillsBtn?.addEventListener('click', async () => {
   try {
-    const monthValue = document.getElementById('bill-month')?.value;
+    const monthValue = getSelectedBillMonthValue();
     const report = await buildMonthlyReport(monthValue);
     lastMonthlyReport = report;
     renderBillsReport(report);
@@ -6312,7 +6352,7 @@ generateBillsBtn?.addEventListener('click', async () => {
 
 document.getElementById('export-bills-report')?.addEventListener('click', async () => {
   try {
-    const monthValue = document.getElementById('bill-month')?.value;
+    const monthValue = getSelectedBillMonthValue();
     const normalized = parseMonthValue(monthValue)?.normalized || '';
     if (!lastMonthlyReport || lastMonthlyReport.monthValue !== normalized) {
       lastMonthlyReport = await buildMonthlyReport(monthValue);
