@@ -186,6 +186,18 @@ main {
   font-weight: 600;
 }
 
+.section-container {
+  background: linear-gradient(135deg, #ffffff 0%, #f7fbff 100%);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px;
+  box-shadow: 0 2px 8px rgba(43, 108, 176, 0.07);
+}
+
+.section-container .row:last-child {
+  margin-bottom: 0;
+}
+
 .hidden {
   display: none !important;
 }

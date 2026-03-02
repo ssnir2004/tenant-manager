@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>ניהול דיירים — טרומפלדור 31</title>
-  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="style.css?v=2026030220">
   <!-- Libraries for PDF export -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
@@ -68,13 +68,13 @@
         </div>
         <small style="display: block; color: #666; margin-top: 5px;">הקובץ יישמר בשם: <strong>tenants.csv</strong></small>
         <div id="tenants-csv-status" style="margin-top: 10px; color: #27ae60;"></div>
-        <div id="tenants-table" style="margin-top: 12px;"></div>
+        <div id="tenants-table" class="section-container" style="margin-top: 12px;"></div>
       </form>
 
       <!-- Archive View -->
       <div id="archive-view" class="card hidden">
         <h2>ארכיון דיירים</h2>
-        <div id="archive-list"></div>
+        <div id="archive-list" class="section-container"></div>
       </div>
 
       <!-- Readings View -->
@@ -159,8 +159,8 @@
         </div>
         <small style="display: block; color: #666; margin-top: 5px;">הקובץ יישמר בשם: <strong>readings.csv</strong></small>
         <div id="readings-csv-status" style="margin-top: 10px; color: #27ae60;"></div>
-        <div id="bills-report" style="margin-top: 12px;"></div>
-        <div class="row" style="margin-top: 12px; display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; align-items: end;">
+        <div id="bills-report" class="section-container" style="margin-top: 12px;"></div>
+        <div class="row section-container" style="margin-top: 12px; display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; align-items: end;">
           <label>חיפוש
             <input id="readings-filter-text" type="text" placeholder="שם דייר / דירה / הערה">
           </label>
@@ -191,8 +191,8 @@
           </label>
           <button id="readings-filter-clear" type="button">נקה סינון</button>
         </div>
-        <div id="readings-list" style="margin-top: 12px;"></div>
-        <div id="readings-approvals" style="margin-top: 12px;"></div>
+        <div id="readings-list" class="section-container" style="margin-top: 12px;"></div>
+        <div id="readings-approvals" class="section-container" style="margin-top: 12px;"></div>
       </div>
 
       <!-- Settings View -->
@@ -304,7 +304,7 @@
         </div>
         <small style="display: block; color: #666; margin-top: 5px;">הקובץ יישמר בשם: <strong>payments_english.csv</strong></small>
         <div id="payments-csv-status" style="margin-top: 10px; color: #27ae60;"></div>
-        <div class="row" style="margin-top: 12px; display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; align-items: end;">
+        <div class="row section-container" style="margin-top: 12px; display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; align-items: end;">
           <label>חיפוש
             <input id="payments-filter-text" type="text" placeholder="שם דייר / דירה / הערה">
           </label>
@@ -337,7 +337,7 @@
           </label>
           <button id="payments-filter-clear" type="button">נקה סינון</button>
         </div>
-        <div id="payments-list" style="margin-top: 12px;"></div>
+        <div id="payments-list" class="section-container" style="margin-top: 12px;"></div>
       </div>
 
       <!-- Reminders View -->
@@ -369,7 +369,7 @@
           </div>
         </div>
 
-        <div id="reminders-list" style="margin-top: 14px;"></div>
+        <div id="reminders-list" class="section-container" style="margin-top: 14px;"></div>
       </div>
 
       <!-- Expenses View -->
@@ -467,7 +467,7 @@
         </div>
         <small style="display: block; color: #666; margin-top: 5px;">הקובץ יישמר בשם: <strong>expenses.csv</strong></small>
         <div id="expenses-csv-status" style="margin-top: 10px; color: #27ae60;"></div>
-        <div id="expenses-list" style="margin-top: 12px;"></div>
+        <div id="expenses-list" class="section-container" style="margin-top: 12px;"></div>
       </div>
 
       <!-- Solar Roof View -->
@@ -498,7 +498,7 @@
         </div>
         <small style="display: block; color: #666; margin-top: 5px;">הקובץ יישמר בשם: <strong>solar_income.csv</strong></small>
         <div id="solar-csv-status" style="margin-top: 10px; color: #27ae60;"></div>
-        <div id="solar-list" style="margin-top: 12px;"></div>
+        <div id="solar-list" class="section-container" style="margin-top: 12px;"></div>
       </div>
 
       <!-- Balance View -->
@@ -507,7 +507,7 @@
         <div class="row" style="margin-bottom: 8px;">
           <label><input id="balance-include-solar" type="checkbox"> לכלול הכנסות מהגג הסולרי</label>
         </div>
-        <div id="balance-list"></div>
+        <div id="balance-list" class="section-container"></div>
       </div>
 
       <!-- Mom View - Parent Payments -->
@@ -533,7 +533,7 @@
         </div>
         
         <!-- Table will be populated here -->
-        <div id="mom-list"></div>
+        <div id="mom-list" class="section-container"></div>
       </div>
 
       <!-- Dashboard View -->
@@ -542,19 +542,19 @@
         
         <!-- Current Month Summary (Solar + Balance) -->
         <div class="dashboard-section">
-          <div id="current-month-summary" class="income-summary"></div>
+          <div id="current-month-summary" class="income-summary section-container"></div>
         </div>
         
         <!-- Income Summary -->
         <div class="dashboard-section">
           <h3>סיכום נטו לפי חשבון</h3>
-          <div id="income-summary" class="income-summary"></div>
+          <div id="income-summary" class="income-summary section-container"></div>
         </div>
         
         <!-- Timeline -->
         <div class="dashboard-section" style="margin-top: 24px;">
           <h3>ציר זמן שכירה לפי דירה</h3>
-          <div id="timeline-container" class="timeline-container"></div>
+          <div id="timeline-container" class="timeline-container section-container"></div>
           <div style="text-align: center; margin-top: 12px;">
             <button id="export-timeline-csv" type="button" style="background-color: #27ae60; color: white;">ייצא CSV</button>
             <small style="display: block; color: #666; margin-top: 8px;">הקובץ יישמר בשם: <strong>timeline_YYYY-MM-DD.csv</strong></small>
