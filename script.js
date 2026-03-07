@@ -3878,7 +3878,15 @@ async function saveBulkReadings(meterType, dateInputId, listId, statusId) {
 
 // Rendering
 async function renderTenants() {
-  const tenants = await getAllTenants(false);
+  const [tenants, payments, readings, waterPriceRaw, kvaConRaw] = await Promise.all([
+    getAllTenants(false),
+    getAllPayments(),
+    getAllReadings(),
+    getSetting('waterPrice'),
+    getSetting('kvaCon')
+  ]);
+  const waterPrice = Number(waterPriceRaw ?? 0);
+  const kvaCon = Number(kvaConRaw ?? 0);
   tenantList.innerHTML = tenants.length === 0 ? '<p>אין דיירים</p>' : '';
   tenants.slice().sort((a, b) => Number(a.apartmentNumber || 0) - Number(b.apartmentNumber || 0)).forEach(t => {
     const el = document.createElement('div');
@@ -3887,12 +3895,20 @@ async function renderTenants() {
     const target = buildTenantTargetDate(t);
     const targetKind = target ? tenantTargetKindLabel(target.kind) : 'ללא יעד';
     const targetDate = target?.iso ? formatDateEu(target.iso) : '';
+    const balance = calculateTenantBalanceBreakdown(t, payments, readings, waterPrice, kvaCon, currentIsoDate());
+    const totalBalance = Number(balance?.total || 0);
+    const balanceAbs = Math.abs(totalBalance);
+    const balanceStateClass = totalBalance > 0 ? 'state-debt' : (totalBalance < 0 ? 'state-credit' : 'state-neutral');
+    const balanceLabel = totalBalance > 0
+      ? `חוב: ₪${formatCurrency(balanceAbs)}`
+      : (totalBalance < 0 ? `זכות: ₪${formatCurrency(balanceAbs)}` : `מאוזן: ₪${formatCurrency(balanceAbs)}`);
     el.innerHTML = `
-      <div style="display:flex; flex-direction:column; gap:8px; width:100%;">
-        <button type="button" class="btn-open-tenant-balance" data-tenant-id="${t.id}" style="text-align:right; width:100%;">
-          <div style="font-weight:700; color:#1f3f5f;">דירה ${escapeHtml(t.apartmentNumber || '-')}</div>
-          <div style="font-size:12px; color:#4a6077;">${escapeHtml(tenantName)} · ${escapeHtml(targetKind)}</div>
-          ${targetDate ? `<div style="font-size:12px; color:#7a3d14;">${escapeHtml(targetDate)}</div>` : ''}
+      <div class="tenant-main-card-wrap">
+        <button type="button" class="btn-open-tenant-balance ${balanceStateClass}" data-tenant-id="${t.id}">
+          <div class="tenant-main-card-title">דירה ${escapeHtml(t.apartmentNumber || '-')}</div>
+          <div class="tenant-main-card-sub">${escapeHtml(tenantName)} · ${escapeHtml(targetKind)}</div>
+          ${targetDate ? `<div class="tenant-main-card-date">${escapeHtml(targetDate)}</div>` : ''}
+          <div class="tenant-main-card-balance">${escapeHtml(balanceLabel)}</div>
         </button>
       </div>
     `;

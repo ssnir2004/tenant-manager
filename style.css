@@ -147,6 +147,76 @@ main {
   box-shadow: 0 0 0 3px rgba(39, 174, 96, 0.3), 0 6px 20px rgba(39, 174, 96, 0.6);
 }
 
+.tenant-item {
+  margin-bottom: 10px;
+}
+
+.tenant-main-card-wrap {
+  width: 100%;
+}
+
+.btn-open-tenant-balance {
+  all: unset;
+  width: 100%;
+  display: block;
+  padding: 12px;
+  border-radius: 12px;
+  cursor: pointer;
+  background: linear-gradient(135deg, rgba(43, 108, 176, 0.12) 0%, rgba(52, 152, 219, 0.18) 100%);
+  box-shadow: 0 6px 18px rgba(43, 108, 176, 0.18);
+  transition: transform 0.2s ease, box-shadow 0.2s ease, filter 0.2s ease;
+}
+
+.btn-open-tenant-balance:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 22px rgba(43, 108, 176, 0.24);
+  filter: saturate(1.08);
+}
+
+.btn-open-tenant-balance:active {
+  transform: translateY(0);
+}
+
+.btn-open-tenant-balance.state-debt {
+  background: linear-gradient(135deg, rgba(231, 76, 60, 0.14) 0%, rgba(255, 170, 165, 0.26) 100%);
+  box-shadow: 0 6px 18px rgba(231, 76, 60, 0.2);
+}
+
+.btn-open-tenant-balance.state-credit {
+  background: linear-gradient(135deg, rgba(39, 174, 96, 0.14) 0%, rgba(120, 219, 170, 0.26) 100%);
+  box-shadow: 0 6px 18px rgba(39, 174, 96, 0.2);
+}
+
+.btn-open-tenant-balance.state-neutral {
+  background: linear-gradient(135deg, rgba(43, 108, 176, 0.1) 0%, rgba(90, 143, 214, 0.2) 100%);
+}
+
+.tenant-main-card-title {
+  font-weight: 700;
+  color: var(--accent-dark);
+  margin-bottom: 2px;
+}
+
+.tenant-main-card-sub {
+  font-size: 12px;
+  color: var(--text-light);
+}
+
+.tenant-main-card-date {
+  font-size: 12px;
+  color: #7a3d14;
+  margin-top: 2px;
+}
+
+.tenant-main-card-balance {
+  margin-top: 8px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text);
+  direction: ltr;
+  text-align: left;
+}
+
 .content {
   flex: 1;
   padding: 24px;
