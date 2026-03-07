@@ -2046,6 +2046,10 @@ async function renderReminders() {
             <tbody>${waterRows}</tbody>
           </table>
         ` : '<div style="font-size:12px; color:#666;">אין חיובי מים פתוחים</div>'}
+
+        <div style="margin-top:12px; padding-top:8px; border-top:1px solid #f0c7ab; font-size:13px; font-weight:700; color:${totalColor};">
+          סיכום סופי נטו: ${totalSummaryText}
+        </div>
       </div>
       `
       : '';
