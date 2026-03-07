@@ -1126,11 +1126,13 @@ function calculateTenantBalanceBreakdown(tenant, payments, readings, waterPrice,
   if (!Number.isFinite(tenantId) || tenantId <= 0) {
     return {
       rent: 0,
+      arnona: 0,
       electricity: 0,
       water: 0,
       total: 0,
       details: {
-        rent: { rentAmount: 0, rentStartIso: '', monthsDue: 0, expectedRent: 0, totalPaid: 0, paymentItems: [] },
+        rent: { rentAmount: 0, rentStartIso: '', monthsDue: 0, expectedRent: 0, paidApplied: 0, paymentItems: [] },
+        arnona: { arnonaAmount: 0, expectedArnona: 0, paidApplied: 0 },
         electricity: [],
         water: []
       }
@@ -1138,7 +1140,7 @@ function calculateTenantBalanceBreakdown(tenant, payments, readings, waterPrice,
   }
 
   const tenantPayments = (payments || []).filter(p => Number(p?.tenantId) === tenantId);
-  const totalPaid = tenantPayments.reduce((sum, p) => sum + Number(p?.amount || 0), 0);
+  const todayMonthKey = (parseDateToIso(todayIso) || todayIso).slice(0, 7);
   const paymentItems = tenantPayments
     .map(p => ({
       dateIso: parseDateToIso(p?.date || ''),
@@ -1146,8 +1148,11 @@ function calculateTenantBalanceBreakdown(tenant, payments, readings, waterPrice,
     }))
     .filter(p => !!p.dateIso)
     .sort((a, b) => a.dateIso.localeCompare(b.dateIso));
+  const paymentItemsForCurrentAndPastMonths = paymentItems.filter(p => p.dateIso.slice(0, 7) <= todayMonthKey);
+  const totalPaid = paymentItemsForCurrentAndPastMonths.reduce((sum, p) => sum + Number(p.amount || 0), 0);
 
   const rentAmount = Number(tenant?.rentAmount || 0);
+  const arnonaAmount = Number(tenant?.arnonaAmount || 0);
   const firstPaymentIso = tenantPayments
     .map(p => parseDateToIso(p?.date || ''))
     .filter(Boolean)
@@ -1155,7 +1160,16 @@ function calculateTenantBalanceBreakdown(tenant, payments, readings, waterPrice,
   const rentStartIso = parseDateToIso(tenant?.startDate || '') || firstPaymentIso || todayIso;
   const monthsDue = rentAmount > 0 ? countMonthsInclusive(rentStartIso, todayIso) : 0;
   const expectedRent = rentAmount > 0 ? (rentAmount * monthsDue) : 0;
-  const rentBalance = expectedRent - totalPaid;
+  const expectedArnona = arnonaAmount > 0 ? (arnonaAmount * monthsDue) : 0;
+
+  let remainingCredit = Math.max(0, totalPaid);
+  const rentPaidApplied = Math.min(expectedRent, remainingCredit);
+  remainingCredit -= rentPaidApplied;
+  const arnonaPaidApplied = Math.min(expectedArnona, remainingCredit);
+  remainingCredit -= arnonaPaidApplied;
+
+  const rentBalance = expectedRent - rentPaidApplied;
+  const arnonaBalance = expectedArnona - arnonaPaidApplied;
 
   const tenantReadings = (readings || [])
     .filter(r => Number(r?.tenantId) === tenantId)
@@ -1199,17 +1213,24 @@ function calculateTenantBalanceBreakdown(tenant, payments, readings, waterPrice,
   const total = rentBalance + utilityDebt.electricity + utilityDebt.water;
   return {
     rent: rentBalance,
+    arnona: arnonaBalance,
     electricity: utilityDebt.electricity,
     water: utilityDebt.water,
-    total,
+    total: rentBalance + arnonaBalance + utilityDebt.electricity + utilityDebt.water,
     details: {
       rent: {
         rentAmount,
         rentStartIso,
         monthsDue,
         expectedRent,
+        paidApplied: rentPaidApplied,
         totalPaid,
-        paymentItems
+        paymentItems: paymentItemsForCurrentAndPastMonths
+      },
+      arnona: {
+        arnonaAmount,
+        expectedArnona,
+        paidApplied: arnonaPaidApplied
       },
       electricity: utilityDetails.electricity,
       water: utilityDetails.water
@@ -1646,10 +1667,11 @@ async function renderReminders() {
     const tenantId = Number(item?.tenantId || 0);
     const isExpanded = tenantId > 0 && remindersExpandedContractTenantId === tenantId;
     const showCalcDetails = tenantId > 0 && remindersExpandedContractCalcTenantId === tenantId;
-    const balance = contractBalanceByTenantId.get(tenantId) || { rent: 0, electricity: 0, water: 0, total: 0 };
+    const balance = contractBalanceByTenantId.get(tenantId) || { rent: 0, arnona: 0, electricity: 0, water: 0, total: 0 };
     const totalColor = balance.total > 0 ? '#b71c1c' : (balance.total < 0 ? '#1b5e20' : '#555');
     const totalLabel = balance.total > 0 ? 'חוב' : (balance.total < 0 ? 'זכות' : 'מאוזן');
-    const rentDetails = balance?.details?.rent || { rentAmount: 0, rentStartIso: '', monthsDue: 0, expectedRent: 0, totalPaid: 0, paymentItems: [] };
+    const rentDetails = balance?.details?.rent || { rentAmount: 0, rentStartIso: '', monthsDue: 0, expectedRent: 0, paidApplied: 0, totalPaid: 0, paymentItems: [] };
+    const arnonaDetails = balance?.details?.arnona || { arnonaAmount: 0, expectedArnona: 0, paidApplied: 0 };
     const electricityDetails = balance?.details?.electricity || [];
     const waterDetails = balance?.details?.water || [];
 
@@ -1684,7 +1706,8 @@ async function renderReminders() {
           שכירות: ${rentDetails.monthsDue} חודשים × ₪${formatCurrency(rentDetails.rentAmount || 0)} = ₪${formatCurrency(rentDetails.expectedRent || 0)}
           ${rentDetails.rentStartIso ? ` (מהתאריך ${formatDateEu(rentDetails.rentStartIso)})` : ''}
         </div>
-        <div style="font-size:12px; color:#5d3a22; margin-bottom:6px;">תשלומים שנכללו: ₪${formatCurrency(rentDetails.totalPaid || 0)}</div>
+        <div style="font-size:12px; color:#5d3a22; margin-bottom:6px;">ארנונה: ${rentDetails.monthsDue} חודשים × ₪${formatCurrency(arnonaDetails.arnonaAmount || 0)} = ₪${formatCurrency(arnonaDetails.expectedArnona || 0)}</div>
+        <div style="font-size:12px; color:#5d3a22; margin-bottom:6px;">תשלומים שנכללו (עד חודש נוכחי): ₪${formatCurrency(rentDetails.totalPaid || 0)} · יוחסו לשכירות: ₪${formatCurrency(rentDetails.paidApplied || 0)} · יוחסו לארנונה: ₪${formatCurrency(arnonaDetails.paidApplied || 0)}</div>
         ${(paymentRows) ? `
           <table class="payments-table" style="margin-top:6px;">
             <thead><tr><th>תאריך תשלום</th><th>סכום</th></tr></thead>
@@ -1718,6 +1741,7 @@ async function renderReminders() {
         <table style="width:100%; border-collapse:collapse; font-size:12px;">
           <tbody>
             <tr><td style="padding:4px 0; color:#5d3a22;">שכירות</td><td style="padding:4px 0; direction:ltr; text-align:left; font-weight:600;">₪${formatCurrency(balance.rent)}</td></tr>
+            <tr><td style="padding:4px 0; color:#5d3a22;">ארנונה</td><td style="padding:4px 0; direction:ltr; text-align:left; font-weight:600;">₪${formatCurrency(balance.arnona)}</td></tr>
             <tr><td style="padding:4px 0; color:#5d3a22;">חשמל</td><td style="padding:4px 0; direction:ltr; text-align:left; font-weight:600;">₪${formatCurrency(balance.electricity)}</td></tr>
             <tr><td style="padding:4px 0; color:#5d3a22;">מים</td><td style="padding:4px 0; direction:ltr; text-align:left; font-weight:600;">₪${formatCurrency(balance.water)}</td></tr>
             <tr><td style="padding-top:6px; border-top:1px solid #f0c7ab; font-weight:700; color:#7a3d14;">סה"כ (${totalLabel})</td><td style="padding-top:6px; border-top:1px solid #f0c7ab; direction:ltr; text-align:left; font-weight:700; color:${totalColor};">₪${formatCurrency(balance.total)}</td></tr>
