@@ -2392,10 +2392,11 @@ function findTenantByNameParts(namePartsIndex, firstName, lastName) {
 async function exportTenantsCsv() {
   const tenants = await getAllTenants(true);
   const rows = [
-    ['apartment', 'first_name', 'last_name', 'national_id', 'phone', 'active', 'start_date', 'end_date', 'move_out_date', 'rent_amount', 'arnona_amount', 'electricity_meter', 'water_meter', 'deposit_day', 'notes', 'archived']
+    ['apartment', 'first_name', 'last_name', 'national_id', 'phone', 'active', 'start_date', 'end_date', 'move_out_date', 'rent_amount', 'rent_history_json', 'arnona_amount', 'electricity_meter', 'water_meter', 'deposit_day', 'notes', 'archived']
   ];
 
   tenants.slice().sort((a, b) => Number(a.apartmentNumber || 0) - Number(b.apartmentNumber || 0)).forEach(t => {
+    const rentHistoryJson = JSON.stringify(normalizeRentHistoryEntries(t.rentHistory));
     rows.push([
       t.apartmentNumber || '',
       t.firstName || '',
@@ -2407,6 +2408,7 @@ async function exportTenantsCsv() {
       t.endDate || '',
       t.moveOutDate || '',
       t.rentAmount ?? '',
+      rentHistoryJson,
       t.arnonaAmount ?? '',
       t.electricityMeter || '',
       t.waterMeter || '',
@@ -2429,7 +2431,8 @@ async function importTenantsCsv(text) {
   const knownHeaders = new Set([
     'apartment', 'first_name', 'firstname', 'last_name', 'lastname', 'national_id', 'nationalid',
     'phone', 'active', 'start_date', 'startdate', 'end_date', 'enddate', 'move_out_date', 'moveoutdate',
-    'rent_amount', 'rentamount', 'arnona_amount', 'arnonaamount', 'electricity_meter', 'electricitymeter',
+    'rent_amount', 'rentamount', 'rent_history_json', 'rent_history', 'renthistory',
+    'arnona_amount', 'arnonaamount', 'electricity_meter', 'electricitymeter',
     'water_meter', 'watermeter', 'deposit_day', 'depositday', 'notes', 'archived'
   ]);
   const headerHits = firstRowHeaders.filter(h => knownHeaders.has(h)).length;
@@ -2462,13 +2465,14 @@ async function importTenantsCsv(text) {
   const endDateIdx = findHeaderIndex(['end_date', 'enddate', 'endDate'], legacyNoHeader ? 6 : 7);
   const moveOutDateIdx = findHeaderIndex(['move_out_date', 'moveoutdate', 'moveOutDate'], legacyNoHeader ? -1 : 8);
   const rentIdx = findHeaderIndex(['rent_amount', 'rentamount', 'rentAmount'], legacyNoHeader ? 7 : 9);
-  const arnonaIdx = findHeaderIndex(['arnona_amount', 'arnonaamount', 'arnonaAmount'], legacyNoHeader ? -1 : 10);
-  const elecIdx = findHeaderIndex(['electricity_meter', 'electricitymeter', 'electricityMeter'], legacyNoHeader ? 8 : 11);
-  const waterIdx = findHeaderIndex(['water_meter', 'watermeter', 'waterMeter'], legacyNoHeader ? 9 : 12);
+  const rentHistoryIdx = findHeaderIndex(['rent_history_json', 'rent_history', 'renthistory', 'rentHistory'], -1);
+  const arnonaIdx = findHeaderIndex(['arnona_amount', 'arnonaamount', 'arnonaAmount'], legacyNoHeader ? -1 : (rentHistoryIdx >= 0 ? 11 : 10));
+  const elecIdx = findHeaderIndex(['electricity_meter', 'electricitymeter', 'electricityMeter'], legacyNoHeader ? 8 : (rentHistoryIdx >= 0 ? 12 : 11));
+  const waterIdx = findHeaderIndex(['water_meter', 'watermeter', 'waterMeter'], legacyNoHeader ? 9 : (rentHistoryIdx >= 0 ? 13 : 12));
   const depositDayIdx = findHeaderIndex(['deposit_day', 'depositday', 'depositDay'], -1);
-  const notesIdx = findHeaderIndex(['notes'], legacyNoHeader ? 10 : 13);
+  const notesIdx = findHeaderIndex(['notes'], legacyNoHeader ? 10 : (rentHistoryIdx >= 0 ? 15 : 13));
   const archivedIdx = headerMap['archived'] === undefined
-    ? (legacyNoHeader ? 11 : (depositDayIdx < 0 ? 14 : 15))
+    ? (legacyNoHeader ? 11 : (rentHistoryIdx >= 0 ? 16 : (depositDayIdx < 0 ? 14 : 15)))
     : headerMap['archived'];
 
   const parseOptionalNumber = value => {
@@ -2498,6 +2502,7 @@ async function importTenantsCsv(text) {
     applyIfValue('endDate', importedData.endDate);
     applyIfValue('moveOutDate', importedData.moveOutDate);
     if (importedData.rentAmount !== null && importedData.rentAmount !== undefined) merged.rentAmount = importedData.rentAmount;
+    if (Array.isArray(importedData.rentHistory)) merged.rentHistory = importedData.rentHistory;
     if (importedData.arnonaAmount !== null && importedData.arnonaAmount !== undefined) merged.arnonaAmount = importedData.arnonaAmount;
     applyIfValue('depositDay', importedData.depositDay);
     applyIfValue('apartmentNumber', importedData.apartmentNumber);
@@ -2559,6 +2564,7 @@ async function importTenantsCsv(text) {
       endDate: normalizeDateString(cellValue(row, endDateIdx)),
       moveOutDate: moveOutDateIdx >= 0 ? normalizeDateString(cellValue(row, moveOutDateIdx)) : '',
       rentAmount: parseOptionalNumber(cellValue(row, rentIdx)),
+      rentHistory: rentHistoryIdx >= 0 ? normalizeRentHistoryEntries(cellValue(row, rentHistoryIdx)) : [],
       arnonaAmount: arnonaIdx < 0 ? null : parseOptionalNumber(cellValue(row, arnonaIdx)),
       electricityMeter: String(cellValue(row, elecIdx) || '').trim(),
       waterMeter: String(cellValue(row, waterIdx) || '').trim(),
