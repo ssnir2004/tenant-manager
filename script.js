@@ -1121,6 +1121,20 @@ function countMonthsInclusive(fromIso, toIso) {
   return ((toYear - fromYear) * 12) + (toMonth - fromMonth) + 1;
 }
 
+function adjustStartIsoForLateContractDay(startIso) {
+  const iso = parseDateToIso(startIso);
+  if (!iso) return '';
+  const day = Number(iso.slice(8, 10));
+  if (!Number.isFinite(day) || day < 25) return iso;
+  let year = Number(iso.slice(0, 4));
+  let month = Number(iso.slice(5, 7)) + 1;
+  if (month > 12) {
+    month = 1;
+    year += 1;
+  }
+  return `${year}-${String(month).padStart(2, '0')}-01`;
+}
+
 const YEARLY_ARNONA_SETTING_KEY = 'yearlyArnonaByApartment';
 const ARNONA_SETTINGS_START_YEAR = 2022;
 
@@ -1229,7 +1243,10 @@ function calculateTenantBalanceBreakdown(tenant, payments, readings, waterPrice,
     .map(p => parseDateToIso(p?.date || ''))
     .filter(Boolean)
     .sort()[0] || '';
-  const rentStartIso = parseDateToIso(tenant?.startDate || '') || firstPaymentIso || todayIso;
+  const contractStartIso = parseDateToIso(tenant?.startDate || '');
+  const rentStartIso = contractStartIso
+    ? (adjustStartIsoForLateContractDay(contractStartIso) || contractStartIso)
+    : (firstPaymentIso || todayIso);
   const monthsDue = rentAmount > 0 ? countMonthsInclusive(rentStartIso, todayIso) : 0;
   const expectedRent = rentAmount > 0 ? (rentAmount * monthsDue) : 0;
 
