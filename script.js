@@ -1917,7 +1917,24 @@ async function renderReminders() {
     monthMap.set(monthKey, (monthMap.get(monthKey) || 0) + Number(p?.amount || 0));
   });
 
-  const upcomingDepositCards = (upcoming.upcomingDeposits || []).slice(0, 8).map(item => {
+  const compareUpcomingByApartment = (a, b) => {
+    const aRaw = String(a?.apartment || '').trim();
+    const bRaw = String(b?.apartment || '').trim();
+    const aNum = Number(aRaw);
+    const bNum = Number(bRaw);
+    const aIsNum = !Number.isNaN(aNum);
+    const bIsNum = !Number.isNaN(bNum);
+    if (aIsNum && bIsNum && aNum !== bNum) return aNum - bNum;
+    if (aIsNum && !bIsNum) return -1;
+    if (!aIsNum && bIsNum) return 1;
+    if (aRaw !== bRaw) return aRaw.localeCompare(bRaw, 'he');
+    return String(a?.dueDate || '').localeCompare(String(b?.dueDate || ''));
+  };
+
+  const upcomingDepositsSorted = (upcoming.upcomingDeposits || []).slice().sort(compareUpcomingByApartment);
+  const upcomingContractsSorted = (upcoming.upcomingContracts || []).slice().sort(compareUpcomingByApartment);
+
+  const upcomingDepositCards = upcomingDepositsSorted.slice(0, 8).map(item => {
     const tenantId = Number(item?.tenantId || 0);
     const isExpanded = tenantId > 0 && remindersExpandedDepositTenantId === tenantId;
     const monthMap = tenantId > 0 ? (incomeByTenantByMonth.get(tenantId) || new Map()) : new Map();
@@ -1952,7 +1969,7 @@ async function renderReminders() {
 
   const tenantById = new Map((tenants || []).map(t => [Number(t.id), t]));
   const contractBalanceByTenantId = new Map();
-  (upcoming.upcomingContracts || []).forEach(item => {
+  upcomingContractsSorted.forEach(item => {
     const tenantId = Number(item?.tenantId || 0);
     if (!tenantId || contractBalanceByTenantId.has(tenantId)) return;
     const tenant = tenantById.get(tenantId);
@@ -1976,7 +1993,7 @@ async function renderReminders() {
       ? `זכות: ₪${formatCurrency(upcomingContractsTotalAbs)}`
       : `מאוזן: ₪${formatCurrency(upcomingContractsTotalAbs)}`);
 
-  const upcomingContractCards = (upcoming.upcomingContracts || []).slice(0, 8).map(item => {
+  const upcomingContractCards = upcomingContractsSorted.slice(0, 8).map(item => {
     const tenantId = Number(item?.tenantId || 0);
     const isExpanded = tenantId > 0 && remindersExpandedContractTenantId === tenantId;
     const showCalcDetails = tenantId > 0 && remindersExpandedContractCalcTenantId === tenantId;
@@ -2150,14 +2167,14 @@ async function renderReminders() {
     <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 10px; margin-bottom: 12px;">
       <div style="border:1px solid #d5e8ff; border-radius:12px; padding:10px; background:linear-gradient(135deg,#f8fcff 0%,#eef6ff 100%);">
         <h3 style="margin: 0 0 8px 0; color:#2b6cb0; font-size:15px;">מועדי הפקדה קרובים</h3>
-        ${(upcoming.upcomingDeposits || []).length
+        ${upcomingDepositsSorted.length
           ? `<div style="display:grid; gap:8px;">${upcomingDepositCards}</div>`
           : '<div style="color:#666; font-size:13px;">אין מועדי הפקדה קרובים</div>'}
       </div>
       <div style="border:1px solid #ffe0cc; border-radius:12px; padding:10px; background:linear-gradient(135deg,#fffdfb 0%,#fff5ec 100%);">
         <h3 style="margin: 0 0 8px 0; color:#b35c1e; font-size:15px;">מועדי סיום/עזיבה קרובים</h3>
         <div style="font-size:12px; margin:0 0 8px 0; font-weight:700; color:${upcomingContractsTotalColor};">סה"כ מאזן כל הדיירים: <span style="direction:ltr; display:inline-block;">${upcomingContractsTotalLabel}</span></div>
-        ${(upcoming.upcomingContracts || []).length
+        ${upcomingContractsSorted.length
           ? `<div style="display:grid; gap:8px;">${upcomingContractCards}</div>`
           : '<div style="color:#666; font-size:13px;">אין מועדי סיום/עזיבה קרובים</div>'}
       </div>
