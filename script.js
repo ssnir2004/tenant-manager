@@ -360,6 +360,23 @@ async function getTenantById(id) {
   });
 }
 
+async function syncRemoteTenantsToLocalCache() {
+  if (!isRemoteApp()) return;
+  const remoteTenantsData = await apiRequest('/api/tenants?includeArchived=true');
+  const remoteTenants = (remoteTenantsData || []).map(normalizeTenantRow);
+
+  const db = await openDB();
+  const tx = db.transaction('tenants', 'readwrite');
+  const store = tx.objectStore('tenants');
+  store.clear();
+  remoteTenants.forEach(tenant => store.add(tenant));
+
+  await new Promise((res, rej) => {
+    tx.oncomplete = () => res();
+    tx.onerror = () => rej(tx.error);
+  });
+}
+
 // Find tenant by partial name match (fuzzy matching)
 function findTenantByNameMatch(tenants, name) {
   if (!name || !tenants.length) return null;
@@ -6514,7 +6531,16 @@ tenantForm?.addEventListener('submit', async e => {
     data.endDate = parsedEnd;
   }
   data.depositDay = normalizeDepositDay(data.depositDay);
-  if (f.editId) await updateTenant(Number(f.editId), data); else await addTenant(data);
+  if (isRemoteApp()) {
+    if (f.editId) {
+      await updateTenantRemote(Number(f.editId), data);
+    } else {
+      await addTenantRemote(data);
+    }
+    await syncRemoteTenantsToLocalCache();
+  } else {
+    if (f.editId) await updateTenant(Number(f.editId), data); else await addTenant(data);
+  }
   show(tenantForm);
   await renderTenants();
   f.reset();
@@ -8775,25 +8801,8 @@ window.addEventListener('DOMContentLoaded', async () => {
   if (isRemoteApp()) {
     console.log('Remote app detected - syncing tenants from server to local IndexedDB');
     try {
-      const remoteTenantsData = await apiRequest('/api/tenants?includeArchived=true');
-      const remoteTenants = (remoteTenantsData || []).map(normalizeTenantRow);
-      console.log(`Retrieved ${remoteTenants.length} tenants from server`);
-      
-      // Replace local IndexedDB tenants with remote
-      const db = await openDB();
-      const tx = db.transaction('tenants', 'readwrite');
-      const store = tx.objectStore('tenants');
-      
-      // Clear and repopulate
-      store.clear();
-      remoteTenants.forEach(tenant => store.add(tenant));
-      
-      await new Promise((res, rej) => {
-        tx.oncomplete = () => res();
-        tx.onerror = () => rej(tx.error);
-      });
-      
-      console.log(`Synced ${remoteTenants.length} tenants to local IndexedDB`);
+      await syncRemoteTenantsToLocalCache();
+      console.log('Synced tenants to local IndexedDB');
     } catch(err) {
       console.error('Failed to sync tenants from server:', err);
     }
