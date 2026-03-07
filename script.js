@@ -4317,47 +4317,39 @@ async function renderMom() {
       parentPaymentsByMonth.set(key, (parentPaymentsByMonth.get(key) || 0) + Number(p.amount || 0));
     });
 
-  // Find months for parent payments
-  const allMonths = [];
-  parentPeriods.forEach(p => {
-    p.months.forEach(m => {
-      allMonths.push(`${p.year}-${String(m).padStart(2, '0')}`);
-    });
-  });
-  parentPaymentsByMonth.forEach((_, key) => allMonths.push(key));
-  parentExemptSet.forEach(key => allMonths.push(key));
+  const firstMonth = '2022-10';
+  const today = new Date();
+  const currentYear = today.getFullYear();
+  const currentMonth = today.getMonth() + 1;
+  const endOfMonth = new Date(currentYear, currentMonth, 0, 23, 59, 59, 999);
+  const msPerDay = 1000 * 60 * 60 * 24;
+  const daysToMonthEnd = Math.ceil((endOfMonth.getTime() - today.getTime()) / msPerDay);
+  const includeNextMonth = daysToMonthEnd <= 7;
 
-  let parentMonths = [];
-  if (allMonths.length > 0) {
-    allMonths.sort();
-    const firstMonth = allMonths[0];
-    let lastMonth;
-    if (parentPaymentsByMonth.size > 0) {
-      const lastPaymentMonth = Array.from(parentPaymentsByMonth.keys()).sort().pop();
-      const [year, month] = lastPaymentMonth.split('-').map(Number);
-      const nextMonth = month === 12 ? 1 : month + 1;
-      const nextYear = month === 12 ? year + 1 : year;
-      lastMonth = `${nextYear}-${String(nextMonth).padStart(2, '0')}`;
+  let endYear = currentYear;
+  let endMonth = currentMonth;
+  if (includeNextMonth) {
+    if (endMonth === 12) {
+      endMonth = 1;
+      endYear += 1;
     } else {
-      lastMonth = allMonths[allMonths.length - 1];
+      endMonth += 1;
     }
+  }
 
-    const parentMonthSet = new Set();
-    let [currentYear, currentMonth] = firstMonth.split('-').map(Number);
-    const [endYear, endMonth] = lastMonth.split('-').map(Number);
-    while (currentYear < endYear || (currentYear === endYear && currentMonth <= endMonth)) {
-      parentMonthSet.add(`${currentYear}-${String(currentMonth).padStart(2, '0')}`);
-      currentMonth++;
-      if (currentMonth > 12) {
-        currentMonth = 1;
-        currentYear++;
-      }
+  const parentMonths = [];
+  let [loopYear, loopMonth] = firstMonth.split('-').map(Number);
+  while (loopYear < endYear || (loopYear === endYear && loopMonth <= endMonth)) {
+    parentMonths.push(`${loopYear}-${String(loopMonth).padStart(2, '0')}`);
+    loopMonth++;
+    if (loopMonth > 12) {
+      loopMonth = 1;
+      loopYear++;
     }
-    parentMonths = Array.from(parentMonthSet).sort();
   }
 
   let cumulativeBalance = 0;
-  const parentRows = parentMonths.length ? parentMonths.map(key => {
+  const rowsData = parentMonths.map(key => {
     const year = Number(key.slice(0, 4));
     const month = Number(key.slice(5, 7));
     let obligation = parentDefault;
@@ -4375,26 +4367,84 @@ async function renderMom() {
     const paid = parentPaymentsByMonth.get(key) || 0;
     const balance = paid - finalObligation;
     cumulativeBalance += balance;
-    const balanceColor = balance >= 0 ? '#27ae60' : '#e74c3c';
-    const cumulativeColor = cumulativeBalance >= 0 ? '#27ae60' : '#e74c3c';
-    const label = `${key.slice(5, 7)}/${key.slice(0, 4)}`;
-    const reasonWidth = Math.max(100, (reductionReason.length || 10) * 8);
+
+    return {
+      key,
+      label: `${key.slice(5, 7)}/${key.slice(0, 4)}`,
+      obligation,
+      reductionAmount,
+      reductionReason,
+      paid,
+      balance,
+      cumulativeBalance,
+      isExempt
+    };
+  });
+
+  const parentRows = rowsData.length ? rowsData.map(row => {
+    const key = row.key;
+    const balanceColor = row.balance >= 0 ? '#27ae60' : '#e74c3c';
+    const cumulativeColor = row.cumulativeBalance >= 0 ? '#27ae60' : '#e74c3c';
+    const reasonWidth = Math.max(100, (row.reductionReason.length || 10) * 8);
     return `
       <tr>
-        <td style="white-space:nowrap;">${label}</td>
-        <td style="white-space:nowrap;direction: ltr; text-align: left;">₪${formatCurrency(obligation)}</td>
-        <td><input type="number" class="parent-reduction-amount" data-month="${key}" value="${reductionAmount}" style="width:70px;font-size:13px;padding:2px 4px;" step="0.01"></td>
-        <td><input type="text" class="parent-reduction-reason" data-month="${key}" value="${reductionReason}" style="width:${reasonWidth}px;font-size:13px;padding:2px 4px;min-width:100px;"></td>
-        <td style="white-space:nowrap;direction: ltr; text-align: left;">₪${formatCurrency(paid)}</td>
-        <td style="color:${balanceColor};font-weight:bold;white-space:nowrap;direction: ltr; text-align: left;">₪${formatCurrency(balance)}</td>
-        <td style="color:${cumulativeColor};font-weight:bold;white-space:nowrap;direction: ltr; text-align: left;">₪${formatCurrency(cumulativeBalance)}</td>
-        <td style="text-align:center;"><input class="parent-exempt-toggle" type="checkbox" data-month="${key}" ${isExempt ? 'checked' : ''}></td>
+        <td style="white-space:nowrap;">${row.label}</td>
+        <td style="white-space:nowrap;direction: ltr; text-align: left;">₪${formatCurrency(row.obligation)}</td>
+        <td><input type="number" class="parent-reduction-amount" data-month="${key}" value="${row.reductionAmount}" style="width:70px;font-size:13px;padding:2px 4px;" step="0.01"></td>
+        <td><input type="text" class="parent-reduction-reason" data-month="${key}" value="${row.reductionReason}" style="width:${reasonWidth}px;font-size:13px;padding:2px 4px;min-width:100px;"></td>
+        <td style="white-space:nowrap;direction: ltr; text-align: left;">₪${formatCurrency(row.paid)}</td>
+        <td style="color:${balanceColor};font-weight:bold;white-space:nowrap;direction: ltr; text-align: left;">₪${formatCurrency(row.balance)}</td>
+        <td style="color:${cumulativeColor};font-weight:bold;white-space:nowrap;direction: ltr; text-align: left;">₪${formatCurrency(row.cumulativeBalance)}</td>
+        <td style="text-align:center;"><input class="parent-exempt-toggle" type="checkbox" data-month="${key}" ${row.isExempt ? 'checked' : ''}></td>
       </tr>
     `;
   }).join('') : '<tr><td colspan="8" style="text-align:center;color:#999;">אין נתונים</td></tr>';
 
+  const lastRow = rowsData.length ? rowsData[rowsData.length - 1] : null;
+  const lastMonthBalance = lastRow ? Number(lastRow.balance || 0) : 0;
+  const lastMonthBalanceColor = lastMonthBalance >= 0 ? '#27ae60' : '#e74c3c';
+  const totalGrandmaIncome = rowsData.reduce((sum, row) => sum + Number(row.paid || 0), 0);
+
+  const yearlyIncomeMap = new Map();
+  rowsData.forEach(row => {
+    const year = Number(String(row.key).slice(0, 4));
+    yearlyIncomeMap.set(year, (yearlyIncomeMap.get(year) || 0) + Number(row.paid || 0));
+  });
+  const yearlyIncomeEntries = Array.from(yearlyIncomeMap.entries()).sort((a, b) => a[0] - b[0]);
+  const maxYearlyIncome = yearlyIncomeEntries.reduce((max, [, amount]) => Math.max(max, amount), 0);
+  const yearlyIncomeChart = yearlyIncomeEntries.map(([year, amount]) => {
+    const widthPct = maxYearlyIncome > 0 ? Math.round((amount / maxYearlyIncome) * 100) : 0;
+    return `
+      <div style="display:grid; grid-template-columns: 70px 1fr 130px; gap: 12px; align-items:center;">
+        <div style="font-size:13px; font-weight:bold; color:#333;">${year}</div>
+        <div style="height:22px; background:#eef2f5; border-radius:8px; overflow:hidden;">
+          <div style="height:100%; width:${widthPct}%; background:linear-gradient(135deg, #3498db 0%, #2980b9 100%);"></div>
+        </div>
+        <div style="font-size:13px; color:#333; text-align:right; direction:ltr; font-weight:600;">₪${formatCurrency(amount)}</div>
+      </div>
+    `;
+  }).join('');
+
   momList.innerHTML = `
-    <div style="margin-top: 24px;">
+    <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; margin-bottom: 12px;">
+      <div style="padding: 12px; border: 1px solid #e4e8ef; border-radius: 8px; background: #f9fbff;">
+        <div style="font-size: 12px; color:#666; margin-bottom:4px;">עודף חודש אחרון בטבלה (${lastRow?.label || '-'})</div>
+        <div style="font-size: 20px; font-weight: 700; color:${lastMonthBalanceColor}; direction:ltr; text-align:left;">₪${formatCurrency(lastMonthBalance)}</div>
+      </div>
+      <div style="padding: 12px; border: 1px solid #e4e8ef; border-radius: 8px; background: #f9fbff;">
+        <div style="font-size: 12px; color:#666; margin-bottom:4px;">סך הכנסות אסתר ומיכאל</div>
+        <div style="font-size: 20px; font-weight: 700; color:#2b6cb0; direction:ltr; text-align:left;">₪${formatCurrency(totalGrandmaIncome)}</div>
+      </div>
+    </div>
+
+    <div style="margin-bottom: 14px; padding: 12px; border: 1px solid #e4e8ef; border-radius: 8px; background: #f9fbff;">
+      <div style="font-weight: 700; margin-bottom: 8px;">📊 גרף הכנסות שנתי</div>
+      <div style="display:grid; gap:8px;">
+        ${yearlyIncomeChart || '<div style="color:#999;">אין נתוני הכנסות להצגה</div>'}
+      </div>
+    </div>
+
+    <div style="margin-top: 8px;">
       <div style="font-weight: bold; margin-bottom: 8px;">תשלום לאסתר ומיכאל</div>
       <table class="payments-table">
         <thead>
