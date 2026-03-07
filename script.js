@@ -1109,6 +1109,75 @@ function tenantTargetKindLabel(kind) {
   return 'חוזה';
 }
 
+function countMonthsInclusive(fromIso, toIso) {
+  if (!fromIso || !toIso) return 0;
+  const from = parseDateToIso(fromIso);
+  const to = parseDateToIso(toIso);
+  if (!from || !to || from > to) return 0;
+  const fromYear = Number(from.slice(0, 4));
+  const fromMonth = Number(from.slice(5, 7));
+  const toYear = Number(to.slice(0, 4));
+  const toMonth = Number(to.slice(5, 7));
+  return ((toYear - fromYear) * 12) + (toMonth - fromMonth) + 1;
+}
+
+function calculateTenantBalanceBreakdown(tenant, payments, readings, waterPrice, kvaCon, todayIso = currentIsoDate()) {
+  const tenantId = Number(tenant?.id);
+  if (!Number.isFinite(tenantId) || tenantId <= 0) {
+    return { rent: 0, electricity: 0, water: 0, total: 0 };
+  }
+
+  const tenantPayments = (payments || []).filter(p => Number(p?.tenantId) === tenantId);
+  const totalPaid = tenantPayments.reduce((sum, p) => sum + Number(p?.amount || 0), 0);
+
+  const rentAmount = Number(tenant?.rentAmount || 0);
+  const firstPaymentIso = tenantPayments
+    .map(p => parseDateToIso(p?.date || ''))
+    .filter(Boolean)
+    .sort()[0] || '';
+  const rentStartIso = parseDateToIso(tenant?.startDate || '') || firstPaymentIso || todayIso;
+  const monthsDue = rentAmount > 0 ? countMonthsInclusive(rentStartIso, todayIso) : 0;
+  const expectedRent = rentAmount > 0 ? (rentAmount * monthsDue) : 0;
+  const rentBalance = expectedRent - totalPaid;
+
+  const tenantReadings = (readings || [])
+    .filter(r => Number(r?.tenantId) === tenantId)
+    .slice();
+  const byType = new Map();
+  tenantReadings.forEach(r => {
+    const type = String(r?.meterType || '');
+    if (!type) return;
+    if (!byType.has(type)) byType.set(type, []);
+    byType.get(type).push(r);
+  });
+
+  const utilityDebt = { electricity: 0, water: 0 };
+  ['electricity', 'water'].forEach(type => {
+    const chain = (byType.get(type) || []).sort((a, b) => dateValueFromAny(a?.date) - dateValueFromAny(b?.date));
+    for (let i = 1; i < chain.length; i++) {
+      const prev = chain[i - 1];
+      const current = chain[i];
+      if (current?.paid) continue;
+      const consumption = Number(current?.value || 0) - Number(prev?.value || 0);
+      let amount = 0;
+      if (type === 'electricity') {
+        amount = (Number(kvaCon || 0) / 4) + (Math.max(0, consumption) * 0.65);
+      } else {
+        amount = Math.max(0, consumption) * Number(waterPrice || 0);
+      }
+      utilityDebt[type] += Math.max(0, amount || 0);
+    }
+  });
+
+  const total = rentBalance + utilityDebt.electricity + utilityDebt.water;
+  return {
+    rent: rentBalance,
+    electricity: utilityDebt.electricity,
+    water: utilityDebt.water,
+    total
+  };
+}
+
 async function buildUpcomingKeyDates() {
   const tenants = await getAllTenants(true);
   const todayIso = currentIsoDate();
@@ -1143,6 +1212,9 @@ async function buildUpcomingKeyDates() {
       const apartment = t.apartmentNumber || '-';
       return {
         id: `up-target-${t.id}-${target.iso}`,
+        tenantId: Number(t.id),
+        tenantName: name,
+        apartment,
         dueDate: target.iso,
         title: `דירה ${apartment}`,
         details: `${name} · ${tenantTargetKindLabel(target.kind)}`
@@ -1284,6 +1356,7 @@ function renderReminderPriorityBadge(priority) {
 
 let remindersShowReleased = false;
 let remindersExpandedDepositTenantId = null;
+let remindersExpandedContractTenantId = null;
 
 async function maybeNotifyForReminders(reminders) {
   if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
@@ -1328,14 +1401,20 @@ async function renderReminders() {
   if (contractDaysInput) contractDaysInput.disabled = !canWrite;
   if (checkDaysInput) checkDaysInput.disabled = !canWrite;
 
-  const [config, autoReminders, manualReminders, releasedAutoIds, upcoming, payments] = await Promise.all([
+  const [config, autoReminders, manualReminders, releasedAutoIds, upcoming, payments, tenants, readings, waterPriceRaw, kvaConRaw] = await Promise.all([
     getRemindersConfig(),
     buildAutomaticReminders(),
     getManualReminders(),
     getReleasedAutoReminderIds(),
     buildUpcomingKeyDates(),
-    getAllPayments()
+    getAllPayments(),
+    getAllTenants(true),
+    getAllReadings(),
+    getSetting('waterPrice'),
+    getSetting('kvaCon')
   ]);
+  const waterPrice = Number(waterPriceRaw ?? 0);
+  const kvaCon = Number(kvaConRaw ?? 0);
 
   if (contractDaysInput && !contractDaysInput.value) {
     contractDaysInput.value = String(config.contractDays);
@@ -1510,13 +1589,50 @@ async function renderReminders() {
   `;
   }).join('');
 
-  const upcomingContractCards = (upcoming.upcomingContracts || []).slice(0, 8).map(item => `
+  const tenantById = new Map((tenants || []).map(t => [Number(t.id), t]));
+  const contractBalanceByTenantId = new Map();
+  (upcoming.upcomingContracts || []).forEach(item => {
+    const tenantId = Number(item?.tenantId || 0);
+    if (!tenantId || contractBalanceByTenantId.has(tenantId)) return;
+    const tenant = tenantById.get(tenantId);
+    if (!tenant) return;
+    contractBalanceByTenantId.set(
+      tenantId,
+      calculateTenantBalanceBreakdown(tenant, payments || [], readings || [], waterPrice, kvaCon)
+    );
+  });
+
+  const upcomingContractCards = (upcoming.upcomingContracts || []).slice(0, 8).map(item => {
+    const tenantId = Number(item?.tenantId || 0);
+    const isExpanded = tenantId > 0 && remindersExpandedContractTenantId === tenantId;
+    const balance = contractBalanceByTenantId.get(tenantId) || { rent: 0, electricity: 0, water: 0, total: 0 };
+    const totalColor = balance.total > 0 ? '#b71c1c' : (balance.total < 0 ? '#1b5e20' : '#555');
+    const totalLabel = balance.total > 0 ? 'חוב' : (balance.total < 0 ? 'זכות' : 'מאוזן');
+    const balanceSection = isExpanded
+      ? `
+      <div style="margin-top:8px; padding-top:8px; border-top:1px dashed #f0c7ab;">
+        <div style="font-size:12px; font-weight:700; color:#9c4d17; margin-bottom:6px;">מאזן דייר</div>
+        <table style="width:100%; border-collapse:collapse; font-size:12px;">
+          <tbody>
+            <tr><td style="padding:4px 0; color:#5d3a22;">שכירות</td><td style="padding:4px 0; direction:ltr; text-align:left; font-weight:600;">₪${formatCurrency(balance.rent)}</td></tr>
+            <tr><td style="padding:4px 0; color:#5d3a22;">חשמל</td><td style="padding:4px 0; direction:ltr; text-align:left; font-weight:600;">₪${formatCurrency(balance.electricity)}</td></tr>
+            <tr><td style="padding:4px 0; color:#5d3a22;">מים</td><td style="padding:4px 0; direction:ltr; text-align:left; font-weight:600;">₪${formatCurrency(balance.water)}</td></tr>
+            <tr><td style="padding-top:6px; border-top:1px solid #f0c7ab; font-weight:700; color:#7a3d14;">סה"כ (${totalLabel})</td><td style="padding-top:6px; border-top:1px solid #f0c7ab; direction:ltr; text-align:left; font-weight:700; color:${totalColor};">₪${formatCurrency(balance.total)}</td></tr>
+          </tbody>
+        </table>
+      </div>
+      `
+      : '';
+
+    return `
     <div style="padding:10px 12px; border:1px solid #ffe0cc; border-radius:10px; background:linear-gradient(135deg,#fffaf5 0%,#fff2e8 100%);">
       <div style="font-size:12px; color:#b35c1e; margin-bottom:4px;">📅 ${formatDateEu(item.dueDate)}</div>
-      <div style="font-weight:700; color:#7a3d14; margin-bottom:2px;">${escapeHtml(item.title)}</div>
+      <button type="button" class="btn-toggle-contract-balance" data-tenant-id="${tenantId}" style="all:unset; cursor:pointer; font-weight:700; color:#7a3d14; margin-bottom:2px; display:block;">${escapeHtml(item.title)}</button>
       <div style="font-size:12px; color:#8a5a39;">${escapeHtml(item.details)}</div>
+      ${balanceSection}
     </div>
-  `).join('');
+  `;
+  }).join('');
 
   const highCount = all.filter(r => r.priority === 'high').length;
   const releasedToggleLabel = remindersShowReleased
@@ -5617,6 +5733,15 @@ document.getElementById('enable-browser-notifications')?.addEventListener('click
 });
 
 document.getElementById('reminders-list')?.addEventListener('click', async e => {
+  const toggleContractBalanceBtn = e.target.closest('.btn-toggle-contract-balance');
+  if (toggleContractBalanceBtn) {
+    const tenantId = Number(toggleContractBalanceBtn.dataset.tenantId || 0);
+    if (!tenantId) return;
+    remindersExpandedContractTenantId = remindersExpandedContractTenantId === tenantId ? null : tenantId;
+    await renderReminders();
+    return;
+  }
+
   const toggleDepositIncomeBtn = e.target.closest('.btn-toggle-deposit-income');
   if (toggleDepositIncomeBtn) {
     const tenantId = Number(toggleDepositIncomeBtn.dataset.tenantId || 0);
