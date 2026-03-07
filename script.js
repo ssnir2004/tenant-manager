@@ -1124,6 +1124,9 @@ async function buildUpcomingKeyDates() {
       const apartment = t.apartmentNumber || '-';
       return {
         id: `up-deposit-${t.id}-${dueIso}`,
+        tenantId: Number(t.id),
+        tenantName,
+        apartment,
         dueDate: dueIso,
         title: `דירה ${apartment}`,
         details: `${tenantName} · יום הפקדה ${depositDay}`
@@ -1280,6 +1283,7 @@ function renderReminderPriorityBadge(priority) {
 }
 
 let remindersShowReleased = false;
+let remindersExpandedDepositTenantId = null;
 
 async function maybeNotifyForReminders(reminders) {
   if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
@@ -1324,12 +1328,13 @@ async function renderReminders() {
   if (contractDaysInput) contractDaysInput.disabled = !canWrite;
   if (checkDaysInput) checkDaysInput.disabled = !canWrite;
 
-  const [config, autoReminders, manualReminders, releasedAutoIds, upcoming] = await Promise.all([
+  const [config, autoReminders, manualReminders, releasedAutoIds, upcoming, payments] = await Promise.all([
     getRemindersConfig(),
     buildAutomaticReminders(),
     getManualReminders(),
     getReleasedAutoReminderIds(),
-    buildUpcomingKeyDates()
+    buildUpcomingKeyDates(),
+    getAllPayments()
   ]);
 
   if (contractDaysInput && !contractDaysInput.value) {
@@ -1460,13 +1465,50 @@ async function renderReminders() {
   const activeSectionHtml = buildGroupedSectionHtml(all, false);
   const releasedSectionContent = buildGroupedSectionHtml(releasedAutoRows, true);
 
-  const upcomingDepositCards = (upcoming.upcomingDeposits || []).slice(0, 8).map(item => `
+  const incomeByTenantByMonth = new Map();
+  (payments || []).forEach(p => {
+    const tenantId = Number(p?.tenantId);
+    if (!Number.isFinite(tenantId) || tenantId <= 0) return;
+    const iso = parseDateToIso(p?.date || '');
+    if (!iso) return;
+    const monthKey = iso.slice(0, 7);
+    if (!incomeByTenantByMonth.has(tenantId)) incomeByTenantByMonth.set(tenantId, new Map());
+    const monthMap = incomeByTenantByMonth.get(tenantId);
+    monthMap.set(monthKey, (monthMap.get(monthKey) || 0) + Number(p?.amount || 0));
+  });
+
+  const upcomingDepositCards = (upcoming.upcomingDeposits || []).slice(0, 8).map(item => {
+    const tenantId = Number(item?.tenantId || 0);
+    const isExpanded = tenantId > 0 && remindersExpandedDepositTenantId === tenantId;
+    const monthMap = tenantId > 0 ? (incomeByTenantByMonth.get(tenantId) || new Map()) : new Map();
+    const monthRows = Array.from(monthMap.entries())
+      .sort((a, b) => b[0].localeCompare(a[0]))
+      .map(([monthKey, amount]) => `
+        <div style="display:grid; grid-template-columns: 100px 1fr; gap:8px; align-items:center; font-size:12px;">
+          <div style="color:#335b84;">${formatMonthEu(monthKey)}</div>
+          <div style="direction:ltr; text-align:left; font-weight:600; color:#1f3f5f;">₪${formatCurrency(amount || 0)}</div>
+        </div>
+      `)
+      .join('');
+
+    const incomesSection = isExpanded
+      ? `
+      <div style="margin-top:8px; padding-top:8px; border-top:1px dashed #c8dcf6;">
+        <div style="font-size:12px; font-weight:700; color:#2b6cb0; margin-bottom:6px;">הכנסות לפי חודשים</div>
+        ${monthRows || '<div style="font-size:12px; color:#666;">אין הכנסות לדייר זה</div>'}
+      </div>
+      `
+      : '';
+
+    return `
     <div style="padding:10px 12px; border:1px solid #d5e8ff; border-radius:10px; background:linear-gradient(135deg,#f7fbff 0%,#edf6ff 100%);">
       <div style="font-size:12px; color:#2b6cb0; margin-bottom:4px;">💳 ${formatDateEu(item.dueDate)}</div>
-      <div style="font-weight:700; color:#1f3f5f; margin-bottom:2px;">${escapeHtml(item.title)}</div>
+      <button type="button" class="btn-toggle-deposit-income" data-tenant-id="${tenantId}" style="all:unset; cursor:pointer; font-weight:700; color:#1f3f5f; margin-bottom:2px; display:block;">${escapeHtml(item.title)}</button>
       <div style="font-size:12px; color:#4a6077;">${escapeHtml(item.details)}</div>
+      ${incomesSection}
     </div>
-  `).join('');
+  `;
+  }).join('');
 
   const upcomingContractCards = (upcoming.upcomingContracts || []).slice(0, 8).map(item => `
     <div style="padding:10px 12px; border:1px solid #ffe0cc; border-radius:10px; background:linear-gradient(135deg,#fffaf5 0%,#fff2e8 100%);">
@@ -5575,6 +5617,15 @@ document.getElementById('enable-browser-notifications')?.addEventListener('click
 });
 
 document.getElementById('reminders-list')?.addEventListener('click', async e => {
+  const toggleDepositIncomeBtn = e.target.closest('.btn-toggle-deposit-income');
+  if (toggleDepositIncomeBtn) {
+    const tenantId = Number(toggleDepositIncomeBtn.dataset.tenantId || 0);
+    if (!tenantId) return;
+    remindersExpandedDepositTenantId = remindersExpandedDepositTenantId === tenantId ? null : tenantId;
+    await renderReminders();
+    return;
+  }
+
   const toggleReleasedBtn = e.target.closest('.btn-toggle-released-reminders');
   if (toggleReleasedBtn) {
     remindersShowReleased = !remindersShowReleased;
