@@ -10,6 +10,7 @@ CREATE TABLE IF NOT EXISTS tenants (
   "rentAmount" DOUBLE PRECISION,
   "rentHistory" TEXT,
   "arnonaAmount" DOUBLE PRECISION,
+  "arnonaHistory" TEXT,
   "depositDay" TEXT,
   "apartmentNumber" TEXT,
   "electricityMeter" TEXT,

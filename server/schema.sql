@@ -12,6 +12,7 @@ CREATE TABLE IF NOT EXISTS tenants (
   rentAmount REAL,
   rentHistory TEXT,
   arnonaAmount REAL,
+  arnonaHistory TEXT,
   depositDay TEXT,
   apartmentNumber TEXT,
   electricityMeter TEXT,

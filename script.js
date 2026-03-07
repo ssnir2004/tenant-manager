@@ -110,6 +110,7 @@ function normalizeTenantRow(row) {
   normalizedRow.waterMeter = row.waterMeter || '';
   normalizedRow.electricityMeter = row.electricityMeter || '';
   normalizedRow.rentHistory = normalizeRentHistoryEntries(row.rentHistory);
+  normalizedRow.arnonaHistory = normalizeArnonaHistoryEntries(row.arnonaHistory);
   return normalizedRow;
 }
 
@@ -179,6 +180,75 @@ function formatRentHistoryForText(entries) {
     .map(item => item.endIso
       ? `${formatDateEu(item.startIso)},${formatDateEu(item.endIso)},${item.rentAmount}`
       : `${formatDateEu(item.startIso)},${item.rentAmount}`)
+    .join('\n');
+}
+
+function normalizeArnonaHistoryEntries(value) {
+  let raw = value;
+  if (!raw) return [];
+  if (typeof raw === 'string') {
+    const trimmed = raw.trim();
+    if (!trimmed) return [];
+    try {
+      raw = JSON.parse(trimmed);
+    } catch (err) {
+      return [];
+    }
+  }
+  if (!Array.isArray(raw)) return [];
+
+  return raw
+    .map(item => {
+      const startIso = parseDateToIso(item?.startDate || item?.startIso || '');
+      const endIso = parseDateToIso(item?.endDate || item?.endIso || '');
+      const arnonaAmount = Number(item?.arnonaAmount ?? item?.amount ?? item?.monthlyArnona ?? 0);
+      if (!startIso || !Number.isFinite(arnonaAmount) || arnonaAmount <= 0) return null;
+      if (endIso && endIso < startIso) return null;
+      return {
+        startIso,
+        endIso: endIso || '',
+        arnonaAmount: Number(arnonaAmount.toFixed(2))
+      };
+    })
+    .filter(Boolean)
+    .sort((a, b) => a.startIso.localeCompare(b.startIso));
+}
+
+function parseArnonaHistoryText(text) {
+  const rows = String(text || '').split(/\r?\n/).map(line => line.trim()).filter(Boolean);
+  const parsed = [];
+  for (const row of rows) {
+    const parts = row.split(',').map(p => p.trim()).filter(Boolean);
+    if (parts.length !== 2 && parts.length !== 3) return { error: `שורת היסטוריית ארנונה לא תקינה: ${row}`, entries: [] };
+    const startIso = parseDateToIso(parts[0]);
+    if (!startIso) return { error: `תאריך התחלה לא תקין: ${parts[0]}`, entries: [] };
+
+    let endIso = '';
+    let amountRaw = '';
+    if (parts.length === 3) {
+      endIso = parseDateToIso(parts[1]);
+      if (!endIso) return { error: `תאריך סיום לא תקין: ${parts[1]}`, entries: [] };
+      if (endIso < startIso) return { error: `תאריך סיום לפני התחלה: ${row}`, entries: [] };
+      amountRaw = parts[2];
+    } else {
+      amountRaw = parts[1];
+    }
+
+    const arnonaAmount = Number(amountRaw);
+    if (!Number.isFinite(arnonaAmount) || arnonaAmount <= 0) return { error: `ארנונה לא תקינה: ${amountRaw}`, entries: [] };
+
+    parsed.push({ startIso, endIso: endIso || '', arnonaAmount: Number(arnonaAmount.toFixed(2)) });
+  }
+
+  return { error: '', entries: normalizeArnonaHistoryEntries(parsed) };
+}
+
+function formatArnonaHistoryForText(entries) {
+  const normalized = normalizeArnonaHistoryEntries(entries);
+  return normalized
+    .map(item => item.endIso
+      ? `${formatDateEu(item.startIso)},${formatDateEu(item.endIso)},${item.arnonaAmount}`
+      : `${formatDateEu(item.startIso)},${item.arnonaAmount}`)
     .join('\n');
 }
 
@@ -510,6 +580,7 @@ async function clearAllTenants() {
 // Tenants (remote API for sync)
 function extractTenantFields(t) {
   const normalizedRentHistory = normalizeRentHistoryEntries(t.rentHistory);
+  const normalizedArnonaHistory = normalizeArnonaHistoryEntries(t.arnonaHistory);
   return {
     firstName: t.firstName || '',
     lastName: t.lastName || '',
@@ -525,6 +596,7 @@ function extractTenantFields(t) {
     electricityMeter: t.electricityMeter || '',
     waterMeter: t.waterMeter || '',
     rentHistory: normalizedRentHistory.length ? JSON.stringify(normalizedRentHistory) : '',
+    arnonaHistory: normalizedArnonaHistory.length ? JSON.stringify(normalizedArnonaHistory) : '',
     notes: t.notes || '',
     archived: t.archived ?? false,
     active: t.active ?? true
@@ -1239,19 +1311,8 @@ function monthKeyEndIso(monthKey) {
   return `${year}-${String(month).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
 }
 
-const YEARLY_ARNONA_SETTING_KEY = 'yearlyArnonaByApartment';
-const ARNONA_SETTINGS_START_YEAR = 2022;
-
 function normalizeApartmentKey(value) {
   return String(value ?? '').trim();
-}
-
-function getArnonaSettingsYears(todayIso = currentIsoDate()) {
-  const today = parseDateToIso(todayIso) || currentIsoDate();
-  const currentYear = Number(today.slice(0, 4));
-  const years = [];
-  for (let y = ARNONA_SETTINGS_START_YEAR; y <= currentYear; y++) years.push(y);
-  return years;
 }
 
 function enumerateMonthsInclusive(fromIso, toIso) {
@@ -1275,41 +1336,7 @@ function enumerateMonthsInclusive(fromIso, toIso) {
   return result;
 }
 
-function sanitizeYearlyArnonaByApartment(rawValue, todayIso = currentIsoDate()) {
-  if (!rawValue || typeof rawValue !== 'object') return {};
-  const cleaned = {};
-  const years = getArnonaSettingsYears(todayIso);
-  Object.entries(rawValue).forEach(([apartmentRaw, valueRaw]) => {
-    const apartment = normalizeApartmentKey(apartmentRaw);
-    if (!apartment) return;
-
-    const perYear = {};
-    if (valueRaw && typeof valueRaw === 'object' && !Array.isArray(valueRaw)) {
-      Object.entries(valueRaw).forEach(([yearRaw, monthlyRaw]) => {
-        const year = Number(yearRaw);
-        if (!Number.isInteger(year) || year < ARNONA_SETTINGS_START_YEAR) return;
-        const monthly = Number(monthlyRaw);
-        if (!Number.isFinite(monthly) || monthly <= 0) return;
-        perYear[String(year)] = Number(monthly.toFixed(2));
-      });
-    } else {
-      const legacyAnnual = Number(valueRaw);
-      if (Number.isFinite(legacyAnnual) && legacyAnnual > 0) {
-        const monthlyFromLegacyAnnual = Number((legacyAnnual / 12).toFixed(2));
-        years.forEach(year => {
-          perYear[String(year)] = monthlyFromLegacyAnnual;
-        });
-      }
-    }
-
-    if (Object.keys(perYear).length > 0) {
-      cleaned[apartment] = perYear;
-    }
-  });
-  return cleaned;
-}
-
-function calculateTenantBalanceBreakdown(tenant, payments, readings, waterPrice, kvaCon, todayIso = currentIsoDate(), yearlyArnonaByApartment = null) {
+function calculateTenantBalanceBreakdown(tenant, payments, readings, waterPrice, kvaCon, todayIso = currentIsoDate()) {
   const tenantId = Number(tenant?.id);
   if (!Number.isFinite(tenantId) || tenantId <= 0) {
     return {
@@ -1320,7 +1347,7 @@ function calculateTenantBalanceBreakdown(tenant, payments, readings, waterPrice,
       total: 0,
       details: {
         rent: { rentAmount: 0, rentStartIso: '', monthsDue: 0, expectedRent: 0, paidApplied: 0, paymentItems: [], historyUsed: false, historyBreakdown: [], overpaymentCredit: 0 },
-        arnona: { arnonaAmount: 0, expectedArnona: 0, paidApplied: 0, annualArnona: 0, source: 'tenant', yearBreakdown: [] },
+        arnona: { arnonaAmount: 0, expectedArnona: 0, paidApplied: 0, source: 'tenant', historyBreakdown: [] },
         electricity: [],
         water: []
       }
@@ -1340,9 +1367,7 @@ function calculateTenantBalanceBreakdown(tenant, payments, readings, waterPrice,
   const totalPaid = paymentItemsForCurrentAndPastMonths.reduce((sum, p) => sum + Number(p.amount || 0), 0);
 
   const rentAmount = Number(tenant?.rentAmount || 0);
-  const monthlyArnonaByApartmentYear = sanitizeYearlyArnonaByApartment(yearlyArnonaByApartment, todayIso);
   const apartmentKey = normalizeApartmentKey(tenant?.apartmentNumber);
-  const monthlyArnonaByYear = apartmentKey ? (monthlyArnonaByApartmentYear[apartmentKey] || {}) : {};
   const firstPaymentIso = tenantPayments
     .map(p => parseDateToIso(p?.date || ''))
     .filter(Boolean)
@@ -1389,36 +1414,46 @@ function calculateTenantBalanceBreakdown(tenant, payments, readings, waterPrice,
     expectedRent = rentAmount > 0 ? (rentAmount * monthsDue) : 0;
   }
 
-  const arnonaYearAccumulator = new Map();
+  const arnonaHistoryEntries = normalizeArnonaHistoryEntries(tenant?.arnonaHistory);
+  const arnonaHistoryBreakdownMap = new Map();
   let expectedArnona = 0;
-  let hasYearlyMonthlyArnona = false;
+  let historyArnonaUsed = false;
   dueMonthKeys.forEach(monthKey => {
-    const yearKey = monthKey.slice(0, 4);
-    const monthly = Number(monthlyArnonaByYear[yearKey] || 0);
-    if (!Number.isFinite(monthly) || monthly <= 0) return;
-    hasYearlyMonthlyArnona = true;
-    expectedArnona += monthly;
-    const existing = arnonaYearAccumulator.get(yearKey) || { year: Number(yearKey), months: 0, monthlyArnona: monthly, amount: 0 };
-    existing.months += 1;
-    existing.monthlyArnona = monthly;
-    existing.amount += monthly;
-    arnonaYearAccumulator.set(yearKey, existing);
+    const monthStart = monthKeyStartIso(monthKey);
+    const monthEnd = monthKeyEndIso(monthKey);
+    const matchedIndex = arnonaHistoryEntries.findIndex(entry => {
+      const startsBeforeMonthEnd = entry.startIso <= monthEnd;
+      const endsAfterMonthStart = !entry.endIso || entry.endIso >= monthStart;
+      return startsBeforeMonthEnd && endsAfterMonthStart;
+    });
+    if (matchedIndex < 0) return;
+    const entry = arnonaHistoryEntries[matchedIndex];
+    const monthlyArnona = Number(entry.arnonaAmount || 0);
+    if (!Number.isFinite(monthlyArnona) || monthlyArnona <= 0) return;
+    historyArnonaUsed = true;
+    expectedArnona += monthlyArnona;
+    const key = `${entry.startIso}|${entry.endIso || ''}|${monthlyArnona}`;
+    const agg = arnonaHistoryBreakdownMap.get(key) || {
+      startIso: entry.startIso,
+      endIso: entry.endIso || '',
+      arnonaAmount: monthlyArnona,
+      months: 0,
+      amount: 0
+    };
+    agg.months += 1;
+    agg.amount += monthlyArnona;
+    arnonaHistoryBreakdownMap.set(key, agg);
   });
 
   let arnonaAmount = 0;
-  let annualArnona = 0;
   let arnonaSource = 'tenant';
-  let arnonaYearBreakdown = Array.from(arnonaYearAccumulator.values()).sort((a, b) => a.year - b.year);
-  if (hasYearlyMonthlyArnona) {
-    arnonaSource = 'yearlyByApartment';
-    const currentYearKey = String(Number((parseDateToIso(todayIso) || todayIso).slice(0, 4)));
-    arnonaAmount = Number(monthlyArnonaByYear[currentYearKey] || 0);
-    annualArnona = arnonaAmount > 0 ? arnonaAmount * 12 : 0;
+  const arnonaHistoryBreakdown = Array.from(arnonaHistoryBreakdownMap.values()).sort((a, b) => a.startIso.localeCompare(b.startIso));
+  if (historyArnonaUsed) {
+    arnonaSource = 'history';
+    arnonaAmount = arnonaHistoryBreakdown.length ? Number(arnonaHistoryBreakdown[arnonaHistoryBreakdown.length - 1].arnonaAmount || 0) : 0;
   } else {
     arnonaAmount = Number(tenant?.arnonaAmount || 0);
     expectedArnona = arnonaAmount > 0 ? (arnonaAmount * monthsDue) : 0;
-    annualArnona = arnonaAmount > 0 ? arnonaAmount * 12 : 0;
-    arnonaYearBreakdown = [];
   }
 
   let remainingCredit = Math.max(0, totalPaid);
@@ -1494,9 +1529,8 @@ function calculateTenantBalanceBreakdown(tenant, payments, readings, waterPrice,
         arnonaAmount,
         expectedArnona,
         paidApplied: arnonaPaidApplied,
-        annualArnona,
         source: arnonaSource,
-        yearBreakdown: arnonaYearBreakdown
+        historyBreakdown: arnonaHistoryBreakdown
       },
       electricity: utilityDetails.electricity,
       water: utilityDetails.water
@@ -1742,7 +1776,6 @@ async function renderReminders() {
   ]);
   const waterPrice = Number(waterPriceRaw ?? 0);
   const kvaCon = Number(kvaConRaw ?? 0);
-  const yearlyArnonaByApartment = sanitizeYearlyArnonaByApartment(await getSetting(YEARLY_ARNONA_SETTING_KEY));
 
   if (contractDaysInput && !contractDaysInput.value) {
     contractDaysInput.value = String(config.contractDays);
@@ -1926,7 +1959,7 @@ async function renderReminders() {
     if (!tenant) return;
     contractBalanceByTenantId.set(
       tenantId,
-      calculateTenantBalanceBreakdown(tenant, payments || [], readings || [], waterPrice, kvaCon, currentIsoDate(), yearlyArnonaByApartment)
+      calculateTenantBalanceBreakdown(tenant, payments || [], readings || [], waterPrice, kvaCon, currentIsoDate())
     );
   });
 
@@ -1943,7 +1976,7 @@ async function renderReminders() {
       ? `חוב: ${totalAmountText}`
       : (balance.total < 0 ? `זכות: ${totalAmountText}` : `מאוזן: ${totalAmountText}`);
     const rentDetails = balance?.details?.rent || { rentAmount: 0, rentStartIso: '', monthsDue: 0, expectedRent: 0, paidApplied: 0, totalPaid: 0, paymentItems: [], historyUsed: false, historyBreakdown: [], overpaymentCredit: 0 };
-    const arnonaDetails = balance?.details?.arnona || { arnonaAmount: 0, expectedArnona: 0, paidApplied: 0, source: 'tenant', yearBreakdown: [] };
+    const arnonaDetails = balance?.details?.arnona || { arnonaAmount: 0, expectedArnona: 0, paidApplied: 0, source: 'tenant', historyBreakdown: [] };
     const electricityDetails = balance?.details?.electricity || [];
     const waterDetails = balance?.details?.water || [];
     const rentHistoryRows = (rentDetails.historyBreakdown || []).map(entry => `
@@ -1954,11 +1987,11 @@ async function renderReminders() {
         <td style="direction:ltr; text-align:left;">₪${formatCurrency(entry.amount || 0)}</td>
       </tr>
     `).join('');
-    const arnonaByYearRows = (arnonaDetails.yearBreakdown || []).map(entry => `
+    const arnonaHistoryRows = (arnonaDetails.historyBreakdown || []).map(entry => `
       <tr>
-        <td>${entry.year}</td>
+        <td>${formatDateEu(entry.startIso)}${entry.endIso ? ` עד ${formatDateEu(entry.endIso)}` : ' ומעלה'}</td>
         <td style="direction:ltr; text-align:left;">${entry.months}</td>
-        <td style="direction:ltr; text-align:left;">₪${formatCurrency(entry.monthlyArnona || 0)}</td>
+        <td style="direction:ltr; text-align:left;">₪${formatCurrency(entry.arnonaAmount || 0)}</td>
         <td style="direction:ltr; text-align:left;">₪${formatCurrency(entry.amount || 0)}</td>
       </tr>
     `).join('');
@@ -2004,10 +2037,10 @@ async function renderReminders() {
         `}
 
         <div style="margin-top:10px; font-size:12px; font-weight:700; color:#9c4d17;">ארנונה</div>
-        ${arnonaDetails.source === 'yearlyByApartment' && arnonaByYearRows ? `
+        ${arnonaDetails.source === 'history' && arnonaHistoryRows ? `
           <table class="payments-table" style="margin-top:6px;">
-            <thead><tr><th>שנה</th><th>חודשים</th><th>₪ לחודש</th><th>סה"כ</th></tr></thead>
-            <tbody>${arnonaByYearRows}</tbody>
+            <thead><tr><th>תקופה</th><th>חודשים</th><th>₪ לחודש</th><th>סה"כ</th></tr></thead>
+            <tbody>${arnonaHistoryRows}</tbody>
           </table>
           <div style="font-size:12px; color:#5d3a22; margin-top:4px;">סה"כ ארנונה לתקופה: ₪${formatCurrency(arnonaDetails.expectedArnona || 0)}</div>
         ` : `
@@ -2441,11 +2474,12 @@ function findTenantByNameParts(namePartsIndex, firstName, lastName) {
 async function exportTenantsCsv() {
   const tenants = await getAllTenants(true);
   const rows = [
-    ['apartment', 'first_name', 'last_name', 'national_id', 'phone', 'active', 'start_date', 'end_date', 'move_out_date', 'rent_amount', 'rent_history_json', 'arnona_amount', 'electricity_meter', 'water_meter', 'deposit_day', 'notes', 'archived']
+    ['apartment', 'first_name', 'last_name', 'national_id', 'phone', 'active', 'start_date', 'end_date', 'move_out_date', 'rent_amount', 'rent_history_json', 'arnona_amount', 'arnona_history_json', 'electricity_meter', 'water_meter', 'deposit_day', 'notes', 'archived']
   ];
 
   tenants.slice().sort((a, b) => Number(a.apartmentNumber || 0) - Number(b.apartmentNumber || 0)).forEach(t => {
     const rentHistoryJson = JSON.stringify(normalizeRentHistoryEntries(t.rentHistory));
+    const arnonaHistoryJson = JSON.stringify(normalizeArnonaHistoryEntries(t.arnonaHistory));
     rows.push([
       t.apartmentNumber || '',
       t.firstName || '',
@@ -2459,6 +2493,7 @@ async function exportTenantsCsv() {
       t.rentAmount ?? '',
       rentHistoryJson,
       t.arnonaAmount ?? '',
+      arnonaHistoryJson,
       t.electricityMeter || '',
       t.waterMeter || '',
       normalizeDepositDay(t.depositDay),
@@ -2481,6 +2516,7 @@ async function importTenantsCsv(text) {
     'apartment', 'first_name', 'firstname', 'last_name', 'lastname', 'national_id', 'nationalid',
     'phone', 'active', 'start_date', 'startdate', 'end_date', 'enddate', 'move_out_date', 'moveoutdate',
     'rent_amount', 'rentamount', 'rent_history_json', 'rent_history', 'renthistory',
+    'arnona_history_json', 'arnona_history', 'arnonahistory',
     'arnona_amount', 'arnonaamount', 'electricity_meter', 'electricitymeter',
     'water_meter', 'watermeter', 'deposit_day', 'depositday', 'notes', 'archived'
   ]);
@@ -2515,13 +2551,14 @@ async function importTenantsCsv(text) {
   const moveOutDateIdx = findHeaderIndex(['move_out_date', 'moveoutdate', 'moveOutDate'], legacyNoHeader ? -1 : 8);
   const rentIdx = findHeaderIndex(['rent_amount', 'rentamount', 'rentAmount'], legacyNoHeader ? 7 : 9);
   const rentHistoryIdx = findHeaderIndex(['rent_history_json', 'rent_history', 'renthistory', 'rentHistory'], -1);
-  const arnonaIdx = findHeaderIndex(['arnona_amount', 'arnonaamount', 'arnonaAmount'], legacyNoHeader ? -1 : (rentHistoryIdx >= 0 ? 11 : 10));
-  const elecIdx = findHeaderIndex(['electricity_meter', 'electricitymeter', 'electricityMeter'], legacyNoHeader ? 8 : (rentHistoryIdx >= 0 ? 12 : 11));
-  const waterIdx = findHeaderIndex(['water_meter', 'watermeter', 'waterMeter'], legacyNoHeader ? 9 : (rentHistoryIdx >= 0 ? 13 : 12));
+  const arnonaIdx = findHeaderIndex(['arnona_amount', 'arnonaamount', 'arnonaAmount'], legacyNoHeader ? -1 : 10);
+  const arnonaHistoryIdx = findHeaderIndex(['arnona_history_json', 'arnona_history', 'arnonahistory', 'arnonaHistory'], -1);
+  const elecIdx = findHeaderIndex(['electricity_meter', 'electricitymeter', 'electricityMeter'], legacyNoHeader ? 8 : 11);
+  const waterIdx = findHeaderIndex(['water_meter', 'watermeter', 'waterMeter'], legacyNoHeader ? 9 : 12);
   const depositDayIdx = findHeaderIndex(['deposit_day', 'depositday', 'depositDay'], -1);
-  const notesIdx = findHeaderIndex(['notes'], legacyNoHeader ? 10 : (rentHistoryIdx >= 0 ? 15 : 13));
+  const notesIdx = findHeaderIndex(['notes'], legacyNoHeader ? 10 : 13);
   const archivedIdx = headerMap['archived'] === undefined
-    ? (legacyNoHeader ? 11 : (rentHistoryIdx >= 0 ? 16 : (depositDayIdx < 0 ? 14 : 15)))
+    ? (legacyNoHeader ? 11 : (depositDayIdx < 0 ? 14 : 15))
     : headerMap['archived'];
 
   const parseOptionalNumber = value => {
@@ -2553,6 +2590,7 @@ async function importTenantsCsv(text) {
     if (importedData.rentAmount !== null && importedData.rentAmount !== undefined) merged.rentAmount = importedData.rentAmount;
     if (Array.isArray(importedData.rentHistory)) merged.rentHistory = importedData.rentHistory;
     if (importedData.arnonaAmount !== null && importedData.arnonaAmount !== undefined) merged.arnonaAmount = importedData.arnonaAmount;
+    if (Array.isArray(importedData.arnonaHistory)) merged.arnonaHistory = importedData.arnonaHistory;
     applyIfValue('depositDay', importedData.depositDay);
     applyIfValue('apartmentNumber', importedData.apartmentNumber);
     applyIfValue('electricityMeter', importedData.electricityMeter);
@@ -2615,6 +2653,7 @@ async function importTenantsCsv(text) {
       rentAmount: parseOptionalNumber(cellValue(row, rentIdx)),
       rentHistory: rentHistoryIdx >= 0 ? normalizeRentHistoryEntries(cellValue(row, rentHistoryIdx)) : [],
       arnonaAmount: arnonaIdx < 0 ? null : parseOptionalNumber(cellValue(row, arnonaIdx)),
+      arnonaHistory: arnonaHistoryIdx >= 0 ? normalizeArnonaHistoryEntries(cellValue(row, arnonaHistoryIdx)) : [],
       electricityMeter: String(cellValue(row, elecIdx) || '').trim(),
       waterMeter: String(cellValue(row, waterIdx) || '').trim(),
       depositDay: normalizeDepositDay(depositDayIdx < 0 ? '' : cellValue(row, depositDayIdx)),
@@ -3706,70 +3745,6 @@ function sortTenantsByApartment(tenants) {
     if (bIsNum) return 1;
     return aRaw.localeCompare(bRaw, 'he');
   });
-}
-
-async function renderYearlyArnonaSettingsList(yearlyArnonaRaw = null) {
-  const listEl = document.getElementById('yearly-arnona-settings-list');
-  if (!listEl) return;
-
-  const yearlyArnonaMap = sanitizeYearlyArnonaByApartment(
-    yearlyArnonaRaw === null ? await getSetting(YEARLY_ARNONA_SETTING_KEY) : yearlyArnonaRaw
-  );
-  const years = getArnonaSettingsYears();
-  const tenants = await getAllTenants(true);
-  const apartmentsFromTenants = sortTenantsByApartment(tenants || [])
-    .map(t => normalizeApartmentKey(t?.apartmentNumber))
-    .filter(Boolean);
-  const apartmentSet = new Set([...apartmentsFromTenants, ...Object.keys(yearlyArnonaMap)]);
-  const apartments = Array.from(apartmentSet).sort((a, b) => {
-    const aNum = Number(a);
-    const bNum = Number(b);
-    const aIsNum = !Number.isNaN(aNum);
-    const bIsNum = !Number.isNaN(bNum);
-    if (aIsNum && bIsNum) return aNum - bNum;
-    if (aIsNum) return -1;
-    if (bIsNum) return 1;
-    return a.localeCompare(b, 'he');
-  });
-
-  if (!apartments.length) {
-    listEl.innerHTML = '<small style="color:#666;">אין דירות להגדרה</small>';
-    return;
-  }
-
-  const rows = apartments.map(apartment => `
-    <tr>
-      <td>דירה ${escapeHtml(apartment)}</td>
-      ${years.map(year => `
-        <td>
-          <input
-            type="number"
-            step="0.01"
-            min="0"
-            class="yearly-arnona-input"
-            data-apartment="${escapeHtml(apartment)}"
-            data-year="${year}"
-            value="${yearlyArnonaMap[apartment]?.[String(year)] ?? ''}"
-            style="width: 100%;"
-          >
-        </td>
-      `).join('')}
-    </tr>
-  `).join('');
-
-  listEl.innerHTML = `
-    <div style="overflow:auto;">
-    <table class="payments-table" style="margin-top:0; min-width: 900px;">
-      <thead>
-        <tr>
-          <th>דירה</th>
-          ${years.map(year => `<th>${year} (₪/חודש)</th>`).join('')}
-        </tr>
-      </thead>
-      <tbody>${rows}</tbody>
-    </table>
-    </div>
-  `;
 }
 
 function buildLatestReadingMap(readings, meterType) {
@@ -6123,7 +6098,7 @@ const showExpensesBtn = document.getElementById('show-expenses');
 const showSolarBtn = document.getElementById('show-solar');
 const showBalanceBtn = document.getElementById('show-balance');
 
-showAddBtn?.addEventListener('click', async () => { setActiveButton('show-add'); show(tenantForm); tenantForm.editId = null; document.getElementById('form-title').textContent = 'הוספת דייר'; tenantForm.reset(); const rentHistoryInput = document.getElementById('rent-history'); if (rentHistoryInput) rentHistoryInput.value = ''; await renderTenantsTable(); });
+showAddBtn?.addEventListener('click', async () => { setActiveButton('show-add'); show(tenantForm); tenantForm.editId = null; document.getElementById('form-title').textContent = 'הוספת דייר'; tenantForm.reset(); const rentHistoryInput = document.getElementById('rent-history'); if (rentHistoryInput) rentHistoryInput.value = ''; const arnonaHistoryInput = document.getElementById('arnona-history'); if (arnonaHistoryInput) arnonaHistoryInput.value = ''; await renderTenantsTable(); });
 showArchiveBtn?.addEventListener('click', async () => { setActiveButton('show-archive'); await renderArchive(); show(archiveView); });
 showSettingsBtn?.addEventListener('click', async () => { 
   setActiveButton('show-settings');
@@ -6132,13 +6107,11 @@ showSettingsBtn?.addEventListener('click', async () => {
   const kva = await getSetting('kvaCon');
   const t = await getSetting('appTitle'); 
   const serverUrl = await getSetting('serverUrl');
-  const yearlyArnonaByApartment = await getSetting(YEARLY_ARNONA_SETTING_KEY);
   document.getElementById('electricity-price').value = e ?? ''; 
   document.getElementById('water-price').value = w ?? ''; 
   document.getElementById('kva-con').value = kva ?? '';
   document.getElementById('app-title').value = t ?? ''; 
   document.getElementById('server-url').value = serverUrl ?? '';
-  await renderYearlyArnonaSettingsList(yearlyArnonaByApartment);
   show(settingsView); 
 });
 showPaymentsBtn?.addEventListener('click', async () => {
@@ -6362,7 +6335,7 @@ document.getElementById('reminders-list')?.addEventListener('click', async e => 
 });
 
 // Close buttons
-document.getElementById('cancel')?.addEventListener('click', () => { tenantForm.editId = null; tenantForm?.reset(); const rentHistoryInput = document.getElementById('rent-history'); if (rentHistoryInput) rentHistoryInput.value = ''; show(tenantForm); });
+document.getElementById('cancel')?.addEventListener('click', () => { tenantForm.editId = null; tenantForm?.reset(); const rentHistoryInput = document.getElementById('rent-history'); if (rentHistoryInput) rentHistoryInput.value = ''; const arnonaHistoryInput = document.getElementById('arnona-history'); if (arnonaHistoryInput) arnonaHistoryInput.value = ''; show(tenantForm); });
 
 // Expenses form
 document.getElementById('save-expense')?.addEventListener('click', async () => {
@@ -6703,6 +6676,10 @@ tenantForm?.addEventListener('submit', async e => {
   const rentHistoryParsed = parseRentHistoryText(rentHistoryRaw);
   if (rentHistoryParsed.error) { alert(rentHistoryParsed.error); return; }
   data.rentHistory = rentHistoryParsed.entries;
+  const arnonaHistoryRaw = document.getElementById('arnona-history')?.value || '';
+  const arnonaHistoryParsed = parseArnonaHistoryText(arnonaHistoryRaw);
+  if (arnonaHistoryParsed.error) { alert(arnonaHistoryParsed.error); return; }
+  data.arnonaHistory = arnonaHistoryParsed.entries;
   const isActive = f.elements['active'] ? f.elements['active'].checked : true;
   data.archived = !isActive;
   if (data.startDate) {
@@ -6731,6 +6708,8 @@ tenantForm?.addEventListener('submit', async e => {
   f.reset();
   const rentHistoryInput = document.getElementById('rent-history');
   if (rentHistoryInput) rentHistoryInput.value = '';
+  const arnonaHistoryInput = document.getElementById('arnona-history');
+  if (arnonaHistoryInput) arnonaHistoryInput.value = '';
 });
 
 const tenantsExportBtn = document.getElementById('tenants-export-csv');
@@ -6911,20 +6890,6 @@ saveSettingsBtn?.addEventListener('click', async () => {
   const kva = Number(document.getElementById('kva-con').value);
   const t = document.getElementById('app-title').value || '';
   const serverUrl = document.getElementById('server-url').value.trim();
-  const yearlyArnonaInputs = Array.from(document.querySelectorAll('.yearly-arnona-input'));
-  const yearlyArnonaByApartment = {};
-  yearlyArnonaInputs.forEach(input => {
-    const apartment = normalizeApartmentKey(input?.dataset?.apartment || '');
-    const year = Number(input?.dataset?.year || 0);
-    if (!apartment) return;
-    if (!Number.isInteger(year) || year < ARNONA_SETTINGS_START_YEAR) return;
-    const valueRaw = String(input.value || '').trim();
-    if (!valueRaw) return;
-    const amount = Number(valueRaw);
-    if (!Number.isFinite(amount) || amount <= 0) return;
-    if (!yearlyArnonaByApartment[apartment]) yearlyArnonaByApartment[apartment] = {};
-    yearlyArnonaByApartment[apartment][String(year)] = Number(amount.toFixed(2));
-  });
   
   if (isNaN(e) || isNaN(w) || isNaN(kva)) { alert('הזן מספרים'); return; }
   
@@ -6933,7 +6898,6 @@ saveSettingsBtn?.addEventListener('click', async () => {
   await setSetting('kvaCon', kva);
   await setSetting('appTitle', t);
   await setSetting('serverUrl', serverUrl);
-  await setSetting(YEARLY_ARNONA_SETTING_KEY, yearlyArnonaByApartment);
   
   // Update global server URL
   window.CURRENT_SERVER_URL = serverUrl || 'http://localhost:3001';
@@ -6956,7 +6920,7 @@ const syncStatusEl = document.getElementById('sync-status');
 const TENANT_SYNC_FIELDS = [
   'firstName', 'lastName', 'nationalId', 'phone', 'startDate', 'endDate', 'moveOutDate',
   'rentAmount', 'arnonaAmount', 'depositDay', 'apartmentNumber', 'electricityMeter', 'waterMeter',
-  'rentHistory', 'notes', 'archived', 'active'
+  'rentHistory', 'arnonaHistory', 'notes', 'archived', 'active'
 ];
 
 function setSyncStatus(message, isError = false) {
@@ -6981,6 +6945,10 @@ function tenantKey(t) {
 function tenantValue(field, tenant) {
   if (field === 'rentHistory') {
     const normalized = normalizeRentHistoryEntries(tenant?.rentHistory);
+    return normalized.length ? JSON.stringify(normalized) : '';
+  }
+  if (field === 'arnonaHistory') {
+    const normalized = normalizeArnonaHistoryEntries(tenant?.arnonaHistory);
     return normalized.length ? JSON.stringify(normalized) : '';
   }
   const value = tenant?.[field];
@@ -7856,6 +7824,8 @@ tenantList?.addEventListener('click', async e => {
     tenantForm.elements['endDate'].value = formatDateEu(tenant.endDate || '');
     const rentHistoryInput = document.getElementById('rent-history');
     if (rentHistoryInput) rentHistoryInput.value = formatRentHistoryForText(tenant.rentHistory || []);
+    const arnonaHistoryInput = document.getElementById('arnona-history');
+    if (arnonaHistoryInput) arnonaHistoryInput.value = formatArnonaHistoryForText(tenant.arnonaHistory || []);
     if (tenantForm.elements['active']) tenantForm.elements['active'].checked = !tenant.archived;
     return;
   }
@@ -7932,6 +7902,8 @@ document.getElementById('tenants-table')?.addEventListener('click', async e => {
     tenantForm.elements['endDate'].value = formatDateEu(tenant.endDate || '');
     const rentHistoryInput = document.getElementById('rent-history');
     if (rentHistoryInput) rentHistoryInput.value = formatRentHistoryForText(tenant.rentHistory || []);
+    const arnonaHistoryInput = document.getElementById('arnona-history');
+    if (arnonaHistoryInput) arnonaHistoryInput.value = formatArnonaHistoryForText(tenant.arnonaHistory || []);
     if (tenantForm.elements['active']) tenantForm.elements['active'].checked = !tenant.archived;
     return;
   }

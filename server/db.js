@@ -45,6 +45,7 @@ const POSTGRES_CAMEL_CASE_IDENTIFIERS = [
   'rentAmount',
   'rentHistory',
   'arnonaAmount',
+  'arnonaHistory',
   'depositDay',
   'apartmentNumber',
   'electricityMeter',
@@ -169,6 +170,7 @@ async function migrateSchema(db) {
   const tenantsColumns = await getTableColumns(db, 'tenants');
   await ensureColumn(db, 'tenants', 'depositDay', 'TEXT', tenantsColumns);
   await ensureColumn(db, 'tenants', 'rentHistory', 'TEXT', tenantsColumns);
+  await ensureColumn(db, 'tenants', 'arnonaHistory', 'TEXT', tenantsColumns);
 
   const readingsColumns = await getTableColumns(db, 'readings');
   await ensureColumn(db, 'readings', 'status', "TEXT DEFAULT 'approved'", readingsColumns);
