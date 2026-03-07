@@ -3671,9 +3671,10 @@ async function renderTenants() {
 async function renderTenantsTable() {
   const container = document.getElementById('tenants-table');
   if (!container) return;
-  const tenants = await getAllTenants(false);
+  const showArchived = document.getElementById('tenants-show-archived')?.checked;
+  const tenants = (await getAllTenants(true)).filter(t => showArchived ? true : !t.archived);
   if (tenants.length === 0) {
-    container.innerHTML = '<p>אין דיירים</p>';
+    container.innerHTML = showArchived ? '<p>אין דיירים להצגה</p>' : '<p>אין דיירים פעילים</p>';
     return;
   }
 
@@ -3684,6 +3685,9 @@ async function renderTenantsTable() {
     const arnona = !Number.isNaN(arnonaNum) && String(t.arnonaAmount).trim() !== '' ? `<span style="direction: ltr; display: inline-block;">₪${formatCurrency(arnonaNum)}</span>` : '-';
     const name = `${t.firstName || ''} ${t.lastName || ''}`.trim();
     const status = t.archived ? 'לא פעיל' : 'פעיל';
+    const actions = t.archived
+      ? `<button data-id="${t.id}" class="btn-edit">✏️</button><button data-id="${t.id}" class="btn-restore">↩️</button><button data-id="${t.id}" class="btn-delete">🗑️</button>`
+      : `<button data-id="${t.id}" class="btn-edit">✏️</button><button data-id="${t.id}" class="btn-archive">📦</button><button data-id="${t.id}" class="btn-delete">🗑️</button>`;
     return `
       <tr>
         <td>${t.apartmentNumber || '-'}</td>
@@ -3699,6 +3703,7 @@ async function renderTenantsTable() {
         <td>${formatDateEu(t.endDate || '') || '-'}</td>
         <td><input type="text" class="moveout-input" data-id="${t.id}" value="${formatDateEu(t.moveOutDate || '')}" placeholder="DD/MM/YYYY"></td>
         <td>${t.notes || '-'}</td>
+        <td>${actions}</td>
       </tr>
     `;
   }).join('');
@@ -3720,6 +3725,7 @@ async function renderTenantsTable() {
           <th>סיום חוזה</th>
           <th>תאריך עזיבה</th>
           <th>הערות</th>
+          <th>פעולות</th>
         </tr>
       </thead>
       <tbody>${rows}</tbody>
@@ -7661,6 +7667,59 @@ document.getElementById('tenants-table')?.addEventListener('change', async e => 
   const parsedDate = parseDateToIso(raw);
   if (!parsedDate) { alert('תאריך עזיבה לא תקין'); return; }
   await updateTenant(id, { moveOutDate: parsedDate });
+});
+
+document.getElementById('tenants-show-archived')?.addEventListener('change', async () => {
+  await renderTenantsTable();
+});
+
+document.getElementById('tenants-table')?.addEventListener('click', async e => {
+  const editBtn = e.target.closest('.btn-edit');
+  const archiveBtn = e.target.closest('.btn-archive');
+  const restoreBtn = e.target.closest('.btn-restore');
+  const deleteBtn = e.target.closest('.btn-delete');
+
+  const id = Number(editBtn?.dataset.id || archiveBtn?.dataset.id || restoreBtn?.dataset.id || deleteBtn?.dataset.id);
+  if (!id) return;
+
+  if (editBtn) {
+    const tenants = await getAllTenants(true);
+    const tenant = tenants.find(t => Number(t.id) === id);
+    if (!tenant) return;
+    show(tenantForm);
+    tenantForm.editId = tenant.id;
+    document.getElementById('form-title').textContent = 'ערוך דייר';
+    for (const k of ['firstName', 'lastName', 'nationalId', 'phone', 'rentAmount', 'arnonaAmount', 'depositDay', 'apartmentNumber', 'electricityMeter', 'waterMeter', 'notes']) {
+      tenantForm.elements[k].value = tenant[k] || '';
+    }
+    tenantForm.elements['startDate'].value = formatDateEu(tenant.startDate || '');
+    tenantForm.elements['endDate'].value = formatDateEu(tenant.endDate || '');
+    if (tenantForm.elements['active']) tenantForm.elements['active'].checked = !tenant.archived;
+    return;
+  }
+
+  if (archiveBtn) {
+    await updateTenant(id, { archived: true });
+    await renderTenants();
+    await renderTenantsTable();
+    return;
+  }
+
+  if (restoreBtn) {
+    await updateTenant(id, { archived: false });
+    await renderTenants();
+    await renderTenantsTable();
+    return;
+  }
+
+  if (deleteBtn) {
+    if (await confirmDialog('מחק?')) {
+      await detachTenantData(id);
+      await deleteTenant(id);
+      await renderTenants();
+      await renderTenantsTable();
+    }
+  }
 });
 
 document.getElementById('tenants-table')?.addEventListener('change', async e => {
