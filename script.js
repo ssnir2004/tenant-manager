@@ -1819,19 +1819,19 @@ async function renderReminders() {
     let actions = '—';
     if (released) {
       const markPaidBtn = (r.source === 'קריאות' && Number.isFinite(Number(r.readingId)))
-        ? `<button class="btn-mark-reading-paid" data-reading-id="${Number(r.readingId)}" ${canWrite ? '' : 'disabled'}>💰 סמן כשולם</button>`
+        ? `<button class="btn-mark-reading-paid" data-reading-id="${Number(r.readingId)}" ${canWrite ? '' : 'disabled'}>סמן כשולם</button>`
         : '';
-      actions = `${markPaidBtn}<button class="btn-restore-auto-reminder" data-id="${escapeHtml(r.id)}" ${canWrite ? '' : 'disabled'}>↩️ החזר</button>`;
+      actions = `${markPaidBtn}<button class="btn-restore-auto-reminder" data-id="${escapeHtml(r.id)}" ${canWrite ? '' : 'disabled'}>החזר</button>`;
     } else if (r.type === 'manual') {
       actions = `
-        <button class="btn-toggle-manual-reminder" data-id="${escapeHtml(r.rawId)}" ${canWrite ? '' : 'disabled'}>${r.done ? '↩️ החזר' : '✅ סמן הושלם'}</button>
-        <button class="btn-delete-manual-reminder" data-id="${escapeHtml(r.rawId)}" ${canWrite ? '' : 'disabled'}>🗑️ מחק</button>
+        <button class="btn-toggle-manual-reminder" data-id="${escapeHtml(r.rawId)}" ${canWrite ? '' : 'disabled'}>${r.done ? 'החזר' : 'סמן הושלם'}</button>
+        <button class="btn-delete-manual-reminder" data-id="${escapeHtml(r.rawId)}" ${canWrite ? '' : 'disabled'}>מחק</button>
       `;
     } else if (r.type === 'auto') {
       const markPaidBtn = (r.source === 'קריאות' && Number.isFinite(Number(r.readingId)))
-        ? `<button class="btn-mark-reading-paid" data-reading-id="${Number(r.readingId)}" ${canWrite ? '' : 'disabled'}>💰 סמן כשולם</button>`
+        ? `<button class="btn-mark-reading-paid" data-reading-id="${Number(r.readingId)}" ${canWrite ? '' : 'disabled'}>סמן כשולם</button>`
         : '';
-      actions = `${markPaidBtn}<button class="btn-release-auto-reminder" data-id="${escapeHtml(r.id)}" ${canWrite ? '' : 'disabled'}>🕊️ שחרר</button>`;
+      actions = `${markPaidBtn}<button class="btn-release-auto-reminder" data-id="${escapeHtml(r.id)}" ${canWrite ? '' : 'disabled'}>שחרר</button>`;
     }
     const titleStyle = r.done ? 'text-decoration: line-through; color: #666;' : '';
     return `
@@ -3408,7 +3408,7 @@ function renderBillsReport(report) {
         <td>${r.tenantName || '-'}</td>
         <td>${r.apartment || '-'}</td>
         <td><button class="btn-pdf" data-row-index="${idx}" data-tenant="${r.apartment}">PDF</button></td>
-        <td><button class="btn-whatsapp-pdf" data-row-index="${idx}" data-tenant="${r.apartment}" title="שיתוף דוח">📤</button></td>
+        <td><button class="btn-whatsapp-pdf" data-row-index="${idx}" data-tenant="${r.apartment}" title="שיתוף דוח">שיתוף</button></td>
         <td>${r.waterMeter || '-'}</td>
         <td>${w.startValue ?? '-'}</td>
         <td>${formatDateEu(w.startDate ?? '') || '-'}</td>
@@ -3883,7 +3883,7 @@ async function renderTenants() {
   tenants.forEach(t => {
     const el = document.createElement('div');
     el.className = 'tenant-item';
-    el.innerHTML = `<div><strong>${t.apartmentNumber || '-'}: ${t.firstName} ${t.lastName}</strong><div class="muted">${t.phone || ''}</div></div><div class="actions"><button data-id="${t.id}" class="btn-edit">✏️</button><button data-id="${t.id}" class="btn-archive">📦</button><button data-id="${t.id}" class="btn-delete">🗑️</button></div>`;
+    el.innerHTML = `<div><strong>${t.apartmentNumber || '-'}: ${t.firstName} ${t.lastName}</strong><div class="muted">${t.phone || ''}</div></div><div class="actions"><button data-id="${t.id}" class="btn-edit">ערוך</button><button data-id="${t.id}" class="btn-archive">ארכב</button><button data-id="${t.id}" class="btn-delete">מחק</button></div>`;
     tenantList.appendChild(el);
   });
   await renderTenantsTable();
@@ -3907,8 +3907,8 @@ async function renderTenantsTable() {
     const name = `${t.firstName || ''} ${t.lastName || ''}`.trim();
     const status = t.archived ? 'לא פעיל' : 'פעיל';
     const actions = t.archived
-      ? `<button data-id="${t.id}" class="btn-edit">✏️</button><button data-id="${t.id}" class="btn-restore">↩️</button><button data-id="${t.id}" class="btn-delete">🗑️</button>`
-      : `<button data-id="${t.id}" class="btn-edit">✏️</button><button data-id="${t.id}" class="btn-archive">📦</button><button data-id="${t.id}" class="btn-delete">🗑️</button>`;
+      ? `<button data-id="${t.id}" class="btn-edit">ערוך</button><button data-id="${t.id}" class="btn-restore">החזר</button><button data-id="${t.id}" class="btn-delete">מחק</button>`
+      : `<button data-id="${t.id}" class="btn-edit">ערוך</button><button data-id="${t.id}" class="btn-archive">ארכב</button><button data-id="${t.id}" class="btn-delete">מחק</button>`;
     return `
       <tr>
         <td>${t.apartmentNumber || '-'}</td>
@@ -3985,8 +3985,8 @@ async function renderArchive() {
         <td><input type="text" class="moveout-input" data-id="${t.id}" value="${formatDateEu(t.moveOutDate || '')}" placeholder="DD/MM/YYYY"></td>
         <td>${t.notes || '-'}</td>
         <td>
-          <button data-id="${t.id}" class="btn-restore">↩️</button>
-          <button data-id="${t.id}" class="btn-delete">🗑️</button>
+          <button data-id="${t.id}" class="btn-restore">החזר</button>
+          <button data-id="${t.id}" class="btn-delete">מחק</button>
         </td>
       </tr>
     `;
@@ -4142,8 +4142,8 @@ async function renderReadings() {
       const statusCell = showStatus ? `<td>${readingStatusLabel(r.status)}</td>` : '';
         const paidCell = `<td><input type="checkbox" class="reading-paid-toggle" data-reading-id="${r.id}" ${r.paid ? 'checked' : ''} ${allowWrite ? '' : 'disabled'} aria-label="שולם"></td>`;
       const actionsCell = allowWrite ? `
-          <button class="btn-edit-reading" data-id="${r.id}">✏️</button>
-          <button class="btn-delete-reading" data-id="${r.id}">🗑️</button>
+          <button class="btn-edit-reading" data-id="${r.id}">ערוך</button>
+          <button class="btn-delete-reading" data-id="${r.id}">מחק</button>
       ` : '—';
       return `
         <tr class="${missing ? 'row-missing' : ''} reading-row" data-reading-id="${r.id}">
@@ -4341,8 +4341,8 @@ async function renderPayments() {
       </select>
     ` : '—';
     const actionsCell = allowWrite ? `
-          <button class="btn-edit-payment" data-id="${p.id}">✏️</button>
-          <button class="btn-delete-payment" data-id="${p.id}">🗑️</button>
+          <button class="btn-edit-payment" data-id="${p.id}">ערוך</button>
+          <button class="btn-delete-payment" data-id="${p.id}">מחק</button>
     ` : '—';
     return `
       <tr class="${missing ? 'row-missing' : ''}">
@@ -5817,7 +5817,7 @@ async function renderExpenses() {
         <td>${period}</td>
         <td>${frequency}</td>
         <td style="direction: ltr; text-align: left;">₪${formatCurrency(e.amount || 0)}</td>
-        <td><button class="btn-edit-expense" data-id="${e.id}" style="margin-right: 5px;">✏️</button><button class="btn-delete-expense" data-id="${e.id}">🗑️</button></td>
+        <td><button class="btn-edit-expense" data-id="${e.id}" style="margin-right: 5px;">ערוך</button><button class="btn-delete-expense" data-id="${e.id}">מחק</button></td>
       </tr>
     `;
   }).join('');
@@ -5995,7 +5995,7 @@ async function renderSolarIncome() {
       <tr>
         <td>${formatPeriodDisplay(item.period) || '-'}</td>
         <td style="direction: ltr; text-align: left;">₪${formatCurrency(item.amount || 0)}</td>
-        <td><button class="btn-edit-solar" data-id="${item.id}" style="margin-right: 5px;">✏️</button><button class="btn-delete-solar" data-id="${item.id}">🗑️</button></td>
+        <td><button class="btn-edit-solar" data-id="${item.id}" style="margin-right: 5px;">ערוך</button><button class="btn-delete-solar" data-id="${item.id}">מחק</button></td>
       </tr>
     `;
   }).join('');
