@@ -1819,7 +1819,7 @@ async function renderReminders() {
     let actions = '—';
     if (released) {
       const markPaidBtn = (r.source === 'קריאות' && Number.isFinite(Number(r.readingId)))
-        ? `<button class="btn-mark-reading-paid" data-reading-id="${Number(r.readingId)}" ${canWrite ? '' : 'disabled'}>💰</button>`
+        ? `<button class="btn-mark-reading-paid" data-reading-id="${Number(r.readingId)}" ${canWrite ? '' : 'disabled'}>שולם ✓</button>`
         : '';
       actions = `${markPaidBtn}<button class="btn-restore-auto-reminder" data-id="${escapeHtml(r.id)}" ${canWrite ? '' : 'disabled'}>↩️</button>`;
     } else if (r.type === 'manual') {
@@ -1829,9 +1829,9 @@ async function renderReminders() {
       `;
     } else if (r.type === 'auto') {
       const markPaidBtn = (r.source === 'קריאות' && Number.isFinite(Number(r.readingId)))
-        ? `<button class="btn-mark-reading-paid" data-reading-id="${Number(r.readingId)}" ${canWrite ? '' : 'disabled'}>💰</button>`
+        ? `<button class="btn-mark-reading-paid" data-reading-id="${Number(r.readingId)}" ${canWrite ? '' : 'disabled'}>שולם ✓</button>`
         : '';
-      actions = `${markPaidBtn}<button class="btn-release-auto-reminder" data-id="${escapeHtml(r.id)}" ${canWrite ? '' : 'disabled'}>🕊️</button>`;
+      actions = `${markPaidBtn}<button class="btn-release-auto-reminder" data-id="${escapeHtml(r.id)}" ${canWrite ? '' : 'disabled'}>שחרר</button>`;
     }
     const titleStyle = r.done ? 'text-decoration: line-through; color: #666;' : '';
     return `
