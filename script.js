@@ -1946,12 +1946,22 @@ async function renderReminders() {
     const arnonaDetails = balance?.details?.arnona || { arnonaAmount: 0, expectedArnona: 0, paidApplied: 0, source: 'tenant', yearBreakdown: [] };
     const electricityDetails = balance?.details?.electricity || [];
     const waterDetails = balance?.details?.water || [];
-    const arnonaByYearText = (arnonaDetails.yearBreakdown || [])
-      .map(entry => `${entry.year}: ${entry.months} חודשים × ₪${formatCurrency(entry.monthlyArnona || 0)} = ₪${formatCurrency(entry.amount || 0)}`)
-      .join(' · ');
-    const rentHistoryText = (rentDetails.historyBreakdown || [])
-      .map(entry => `${formatDateEu(entry.startIso)}${entry.endIso ? ` עד ${formatDateEu(entry.endIso)}` : ' ומעלה'}: ${entry.months} חודשים × ₪${formatCurrency(entry.rentAmount || 0)} = ₪${formatCurrency(entry.amount || 0)}`)
-      .join(' · ');
+    const rentHistoryRows = (rentDetails.historyBreakdown || []).map(entry => `
+      <tr>
+        <td>${formatDateEu(entry.startIso)}${entry.endIso ? ` עד ${formatDateEu(entry.endIso)}` : ' ומעלה'}</td>
+        <td style="direction:ltr; text-align:left;">${entry.months}</td>
+        <td style="direction:ltr; text-align:left;">₪${formatCurrency(entry.rentAmount || 0)}</td>
+        <td style="direction:ltr; text-align:left;">₪${formatCurrency(entry.amount || 0)}</td>
+      </tr>
+    `).join('');
+    const arnonaByYearRows = (arnonaDetails.yearBreakdown || []).map(entry => `
+      <tr>
+        <td>${entry.year}</td>
+        <td style="direction:ltr; text-align:left;">${entry.months}</td>
+        <td style="direction:ltr; text-align:left;">₪${formatCurrency(entry.monthlyArnona || 0)}</td>
+        <td style="direction:ltr; text-align:left;">₪${formatCurrency(entry.amount || 0)}</td>
+      </tr>
+    `).join('');
 
     const paymentRows = (rentDetails.paymentItems || []).map(p => `
       <tr>
@@ -1980,12 +1990,40 @@ async function renderReminders() {
       ? `
       <div style="margin-top:8px; padding:10px; border:1px solid #f4d7c3; border-radius:8px; background:#fff;">
         <div style="font-size:12px; font-weight:700; color:#9c4d17; margin-bottom:6px;">פירוט חישוב</div>
-        <div style="font-size:12px; color:#5d3a22; margin-bottom:6px;">
-          ${rentDetails.historyUsed && rentHistoryText ? `שכירות לפי היסטוריית חוזים: ${rentHistoryText}` : `שכירות: ${rentDetails.monthsDue} חודשים × ₪${formatCurrency(rentDetails.rentAmount || 0)} = ₪${formatCurrency(rentDetails.expectedRent || 0)}`}
-          ${rentDetails.rentStartIso ? ` (מהתאריך ${formatDateEu(rentDetails.rentStartIso)})` : ''}
-        </div>
-        <div style="font-size:12px; color:#5d3a22; margin-bottom:6px;">${arnonaDetails.source === 'yearlyByApartment' && arnonaByYearText ? `ארנונה לפי שנים: ${arnonaByYearText}` : `ארנונה: ${rentDetails.monthsDue} חודשים × ₪${formatCurrency(arnonaDetails.arnonaAmount || 0)} = ₪${formatCurrency(arnonaDetails.expectedArnona || 0)}`}</div>
-        <div style="font-size:12px; color:#5d3a22; margin-bottom:6px;">תשלומים שנכללו (עד חודש נוכחי): ₪${formatCurrency(rentDetails.totalPaid || 0)} · יוחסו לשכירות: ₪${formatCurrency(rentDetails.paidApplied || 0)} · יוחסו לארנונה: ₪${formatCurrency(arnonaDetails.paidApplied || 0)}${Number(rentDetails.overpaymentCredit || 0) > 0 ? ` · יתרת זכות: ₪${formatCurrency(rentDetails.overpaymentCredit || 0)}` : ''}</div>
+        <div style="font-size:12px; color:#5d3a22; margin-bottom:6px;">תקופת חישוב משכירות: ${rentDetails.rentStartIso ? formatDateEu(rentDetails.rentStartIso) : '-'} עד ${formatDateEu(currentIsoDate())}</div>
+
+        <div style="margin-top:8px; font-size:12px; font-weight:700; color:#9c4d17;">שכירות</div>
+        ${rentDetails.historyUsed && rentHistoryRows ? `
+          <table class="payments-table" style="margin-top:6px;">
+            <thead><tr><th>תקופה</th><th>חודשים</th><th>₪ לחודש</th><th>סה"כ</th></tr></thead>
+            <tbody>${rentHistoryRows}</tbody>
+          </table>
+          <div style="font-size:12px; color:#5d3a22; margin-top:4px;">סה"כ שכירות לתקופה: ₪${formatCurrency(rentDetails.expectedRent || 0)}</div>
+        ` : `
+          <div style="font-size:12px; color:#5d3a22; margin-top:4px;">${rentDetails.monthsDue} חודשים × ₪${formatCurrency(rentDetails.rentAmount || 0)} = ₪${formatCurrency(rentDetails.expectedRent || 0)}</div>
+        `}
+
+        <div style="margin-top:10px; font-size:12px; font-weight:700; color:#9c4d17;">ארנונה</div>
+        ${arnonaDetails.source === 'yearlyByApartment' && arnonaByYearRows ? `
+          <table class="payments-table" style="margin-top:6px;">
+            <thead><tr><th>שנה</th><th>חודשים</th><th>₪ לחודש</th><th>סה"כ</th></tr></thead>
+            <tbody>${arnonaByYearRows}</tbody>
+          </table>
+          <div style="font-size:12px; color:#5d3a22; margin-top:4px;">סה"כ ארנונה לתקופה: ₪${formatCurrency(arnonaDetails.expectedArnona || 0)}</div>
+        ` : `
+          <div style="font-size:12px; color:#5d3a22; margin-top:4px;">${rentDetails.monthsDue} חודשים × ₪${formatCurrency(arnonaDetails.arnonaAmount || 0)} = ₪${formatCurrency(arnonaDetails.expectedArnona || 0)}</div>
+        `}
+
+        <div style="margin-top:10px; font-size:12px; font-weight:700; color:#9c4d17;">תשלומים והקצאה</div>
+        <table class="payments-table" style="margin-top:6px;">
+          <thead><tr><th>סעיף</th><th>סכום</th></tr></thead>
+          <tbody>
+            <tr><td>תשלומים שנכללו (עד חודש נוכחי)</td><td style="direction:ltr; text-align:left;">₪${formatCurrency(rentDetails.totalPaid || 0)}</td></tr>
+            <tr><td>יוחס לשכירות</td><td style="direction:ltr; text-align:left;">₪${formatCurrency(rentDetails.paidApplied || 0)}</td></tr>
+            <tr><td>יוחס לארנונה</td><td style="direction:ltr; text-align:left;">₪${formatCurrency(arnonaDetails.paidApplied || 0)}</td></tr>
+            <tr><td>יתרת זכות</td><td style="direction:ltr; text-align:left;">₪${formatCurrency(rentDetails.overpaymentCredit || 0)}</td></tr>
+          </tbody>
+        </table>
         ${(paymentRows) ? `
           <table class="payments-table" style="margin-top:6px;">
             <thead><tr><th>תאריך תשלום</th><th>סכום</th></tr></thead>
