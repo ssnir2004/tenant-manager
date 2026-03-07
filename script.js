@@ -1124,11 +1124,28 @@ function countMonthsInclusive(fromIso, toIso) {
 function calculateTenantBalanceBreakdown(tenant, payments, readings, waterPrice, kvaCon, todayIso = currentIsoDate()) {
   const tenantId = Number(tenant?.id);
   if (!Number.isFinite(tenantId) || tenantId <= 0) {
-    return { rent: 0, electricity: 0, water: 0, total: 0 };
+    return {
+      rent: 0,
+      electricity: 0,
+      water: 0,
+      total: 0,
+      details: {
+        rent: { rentAmount: 0, rentStartIso: '', monthsDue: 0, expectedRent: 0, totalPaid: 0, paymentItems: [] },
+        electricity: [],
+        water: []
+      }
+    };
   }
 
   const tenantPayments = (payments || []).filter(p => Number(p?.tenantId) === tenantId);
   const totalPaid = tenantPayments.reduce((sum, p) => sum + Number(p?.amount || 0), 0);
+  const paymentItems = tenantPayments
+    .map(p => ({
+      dateIso: parseDateToIso(p?.date || ''),
+      amount: Number(p?.amount || 0)
+    }))
+    .filter(p => !!p.dateIso)
+    .sort((a, b) => a.dateIso.localeCompare(b.dateIso));
 
   const rentAmount = Number(tenant?.rentAmount || 0);
   const firstPaymentIso = tenantPayments
@@ -1152,6 +1169,7 @@ function calculateTenantBalanceBreakdown(tenant, payments, readings, waterPrice,
   });
 
   const utilityDebt = { electricity: 0, water: 0 };
+  const utilityDetails = { electricity: [], water: [] };
   ['electricity', 'water'].forEach(type => {
     const chain = (byType.get(type) || []).sort((a, b) => dateValueFromAny(a?.date) - dateValueFromAny(b?.date));
     for (let i = 1; i < chain.length; i++) {
@@ -1165,7 +1183,16 @@ function calculateTenantBalanceBreakdown(tenant, payments, readings, waterPrice,
       } else {
         amount = Math.max(0, consumption) * Number(waterPrice || 0);
       }
-      utilityDebt[type] += Math.max(0, amount || 0);
+      const finalAmount = Math.max(0, amount || 0);
+      utilityDebt[type] += finalAmount;
+      utilityDetails[type].push({
+        prevDate: parseDateToIso(prev?.date || ''),
+        prevValue: Number(prev?.value || 0),
+        currDate: parseDateToIso(current?.date || ''),
+        currValue: Number(current?.value || 0),
+        consumption: Math.max(0, Number(consumption || 0)),
+        amount: finalAmount
+      });
     }
   });
 
@@ -1174,7 +1201,19 @@ function calculateTenantBalanceBreakdown(tenant, payments, readings, waterPrice,
     rent: rentBalance,
     electricity: utilityDebt.electricity,
     water: utilityDebt.water,
-    total
+    total,
+    details: {
+      rent: {
+        rentAmount,
+        rentStartIso,
+        monthsDue,
+        expectedRent,
+        totalPaid,
+        paymentItems
+      },
+      electricity: utilityDetails.electricity,
+      water: utilityDetails.water
+    }
   };
 }
 
@@ -1357,6 +1396,7 @@ function renderReminderPriorityBadge(priority) {
 let remindersShowReleased = false;
 let remindersExpandedDepositTenantId = null;
 let remindersExpandedContractTenantId = null;
+let remindersExpandedContractCalcTenantId = null;
 
 async function maybeNotifyForReminders(reminders) {
   if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
@@ -1605,9 +1645,72 @@ async function renderReminders() {
   const upcomingContractCards = (upcoming.upcomingContracts || []).slice(0, 8).map(item => {
     const tenantId = Number(item?.tenantId || 0);
     const isExpanded = tenantId > 0 && remindersExpandedContractTenantId === tenantId;
+    const showCalcDetails = tenantId > 0 && remindersExpandedContractCalcTenantId === tenantId;
     const balance = contractBalanceByTenantId.get(tenantId) || { rent: 0, electricity: 0, water: 0, total: 0 };
     const totalColor = balance.total > 0 ? '#b71c1c' : (balance.total < 0 ? '#1b5e20' : '#555');
     const totalLabel = balance.total > 0 ? 'חוב' : (balance.total < 0 ? 'זכות' : 'מאוזן');
+    const rentDetails = balance?.details?.rent || { rentAmount: 0, rentStartIso: '', monthsDue: 0, expectedRent: 0, totalPaid: 0, paymentItems: [] };
+    const electricityDetails = balance?.details?.electricity || [];
+    const waterDetails = balance?.details?.water || [];
+
+    const paymentRows = (rentDetails.paymentItems || []).map(p => `
+      <tr>
+        <td>${formatDateEu(p.dateIso)}</td>
+        <td style="direction:ltr; text-align:left;">₪${formatCurrency(p.amount || 0)}</td>
+      </tr>
+    `).join('');
+
+    const electricityRows = electricityDetails.map(entry => `
+      <tr>
+        <td>${formatDateEu(entry.prevDate)} → ${formatDateEu(entry.currDate)}</td>
+        <td style="direction:ltr; text-align:left;">${Number(entry.consumption || 0).toFixed(2)}</td>
+        <td style="direction:ltr; text-align:left;">₪${formatCurrency(entry.amount || 0)}</td>
+      </tr>
+    `).join('');
+
+    const waterRows = waterDetails.map(entry => `
+      <tr>
+        <td>${formatDateEu(entry.prevDate)} → ${formatDateEu(entry.currDate)}</td>
+        <td style="direction:ltr; text-align:left;">${Number(entry.consumption || 0).toFixed(2)}</td>
+        <td style="direction:ltr; text-align:left;">₪${formatCurrency(entry.amount || 0)}</td>
+      </tr>
+    `).join('');
+
+    const calcDetailsSection = showCalcDetails
+      ? `
+      <div style="margin-top:8px; padding:10px; border:1px solid #f4d7c3; border-radius:8px; background:#fff;">
+        <div style="font-size:12px; font-weight:700; color:#9c4d17; margin-bottom:6px;">פירוט חישוב</div>
+        <div style="font-size:12px; color:#5d3a22; margin-bottom:6px;">
+          שכירות: ${rentDetails.monthsDue} חודשים × ₪${formatCurrency(rentDetails.rentAmount || 0)} = ₪${formatCurrency(rentDetails.expectedRent || 0)}
+          ${rentDetails.rentStartIso ? ` (מהתאריך ${formatDateEu(rentDetails.rentStartIso)})` : ''}
+        </div>
+        <div style="font-size:12px; color:#5d3a22; margin-bottom:6px;">תשלומים שנכללו: ₪${formatCurrency(rentDetails.totalPaid || 0)}</div>
+        ${(paymentRows) ? `
+          <table class="payments-table" style="margin-top:6px;">
+            <thead><tr><th>תאריך תשלום</th><th>סכום</th></tr></thead>
+            <tbody>${paymentRows}</tbody>
+          </table>
+        ` : '<div style="font-size:12px; color:#666;">אין תשלומים משויכים לדייר</div>'}
+
+        <div style="margin-top:10px; font-size:12px; font-weight:700; color:#9c4d17;">חשמל (קריאות לא מסומנות כשולם)</div>
+        ${(electricityRows) ? `
+          <table class="payments-table" style="margin-top:6px;">
+            <thead><tr><th>טווח קריאות</th><th>צריכה</th><th>עלות</th></tr></thead>
+            <tbody>${electricityRows}</tbody>
+          </table>
+        ` : '<div style="font-size:12px; color:#666;">אין חיובי חשמל פתוחים</div>'}
+
+        <div style="margin-top:10px; font-size:12px; font-weight:700; color:#9c4d17;">מים (קריאות לא מסומנות כשולם)</div>
+        ${(waterRows) ? `
+          <table class="payments-table" style="margin-top:6px;">
+            <thead><tr><th>טווח קריאות</th><th>צריכה</th><th>עלות</th></tr></thead>
+            <tbody>${waterRows}</tbody>
+          </table>
+        ` : '<div style="font-size:12px; color:#666;">אין חיובי מים פתוחים</div>'}
+      </div>
+      `
+      : '';
+
     const balanceSection = isExpanded
       ? `
       <div style="margin-top:8px; padding-top:8px; border-top:1px dashed #f0c7ab;">
@@ -1620,6 +1723,10 @@ async function renderReminders() {
             <tr><td style="padding-top:6px; border-top:1px solid #f0c7ab; font-weight:700; color:#7a3d14;">סה"כ (${totalLabel})</td><td style="padding-top:6px; border-top:1px solid #f0c7ab; direction:ltr; text-align:left; font-weight:700; color:${totalColor};">₪${formatCurrency(balance.total)}</td></tr>
           </tbody>
         </table>
+        <div style="margin-top:8px;">
+          <button type="button" class="btn-toggle-contract-calc-details" data-tenant-id="${tenantId}">${showCalcDetails ? 'הסתר פירוט חישוב' : 'הצג פירוט חישוב'}</button>
+        </div>
+        ${calcDetailsSection}
       </div>
       `
       : '';
@@ -5733,11 +5840,23 @@ document.getElementById('enable-browser-notifications')?.addEventListener('click
 });
 
 document.getElementById('reminders-list')?.addEventListener('click', async e => {
+  const toggleContractCalcDetailsBtn = e.target.closest('.btn-toggle-contract-calc-details');
+  if (toggleContractCalcDetailsBtn) {
+    const tenantId = Number(toggleContractCalcDetailsBtn.dataset.tenantId || 0);
+    if (!tenantId) return;
+    remindersExpandedContractCalcTenantId = remindersExpandedContractCalcTenantId === tenantId ? null : tenantId;
+    await renderReminders();
+    return;
+  }
+
   const toggleContractBalanceBtn = e.target.closest('.btn-toggle-contract-balance');
   if (toggleContractBalanceBtn) {
     const tenantId = Number(toggleContractBalanceBtn.dataset.tenantId || 0);
     if (!tenantId) return;
     remindersExpandedContractTenantId = remindersExpandedContractTenantId === tenantId ? null : tenantId;
+    if (remindersExpandedContractTenantId !== tenantId) {
+      remindersExpandedContractCalcTenantId = null;
+    }
     await renderReminders();
     return;
   }
