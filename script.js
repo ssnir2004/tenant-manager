@@ -1319,7 +1319,7 @@ function calculateTenantBalanceBreakdown(tenant, payments, readings, waterPrice,
       water: 0,
       total: 0,
       details: {
-        rent: { rentAmount: 0, rentStartIso: '', monthsDue: 0, expectedRent: 0, paidApplied: 0, paymentItems: [], historyUsed: false, historyBreakdown: [] },
+        rent: { rentAmount: 0, rentStartIso: '', monthsDue: 0, expectedRent: 0, paidApplied: 0, paymentItems: [], historyUsed: false, historyBreakdown: [], overpaymentCredit: 0 },
         arnona: { arnonaAmount: 0, expectedArnona: 0, paidApplied: 0, annualArnona: 0, source: 'tenant', yearBreakdown: [] },
         electricity: [],
         water: []
@@ -1426,6 +1426,7 @@ function calculateTenantBalanceBreakdown(tenant, payments, readings, waterPrice,
   remainingCredit -= rentPaidApplied;
   const arnonaPaidApplied = Math.min(expectedArnona, remainingCredit);
   remainingCredit -= arnonaPaidApplied;
+  const overpaymentCredit = Math.max(0, remainingCredit);
 
   const rentBalance = expectedRent - rentPaidApplied;
   const arnonaBalance = expectedArnona - arnonaPaidApplied;
@@ -1469,13 +1470,13 @@ function calculateTenantBalanceBreakdown(tenant, payments, readings, waterPrice,
     }
   });
 
-  const total = rentBalance + utilityDebt.electricity + utilityDebt.water;
+  const total = rentBalance + arnonaBalance + utilityDebt.electricity + utilityDebt.water - overpaymentCredit;
   return {
     rent: rentBalance,
     arnona: arnonaBalance,
     electricity: utilityDebt.electricity,
     water: utilityDebt.water,
-    total: rentBalance + arnonaBalance + utilityDebt.electricity + utilityDebt.water,
+    total,
     details: {
       rent: {
         rentAmount,
@@ -1486,7 +1487,8 @@ function calculateTenantBalanceBreakdown(tenant, payments, readings, waterPrice,
         totalPaid,
         paymentItems: paymentItemsForCurrentAndPastMonths,
         historyUsed,
-        historyBreakdown: rentHistoryBreakdown
+        historyBreakdown: rentHistoryBreakdown,
+        overpaymentCredit
       },
       arnona: {
         arnonaAmount,
@@ -1940,7 +1942,7 @@ async function renderReminders() {
     const totalSummaryText = balance.total > 0
       ? `חוב: ${totalAmountText}`
       : (balance.total < 0 ? `זכות: ${totalAmountText}` : `מאוזן: ${totalAmountText}`);
-    const rentDetails = balance?.details?.rent || { rentAmount: 0, rentStartIso: '', monthsDue: 0, expectedRent: 0, paidApplied: 0, totalPaid: 0, paymentItems: [], historyUsed: false, historyBreakdown: [] };
+    const rentDetails = balance?.details?.rent || { rentAmount: 0, rentStartIso: '', monthsDue: 0, expectedRent: 0, paidApplied: 0, totalPaid: 0, paymentItems: [], historyUsed: false, historyBreakdown: [], overpaymentCredit: 0 };
     const arnonaDetails = balance?.details?.arnona || { arnonaAmount: 0, expectedArnona: 0, paidApplied: 0, source: 'tenant', yearBreakdown: [] };
     const electricityDetails = balance?.details?.electricity || [];
     const waterDetails = balance?.details?.water || [];
@@ -1983,7 +1985,7 @@ async function renderReminders() {
           ${rentDetails.rentStartIso ? ` (מהתאריך ${formatDateEu(rentDetails.rentStartIso)})` : ''}
         </div>
         <div style="font-size:12px; color:#5d3a22; margin-bottom:6px;">${arnonaDetails.source === 'yearlyByApartment' && arnonaByYearText ? `ארנונה לפי שנים: ${arnonaByYearText}` : `ארנונה: ${rentDetails.monthsDue} חודשים × ₪${formatCurrency(arnonaDetails.arnonaAmount || 0)} = ₪${formatCurrency(arnonaDetails.expectedArnona || 0)}`}</div>
-        <div style="font-size:12px; color:#5d3a22; margin-bottom:6px;">תשלומים שנכללו (עד חודש נוכחי): ₪${formatCurrency(rentDetails.totalPaid || 0)} · יוחסו לשכירות: ₪${formatCurrency(rentDetails.paidApplied || 0)} · יוחסו לארנונה: ₪${formatCurrency(arnonaDetails.paidApplied || 0)}</div>
+        <div style="font-size:12px; color:#5d3a22; margin-bottom:6px;">תשלומים שנכללו (עד חודש נוכחי): ₪${formatCurrency(rentDetails.totalPaid || 0)} · יוחסו לשכירות: ₪${formatCurrency(rentDetails.paidApplied || 0)} · יוחסו לארנונה: ₪${formatCurrency(arnonaDetails.paidApplied || 0)}${Number(rentDetails.overpaymentCredit || 0) > 0 ? ` · יתרת זכות: ₪${formatCurrency(rentDetails.overpaymentCredit || 0)}` : ''}</div>
         ${(paymentRows) ? `
           <table class="payments-table" style="margin-top:6px;">
             <thead><tr><th>תאריך תשלום</th><th>סכום</th></tr></thead>
