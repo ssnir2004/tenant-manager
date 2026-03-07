@@ -10,6 +10,7 @@ CREATE TABLE IF NOT EXISTS tenants (
   endDate TEXT,
   moveOutDate TEXT,
   rentAmount REAL,
+  rentHistory TEXT,
   arnonaAmount REAL,
   depositDay TEXT,
   apartmentNumber TEXT,

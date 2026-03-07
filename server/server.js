@@ -761,9 +761,9 @@ function respondDbError(res, err) {
     const result = await db.run(
       `INSERT INTO tenants (
         firstName, lastName, nationalId, phone, startDate, endDate, moveOutDate,
-        rentAmount, arnonaAmount, depositDay, apartmentNumber, electricityMeter, waterMeter,
+        rentAmount, rentHistory, arnonaAmount, depositDay, apartmentNumber, electricityMeter, waterMeter,
         notes, createdAt, archived, active
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)` ,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)` ,
       [
         t.firstName || '',
         t.lastName || '',
@@ -773,6 +773,7 @@ function respondDbError(res, err) {
         t.endDate || '',
         t.moveOutDate || '',
         t.rentAmount ?? null,
+        t.rentHistory || '',
         t.arnonaAmount ?? null,
         t.depositDay || '',
         t.apartmentNumber || '',
@@ -794,7 +795,7 @@ function respondDbError(res, err) {
     await db.run(
       `UPDATE tenants SET
         firstName = ?, lastName = ?, nationalId = ?, phone = ?, startDate = ?, endDate = ?, moveOutDate = ?,
-        rentAmount = ?, arnonaAmount = ?, depositDay = ?, apartmentNumber = ?, electricityMeter = ?, waterMeter = ?,
+        rentAmount = ?, rentHistory = ?, arnonaAmount = ?, depositDay = ?, apartmentNumber = ?, electricityMeter = ?, waterMeter = ?,
         notes = ?, archived = ?, active = ?
       WHERE id = ?`,
       [
@@ -806,6 +807,7 @@ function respondDbError(res, err) {
         t.endDate || '',
         t.moveOutDate || '',
         t.rentAmount ?? null,
+        t.rentHistory || '',
         t.arnonaAmount ?? null,
         t.depositDay || '',
         t.apartmentNumber || '',

@@ -109,7 +109,77 @@ function normalizeTenantRow(row) {
   normalizedRow.depositDay = normalizeDepositDay(row.depositDay);
   normalizedRow.waterMeter = row.waterMeter || '';
   normalizedRow.electricityMeter = row.electricityMeter || '';
+  normalizedRow.rentHistory = normalizeRentHistoryEntries(row.rentHistory);
   return normalizedRow;
+}
+
+function normalizeRentHistoryEntries(value) {
+  let raw = value;
+  if (!raw) return [];
+  if (typeof raw === 'string') {
+    const trimmed = raw.trim();
+    if (!trimmed) return [];
+    try {
+      raw = JSON.parse(trimmed);
+    } catch (err) {
+      return [];
+    }
+  }
+  if (!Array.isArray(raw)) return [];
+
+  return raw
+    .map(item => {
+      const startIso = parseDateToIso(item?.startDate || item?.startIso || '');
+      const endIso = parseDateToIso(item?.endDate || item?.endIso || '');
+      const rentAmount = Number(item?.rentAmount ?? item?.amount ?? item?.monthlyRent ?? 0);
+      if (!startIso || !Number.isFinite(rentAmount) || rentAmount <= 0) return null;
+      if (endIso && endIso < startIso) return null;
+      return {
+        startIso,
+        endIso: endIso || '',
+        rentAmount: Number(rentAmount.toFixed(2))
+      };
+    })
+    .filter(Boolean)
+    .sort((a, b) => a.startIso.localeCompare(b.startIso));
+}
+
+function parseRentHistoryText(text) {
+  const rows = String(text || '').split(/\r?\n/).map(line => line.trim()).filter(Boolean);
+  const parsed = [];
+  for (const row of rows) {
+    const parts = row.split(',').map(p => p.trim()).filter(Boolean);
+    if (parts.length !== 2 && parts.length !== 3) return { error: `שורת היסטוריית שכירות לא תקינה: ${row}`, entries: [] };
+    const startIso = parseDateToIso(parts[0]);
+    if (!startIso) return { error: `תאריך התחלה לא תקין: ${parts[0]}`, entries: [] };
+
+    let endIso = '';
+    let amountRaw = '';
+    if (parts.length === 3) {
+      endIso = parseDateToIso(parts[1]);
+      if (!endIso) return { error: `תאריך סיום לא תקין: ${parts[1]}`, entries: [] };
+      if (endIso < startIso) return { error: `תאריך סיום לפני התחלה: ${row}`, entries: [] };
+      amountRaw = parts[2];
+    } else {
+      amountRaw = parts[1];
+    }
+
+    const rentAmount = Number(amountRaw);
+    if (!Number.isFinite(rentAmount) || rentAmount <= 0) return { error: `שכירות לא תקינה: ${amountRaw}`, entries: [] };
+
+    parsed.push({ startIso, endIso: endIso || '', rentAmount: Number(rentAmount.toFixed(2)) });
+  }
+
+  return { error: '', entries: normalizeRentHistoryEntries(parsed) };
+}
+
+function formatRentHistoryForText(entries) {
+  const normalized = normalizeRentHistoryEntries(entries);
+  return normalized
+    .map(item => item.endIso
+      ? `${formatDateEu(item.startIso)},${formatDateEu(item.endIso)},${item.rentAmount}`
+      : `${formatDateEu(item.startIso)},${item.rentAmount}`)
+    .join('\n');
 }
 
 function showAuthModal() {
@@ -439,6 +509,7 @@ async function clearAllTenants() {
 
 // Tenants (remote API for sync)
 function extractTenantFields(t) {
+  const normalizedRentHistory = normalizeRentHistoryEntries(t.rentHistory);
   return {
     firstName: t.firstName || '',
     lastName: t.lastName || '',
@@ -453,6 +524,7 @@ function extractTenantFields(t) {
     apartmentNumber: t.apartmentNumber || '',
     electricityMeter: t.electricityMeter || '',
     waterMeter: t.waterMeter || '',
+    rentHistory: normalizedRentHistory.length ? JSON.stringify(normalizedRentHistory) : '',
     notes: t.notes || '',
     archived: t.archived ?? false,
     active: t.active ?? true
@@ -1152,6 +1224,21 @@ function adjustStartIsoForLateContractDay(startIso) {
   return `${year}-${String(month).padStart(2, '0')}-01`;
 }
 
+function monthKeyStartIso(monthKey) {
+  if (!/^\d{4}-\d{2}$/.test(String(monthKey || ''))) return '';
+  return `${monthKey}-01`;
+}
+
+function monthKeyEndIso(monthKey) {
+  if (!/^\d{4}-\d{2}$/.test(String(monthKey || ''))) return '';
+  const [yearRaw, monthRaw] = String(monthKey).split('-');
+  const year = Number(yearRaw);
+  const month = Number(monthRaw);
+  if (!Number.isInteger(year) || !Number.isInteger(month) || month < 1 || month > 12) return '';
+  const lastDay = new Date(year, month, 0).getDate();
+  return `${year}-${String(month).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
+}
+
 const YEARLY_ARNONA_SETTING_KEY = 'yearlyArnonaByApartment';
 const ARNONA_SETTINGS_START_YEAR = 2022;
 
@@ -1232,7 +1319,7 @@ function calculateTenantBalanceBreakdown(tenant, payments, readings, waterPrice,
       water: 0,
       total: 0,
       details: {
-        rent: { rentAmount: 0, rentStartIso: '', monthsDue: 0, expectedRent: 0, paidApplied: 0, paymentItems: [] },
+        rent: { rentAmount: 0, rentStartIso: '', monthsDue: 0, expectedRent: 0, paidApplied: 0, paymentItems: [], historyUsed: false, historyBreakdown: [] },
         arnona: { arnonaAmount: 0, expectedArnona: 0, paidApplied: 0, annualArnona: 0, source: 'tenant', yearBreakdown: [] },
         electricity: [],
         water: []
@@ -1264,10 +1351,44 @@ function calculateTenantBalanceBreakdown(tenant, payments, readings, waterPrice,
   const rentStartIso = contractStartIso
     ? (adjustStartIsoForLateContractDay(contractStartIso) || contractStartIso)
     : (firstPaymentIso || todayIso);
-  const monthsDue = rentAmount > 0 ? countMonthsInclusive(rentStartIso, todayIso) : 0;
-  const expectedRent = rentAmount > 0 ? (rentAmount * monthsDue) : 0;
-
+  const monthsDue = rentStartIso ? countMonthsInclusive(rentStartIso, todayIso) : 0;
   const dueMonthKeys = monthsDue > 0 ? enumerateMonthsInclusive(rentStartIso, todayIso) : [];
+
+  const rentHistoryEntries = normalizeRentHistoryEntries(tenant?.rentHistory);
+  const rentHistoryBreakdownMap = new Map();
+  let expectedRent = 0;
+  let historyUsed = false;
+  dueMonthKeys.forEach(monthKey => {
+    const monthStart = monthKeyStartIso(monthKey);
+    const monthEnd = monthKeyEndIso(monthKey);
+    const matchedIndex = rentHistoryEntries.findIndex(entry => {
+      const startsBeforeMonthEnd = entry.startIso <= monthEnd;
+      const endsAfterMonthStart = !entry.endIso || entry.endIso >= monthStart;
+      return startsBeforeMonthEnd && endsAfterMonthStart;
+    });
+    if (matchedIndex < 0) return;
+    const entry = rentHistoryEntries[matchedIndex];
+    const monthlyRent = Number(entry.rentAmount || 0);
+    if (!Number.isFinite(monthlyRent) || monthlyRent <= 0) return;
+    historyUsed = true;
+    expectedRent += monthlyRent;
+    const key = `${entry.startIso}|${entry.endIso || ''}|${monthlyRent}`;
+    const agg = rentHistoryBreakdownMap.get(key) || {
+      startIso: entry.startIso,
+      endIso: entry.endIso || '',
+      rentAmount: monthlyRent,
+      months: 0,
+      amount: 0
+    };
+    agg.months += 1;
+    agg.amount += monthlyRent;
+    rentHistoryBreakdownMap.set(key, agg);
+  });
+  const rentHistoryBreakdown = Array.from(rentHistoryBreakdownMap.values()).sort((a, b) => a.startIso.localeCompare(b.startIso));
+  if (!historyUsed) {
+    expectedRent = rentAmount > 0 ? (rentAmount * monthsDue) : 0;
+  }
+
   const arnonaYearAccumulator = new Map();
   let expectedArnona = 0;
   let hasYearlyMonthlyArnona = false;
@@ -1363,7 +1484,9 @@ function calculateTenantBalanceBreakdown(tenant, payments, readings, waterPrice,
         expectedRent,
         paidApplied: rentPaidApplied,
         totalPaid,
-        paymentItems: paymentItemsForCurrentAndPastMonths
+        paymentItems: paymentItemsForCurrentAndPastMonths,
+        historyUsed,
+        historyBreakdown: rentHistoryBreakdown
       },
       arnona: {
         arnonaAmount,
@@ -1812,12 +1935,15 @@ async function renderReminders() {
     const balance = contractBalanceByTenantId.get(tenantId) || { rent: 0, arnona: 0, electricity: 0, water: 0, total: 0 };
     const totalColor = balance.total > 0 ? '#b71c1c' : (balance.total < 0 ? '#1b5e20' : '#555');
     const totalLabel = balance.total > 0 ? 'חוב' : (balance.total < 0 ? 'זכות' : 'מאוזן');
-    const rentDetails = balance?.details?.rent || { rentAmount: 0, rentStartIso: '', monthsDue: 0, expectedRent: 0, paidApplied: 0, totalPaid: 0, paymentItems: [] };
+    const rentDetails = balance?.details?.rent || { rentAmount: 0, rentStartIso: '', monthsDue: 0, expectedRent: 0, paidApplied: 0, totalPaid: 0, paymentItems: [], historyUsed: false, historyBreakdown: [] };
     const arnonaDetails = balance?.details?.arnona || { arnonaAmount: 0, expectedArnona: 0, paidApplied: 0, source: 'tenant', yearBreakdown: [] };
     const electricityDetails = balance?.details?.electricity || [];
     const waterDetails = balance?.details?.water || [];
     const arnonaByYearText = (arnonaDetails.yearBreakdown || [])
       .map(entry => `${entry.year}: ${entry.months} חודשים × ₪${formatCurrency(entry.monthlyArnona || 0)} = ₪${formatCurrency(entry.amount || 0)}`)
+      .join(' · ');
+    const rentHistoryText = (rentDetails.historyBreakdown || [])
+      .map(entry => `${formatDateEu(entry.startIso)}${entry.endIso ? ` עד ${formatDateEu(entry.endIso)}` : ' ומעלה'}: ${entry.months} חודשים × ₪${formatCurrency(entry.rentAmount || 0)} = ₪${formatCurrency(entry.amount || 0)}`)
       .join(' · ');
 
     const paymentRows = (rentDetails.paymentItems || []).map(p => `
@@ -1848,7 +1974,7 @@ async function renderReminders() {
       <div style="margin-top:8px; padding:10px; border:1px solid #f4d7c3; border-radius:8px; background:#fff;">
         <div style="font-size:12px; font-weight:700; color:#9c4d17; margin-bottom:6px;">פירוט חישוב</div>
         <div style="font-size:12px; color:#5d3a22; margin-bottom:6px;">
-          שכירות: ${rentDetails.monthsDue} חודשים × ₪${formatCurrency(rentDetails.rentAmount || 0)} = ₪${formatCurrency(rentDetails.expectedRent || 0)}
+          ${rentDetails.historyUsed && rentHistoryText ? `שכירות לפי היסטוריית חוזים: ${rentHistoryText}` : `שכירות: ${rentDetails.monthsDue} חודשים × ₪${formatCurrency(rentDetails.rentAmount || 0)} = ₪${formatCurrency(rentDetails.expectedRent || 0)}`}
           ${rentDetails.rentStartIso ? ` (מהתאריך ${formatDateEu(rentDetails.rentStartIso)})` : ''}
         </div>
         <div style="font-size:12px; color:#5d3a22; margin-bottom:6px;">${arnonaDetails.source === 'yearlyByApartment' && arnonaByYearText ? `ארנונה לפי שנים: ${arnonaByYearText}` : `ארנונה: ${rentDetails.monthsDue} חודשים × ₪${formatCurrency(arnonaDetails.arnonaAmount || 0)} = ₪${formatCurrency(arnonaDetails.expectedArnona || 0)}`}</div>
@@ -5942,7 +6068,7 @@ const showExpensesBtn = document.getElementById('show-expenses');
 const showSolarBtn = document.getElementById('show-solar');
 const showBalanceBtn = document.getElementById('show-balance');
 
-showAddBtn?.addEventListener('click', async () => { setActiveButton('show-add'); show(tenantForm); tenantForm.editId = null; document.getElementById('form-title').textContent = 'הוספת דייר'; tenantForm.reset(); await renderTenantsTable(); });
+showAddBtn?.addEventListener('click', async () => { setActiveButton('show-add'); show(tenantForm); tenantForm.editId = null; document.getElementById('form-title').textContent = 'הוספת דייר'; tenantForm.reset(); const rentHistoryInput = document.getElementById('rent-history'); if (rentHistoryInput) rentHistoryInput.value = ''; await renderTenantsTable(); });
 showArchiveBtn?.addEventListener('click', async () => { setActiveButton('show-archive'); await renderArchive(); show(archiveView); });
 showSettingsBtn?.addEventListener('click', async () => { 
   setActiveButton('show-settings');
@@ -6181,7 +6307,7 @@ document.getElementById('reminders-list')?.addEventListener('click', async e => 
 });
 
 // Close buttons
-document.getElementById('cancel')?.addEventListener('click', () => show(tenantForm));
+document.getElementById('cancel')?.addEventListener('click', () => { tenantForm.editId = null; tenantForm?.reset(); const rentHistoryInput = document.getElementById('rent-history'); if (rentHistoryInput) rentHistoryInput.value = ''; show(tenantForm); });
 
 // Expenses form
 document.getElementById('save-expense')?.addEventListener('click', async () => {
@@ -6518,6 +6644,10 @@ tenantForm?.addEventListener('submit', async e => {
   const f = e.target;
   const data = {};
   for (const el of f.elements) if (el.name) data[el.name] = el.value;
+  const rentHistoryRaw = document.getElementById('rent-history')?.value || '';
+  const rentHistoryParsed = parseRentHistoryText(rentHistoryRaw);
+  if (rentHistoryParsed.error) { alert(rentHistoryParsed.error); return; }
+  data.rentHistory = rentHistoryParsed.entries;
   const isActive = f.elements['active'] ? f.elements['active'].checked : true;
   data.archived = !isActive;
   if (data.startDate) {
@@ -6544,6 +6674,8 @@ tenantForm?.addEventListener('submit', async e => {
   show(tenantForm);
   await renderTenants();
   f.reset();
+  const rentHistoryInput = document.getElementById('rent-history');
+  if (rentHistoryInput) rentHistoryInput.value = '';
 });
 
 const tenantsExportBtn = document.getElementById('tenants-export-csv');
@@ -6769,7 +6901,7 @@ const syncStatusEl = document.getElementById('sync-status');
 const TENANT_SYNC_FIELDS = [
   'firstName', 'lastName', 'nationalId', 'phone', 'startDate', 'endDate', 'moveOutDate',
   'rentAmount', 'arnonaAmount', 'depositDay', 'apartmentNumber', 'electricityMeter', 'waterMeter',
-  'notes', 'archived', 'active'
+  'rentHistory', 'notes', 'archived', 'active'
 ];
 
 function setSyncStatus(message, isError = false) {
@@ -6792,6 +6924,10 @@ function tenantKey(t) {
 }
 
 function tenantValue(field, tenant) {
+  if (field === 'rentHistory') {
+    const normalized = normalizeRentHistoryEntries(tenant?.rentHistory);
+    return normalized.length ? JSON.stringify(normalized) : '';
+  }
   const value = tenant?.[field];
   if (value === null || value === undefined) return '';
   if (field === 'archived' || field === 'active') return value ? 'true' : 'false';
@@ -7663,6 +7799,8 @@ tenantList?.addEventListener('click', async e => {
       tenantForm.elements[k].value = tenant[k] || '';
     tenantForm.elements['startDate'].value = formatDateEu(tenant.startDate || '');
     tenantForm.elements['endDate'].value = formatDateEu(tenant.endDate || '');
+    const rentHistoryInput = document.getElementById('rent-history');
+    if (rentHistoryInput) rentHistoryInput.value = formatRentHistoryForText(tenant.rentHistory || []);
     if (tenantForm.elements['active']) tenantForm.elements['active'].checked = !tenant.archived;
     return;
   }
@@ -7737,6 +7875,8 @@ document.getElementById('tenants-table')?.addEventListener('click', async e => {
     }
     tenantForm.elements['startDate'].value = formatDateEu(tenant.startDate || '');
     tenantForm.elements['endDate'].value = formatDateEu(tenant.endDate || '');
+    const rentHistoryInput = document.getElementById('rent-history');
+    if (rentHistoryInput) rentHistoryInput.value = formatRentHistoryForText(tenant.rentHistory || []);
     if (tenantForm.elements['active']) tenantForm.elements['active'].checked = !tenant.archived;
     return;
   }
