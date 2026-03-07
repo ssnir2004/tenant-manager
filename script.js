@@ -1935,6 +1935,11 @@ async function renderReminders() {
     const balance = contractBalanceByTenantId.get(tenantId) || { rent: 0, arnona: 0, electricity: 0, water: 0, total: 0 };
     const totalColor = balance.total > 0 ? '#b71c1c' : (balance.total < 0 ? '#1b5e20' : '#555');
     const totalLabel = balance.total > 0 ? 'חוב' : (balance.total < 0 ? 'זכות' : 'מאוזן');
+    const totalAmountAbs = Math.abs(Number(balance.total || 0));
+    const totalAmountText = `₪${formatCurrency(totalAmountAbs)}`;
+    const totalSummaryText = balance.total > 0
+      ? `חוב: ${totalAmountText}`
+      : (balance.total < 0 ? `זכות: ${totalAmountText}` : `מאוזן: ${totalAmountText}`);
     const rentDetails = balance?.details?.rent || { rentAmount: 0, rentStartIso: '', monthsDue: 0, expectedRent: 0, paidApplied: 0, totalPaid: 0, paymentItems: [], historyUsed: false, historyBreakdown: [] };
     const arnonaDetails = balance?.details?.arnona || { arnonaAmount: 0, expectedArnona: 0, paidApplied: 0, source: 'tenant', yearBreakdown: [] };
     const electricityDetails = balance?.details?.electricity || [];
@@ -2015,7 +2020,7 @@ async function renderReminders() {
             <tr><td style="padding:4px 0; color:#5d3a22;">ארנונה</td><td style="padding:4px 0; direction:ltr; text-align:left; font-weight:600;">₪${formatCurrency(balance.arnona)}</td></tr>
             <tr><td style="padding:4px 0; color:#5d3a22;">חשמל</td><td style="padding:4px 0; direction:ltr; text-align:left; font-weight:600;">₪${formatCurrency(balance.electricity)}</td></tr>
             <tr><td style="padding:4px 0; color:#5d3a22;">מים</td><td style="padding:4px 0; direction:ltr; text-align:left; font-weight:600;">₪${formatCurrency(balance.water)}</td></tr>
-            <tr><td style="padding-top:6px; border-top:1px solid #f0c7ab; font-weight:700; color:#7a3d14;">סה"כ (${totalLabel})</td><td style="padding-top:6px; border-top:1px solid #f0c7ab; direction:ltr; text-align:left; font-weight:700; color:${totalColor};">₪${formatCurrency(balance.total)}</td></tr>
+            <tr><td style="padding-top:6px; border-top:1px solid #f0c7ab; font-weight:700; color:#7a3d14;">סה"כ (${totalLabel})</td><td style="padding-top:6px; border-top:1px solid #f0c7ab; direction:ltr; text-align:left; font-weight:700; color:${totalColor};">${totalAmountText}</td></tr>
           </tbody>
         </table>
         <div style="margin-top:8px;">
@@ -2031,7 +2036,7 @@ async function renderReminders() {
       <div style="font-size:12px; color:#b35c1e; margin-bottom:4px;">📅 ${formatDateEu(item.dueDate)}</div>
       <button type="button" class="btn-toggle-contract-balance" data-tenant-id="${tenantId}" style="all:unset; cursor:pointer; font-weight:700; color:#7a3d14; margin-bottom:2px; display:block;">${escapeHtml(item.title)}</button>
       <div style="font-size:12px; color:#8a5a39;">${escapeHtml(item.details)}</div>
-      <div style="font-size:12px; margin-top:4px; font-weight:700; color:${totalColor};">סה"כ מאזן (${totalLabel}): <span style="direction:ltr; display:inline-block;">₪${formatCurrency(balance.total)}</span></div>
+      <div style="font-size:12px; margin-top:4px; font-weight:700; color:${totalColor};">סה"כ מאזן: <span style="direction:ltr; display:inline-block;">${totalSummaryText}</span></div>
       ${balanceSection}
     </div>
   `;
