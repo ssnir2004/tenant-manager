@@ -1270,6 +1270,8 @@ function renderReminderPriorityBadge(priority) {
   return '<span style="background:#e8f5e9;color:#1b5e20;padding:2px 8px;border-radius:999px;font-size:12px;">נמוך</span>';
 }
 
+let remindersShowReleased = false;
+
 async function maybeNotifyForReminders(reminders) {
   if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
   const todayIso = currentIsoDate();
@@ -1402,20 +1404,20 @@ async function renderReminders() {
     `;
   }).join('');
 
-  const upcomingDepositRows = (upcoming.upcomingDeposits || []).slice(0, 12).map(item => `
-    <tr>
-      <td>${formatDateEu(item.dueDate)}</td>
-      <td>${escapeHtml(item.title)}</td>
-      <td>${escapeHtml(item.details)}</td>
-    </tr>
+  const upcomingDepositCards = (upcoming.upcomingDeposits || []).slice(0, 8).map(item => `
+    <div style="padding:10px 12px; border:1px solid #d5e8ff; border-radius:10px; background:linear-gradient(135deg,#f7fbff 0%,#edf6ff 100%);">
+      <div style="font-size:12px; color:#2b6cb0; margin-bottom:4px;">💳 ${formatDateEu(item.dueDate)}</div>
+      <div style="font-weight:700; color:#1f3f5f; margin-bottom:2px;">${escapeHtml(item.title)}</div>
+      <div style="font-size:12px; color:#4a6077;">${escapeHtml(item.details)}</div>
+    </div>
   `).join('');
 
-  const upcomingContractRows = (upcoming.upcomingContracts || []).slice(0, 12).map(item => `
-    <tr>
-      <td>${formatDateEu(item.dueDate)}</td>
-      <td>${escapeHtml(item.title)}</td>
-      <td>${escapeHtml(item.details)}</td>
-    </tr>
+  const upcomingContractCards = (upcoming.upcomingContracts || []).slice(0, 8).map(item => `
+    <div style="padding:10px 12px; border:1px solid #ffe0cc; border-radius:10px; background:linear-gradient(135deg,#fffaf5 0%,#fff2e8 100%);">
+      <div style="font-size:12px; color:#b35c1e; margin-bottom:4px;">📅 ${formatDateEu(item.dueDate)}</div>
+      <div style="font-weight:700; color:#7a3d14; margin-bottom:2px;">${escapeHtml(item.title)}</div>
+      <div style="font-size:12px; color:#8a5a39;">${escapeHtml(item.details)}</div>
+    </div>
   `).join('');
 
   const activeSectionHtml = all.length
@@ -1437,9 +1439,12 @@ async function renderReminders() {
     : '<p style="color:#666; margin-bottom: 12px;">אין תזכורות פעילות כרגע 🎉</p>';
 
   const highCount = all.filter(r => r.priority === 'high').length;
-  container.innerHTML = `
-    <div style="margin-bottom:8px; color:#333;">סה"כ ${all.length} תזכורות · דחופות: ${highCount}</div>
-    ${activeSectionHtml}
+  const releasedToggleLabel = remindersShowReleased
+    ? `הסתר תזכורות ששוחררו (${releasedAutoRows.length})`
+    : `הצג תזכורות ששוחררו (${releasedAutoRows.length})`;
+
+  const releasedSectionHtml = remindersShowReleased
+    ? `
     <div style="margin-top: 14px; border-top: 1px solid #eee; padding-top: 12px;">
       <h3 style="margin: 0 0 8px 0;">תזכורות ששוחררו</h3>
       ${releasedAutoRows.length ? `
@@ -1458,24 +1463,31 @@ async function renderReminders() {
       </table>
       ` : '<p style="color:#666;">אין תזכורות ששוחררו</p>'}
     </div>
-    <div style="margin-top: 14px; border-top: 1px solid #eee; padding-top: 12px;">
-      <h3 style="margin: 0 0 8px 0;">מועדי הפקדה קרובים (לפי יום הפקדה לדייר)</h3>
-      ${(upcoming.upcomingDeposits || []).length ? `
-      <table class="payments-table">
-        <thead><tr><th>תאריך</th><th>דירה</th><th>פרטים</th></tr></thead>
-        <tbody>${upcomingDepositRows}</tbody>
-      </table>
-      ` : '<p style="color:#666;">אין מועדי הפקדה קרובים</p>'}
+    `
+    : '';
+
+  container.innerHTML = `
+    <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 10px; margin-bottom: 12px;">
+      <div style="border:1px solid #d5e8ff; border-radius:12px; padding:10px; background:linear-gradient(135deg,#f8fcff 0%,#eef6ff 100%);">
+        <h3 style="margin: 0 0 8px 0; color:#2b6cb0; font-size:15px;">מועדי הפקדה קרובים</h3>
+        ${(upcoming.upcomingDeposits || []).length
+          ? `<div style="display:grid; gap:8px;">${upcomingDepositCards}</div>`
+          : '<div style="color:#666; font-size:13px;">אין מועדי הפקדה קרובים</div>'}
+      </div>
+      <div style="border:1px solid #ffe0cc; border-radius:12px; padding:10px; background:linear-gradient(135deg,#fffdfb 0%,#fff5ec 100%);">
+        <h3 style="margin: 0 0 8px 0; color:#b35c1e; font-size:15px;">מועדי סיום/עזיבה קרובים</h3>
+        ${(upcoming.upcomingContracts || []).length
+          ? `<div style="display:grid; gap:8px;">${upcomingContractCards}</div>`
+          : '<div style="color:#666; font-size:13px;">אין מועדי סיום/עזיבה קרובים</div>'}
+      </div>
     </div>
-    <div style="margin-top: 14px; border-top: 1px solid #eee; padding-top: 12px;">
-      <h3 style="margin: 0 0 8px 0;">מועדי סיום/עזיבה קרובים</h3>
-      ${(upcoming.upcomingContracts || []).length ? `
-      <table class="payments-table">
-        <thead><tr><th>תאריך</th><th>דירה</th><th>פרטים</th></tr></thead>
-        <tbody>${upcomingContractRows}</tbody>
-      </table>
-      ` : '<p style="color:#666;">אין מועדי סיום/עזיבה קרובים</p>'}
+
+    <div style="margin-bottom:8px; color:#333;">סה"כ ${all.length} תזכורות · דחופות: ${highCount}</div>
+    <div style="margin-bottom: 10px;">
+      <button type="button" class="btn-toggle-released-reminders">${releasedToggleLabel}</button>
     </div>
+    ${activeSectionHtml}
+    ${releasedSectionHtml}
   `;
 
   await maybeNotifyForReminders(all);
@@ -5539,6 +5551,13 @@ document.getElementById('enable-browser-notifications')?.addEventListener('click
 });
 
 document.getElementById('reminders-list')?.addEventListener('click', async e => {
+  const toggleReleasedBtn = e.target.closest('.btn-toggle-released-reminders');
+  if (toggleReleasedBtn) {
+    remindersShowReleased = !remindersShowReleased;
+    await renderReminders();
+    return;
+  }
+
   const markPaidBtn = e.target.closest('.btn-mark-reading-paid');
   if (markPaidBtn) {
     if (!canWriteCurrentUser()) return;
