@@ -1207,6 +1207,9 @@ async function buildAutomaticReminders() {
     reminders.push({
       id: `${target.kind}-${t.id}-${target.iso}`,
       type: 'auto',
+      tenantId: Number(t.id),
+      tenantName,
+      apartment,
       priority: days <= 7 ? 'high' : 'medium',
       title: isMoveOut
         ? `עזיבת דייר מתקרבת (דירה ${apartment})`
@@ -1230,6 +1233,9 @@ async function buildAutomaticReminders() {
       reminders.push({
         id: `reading-unpaid-${r.id}`,
         type: 'auto',
+        tenantId: tenant ? Number(tenant.id) : (Number.isFinite(Number(r.tenantId)) ? Number(r.tenantId) : null),
+        tenantName,
+        apartment,
         readingId: Number(r.id),
         priority: Number.isFinite(age) && age > 30 ? 'high' : 'medium',
         title: `קריאה לא שולמה (דירה ${apartment})`,
@@ -1253,6 +1259,9 @@ async function buildAutomaticReminders() {
       reminders.push({
         id: `check-deposit-${p.id}`,
         type: 'auto',
+        tenantId: tenant ? Number(tenant.id) : (Number.isFinite(Number(p.tenantId)) ? Number(p.tenantId) : null),
+        tenantName,
+        apartment,
         priority: daysUntil <= 1 ? 'high' : 'low',
         title: `תזכורת הפקדת צ'ק (דירה ${apartment})`,
         details: `${tenantName || '-'} · ₪${formatCurrency(p.amount || 0)} · בעוד ${daysUntil} ימים`,
@@ -1360,10 +1369,15 @@ async function renderReminders() {
     return (pOrder[a.priority] ?? 9) - (pOrder[b.priority] ?? 9);
   });
 
-  const rows = all.map(r => {
+  const renderReminderRow = (r, released = false) => {
     const dueText = r.dueDate ? formatDateEu(r.dueDate) : 'ללא תאריך';
     let actions = '—';
-    if (r.type === 'manual') {
+    if (released) {
+      const markPaidBtn = (r.source === 'קריאות' && Number.isFinite(Number(r.readingId)))
+        ? `<button class="btn-mark-reading-paid" data-reading-id="${Number(r.readingId)}" ${canWrite ? '' : 'disabled'}>💰 סמן כשולם</button>`
+        : '';
+      actions = `${markPaidBtn}<button class="btn-restore-auto-reminder" data-id="${escapeHtml(r.id)}" ${canWrite ? '' : 'disabled'}>↩️ החזר</button>`;
+    } else if (r.type === 'manual') {
       actions = `
         <button class="btn-toggle-manual-reminder" data-id="${escapeHtml(r.rawId)}" ${canWrite ? '' : 'disabled'}>${r.done ? '↩️ החזר' : '✅ סמן הושלם'}</button>
         <button class="btn-delete-manual-reminder" data-id="${escapeHtml(r.rawId)}" ${canWrite ? '' : 'disabled'}>🗑️ מחק</button>
@@ -1385,24 +1399,66 @@ async function renderReminders() {
         <td style="display:flex; gap:6px; flex-wrap:wrap;">${actions}</td>
       </tr>
     `;
-  }).join('');
+  };
 
-  const releasedRowsHtml = releasedAutoRows.map(r => {
-    const dueText = r.dueDate ? formatDateEu(r.dueDate) : 'ללא תאריך';
-    const markPaidBtn = (r.source === 'קריאות' && Number.isFinite(Number(r.readingId)))
-      ? `<button class="btn-mark-reading-paid" data-reading-id="${Number(r.readingId)}" ${canWrite ? '' : 'disabled'}>💰 סמן כשולם</button>`
-      : '';
-    return `
-      <tr>
-        <td>${renderReminderPriorityBadge(r.priority)}</td>
-        <td>${escapeHtml(r.title)}</td>
-        <td>${escapeHtml(r.details || '-')}</td>
-        <td>${escapeHtml(r.source || '-')}</td>
-        <td>${dueText}</td>
-        <td style="display:flex; gap:6px; flex-wrap:wrap;">${markPaidBtn}<button class="btn-restore-auto-reminder" data-id="${escapeHtml(r.id)}" ${canWrite ? '' : 'disabled'}>↩️ החזר</button></td>
-      </tr>
-    `;
-  }).join('');
+  const groupRemindersByTenant = reminders => {
+    const groups = new Map();
+    reminders.forEach(r => {
+      const tenantId = Number(r.tenantId);
+      const tenantName = String(r.tenantName || '').trim();
+      const apartment = String(r.apartment || '').trim();
+      let key = 'general';
+      let title = 'ללא שיוך לדייר';
+
+      if (Number.isFinite(tenantId) && tenantId > 0) {
+        key = `tenant-${tenantId}`;
+      } else if (tenantName || apartment) {
+        key = `tenant-meta-${apartment}|${tenantName}`;
+      }
+
+      if (apartment || tenantName) {
+        title = `דירה ${apartment || '-'} · ${tenantName || 'ללא שם'}`;
+      }
+
+      if (!groups.has(key)) groups.set(key, { title, items: [] });
+      groups.get(key).items.push(r);
+    });
+    return Array.from(groups.values());
+  };
+
+  const buildGroupedSectionHtml = (items, released = false) => {
+    if (!items.length) {
+      return released
+        ? '<p style="color:#666;">אין תזכורות ששוחררו</p>'
+        : '<p style="color:#666; margin-bottom: 12px;">אין תזכורות פעילות כרגע 🎉</p>';
+    }
+
+    const groups = groupRemindersByTenant(items);
+    return groups.map(group => `
+      <div style="margin-bottom:12px; border:1px solid #e5e9ef; border-radius:10px; overflow:hidden; background:#fff;">
+        <div style="padding:8px 12px; background:#f7f9fc; border-bottom:1px solid #e9edf3; font-weight:700; color:#2b6cb0; display:flex; justify-content:space-between; align-items:center;">
+          <span>${escapeHtml(group.title)}</span>
+          <span style="font-size:12px; color:#667;">${group.items.length} תזכורות</span>
+        </div>
+        <table class="payments-table" style="margin-top:0;">
+          <thead>
+            <tr>
+              <th>עדיפות</th>
+              <th>נושא</th>
+              <th>פרטים</th>
+              <th>מקור</th>
+              <th>יעד</th>
+              <th>פעולות</th>
+            </tr>
+          </thead>
+          <tbody>${group.items.map(r => renderReminderRow(r, released)).join('')}</tbody>
+        </table>
+      </div>
+    `).join('');
+  };
+
+  const activeSectionHtml = buildGroupedSectionHtml(all, false);
+  const releasedSectionContent = buildGroupedSectionHtml(releasedAutoRows, true);
 
   const upcomingDepositCards = (upcoming.upcomingDeposits || []).slice(0, 8).map(item => `
     <div style="padding:10px 12px; border:1px solid #d5e8ff; border-radius:10px; background:linear-gradient(135deg,#f7fbff 0%,#edf6ff 100%);">
@@ -1420,24 +1476,6 @@ async function renderReminders() {
     </div>
   `).join('');
 
-  const activeSectionHtml = all.length
-    ? `
-      <table class="payments-table">
-        <thead>
-          <tr>
-            <th>עדיפות</th>
-            <th>נושא</th>
-            <th>פרטים</th>
-            <th>מקור</th>
-            <th>יעד</th>
-            <th>פעולות</th>
-          </tr>
-        </thead>
-        <tbody>${rows}</tbody>
-      </table>
-    `
-    : '<p style="color:#666; margin-bottom: 12px;">אין תזכורות פעילות כרגע 🎉</p>';
-
   const highCount = all.filter(r => r.priority === 'high').length;
   const releasedToggleLabel = remindersShowReleased
     ? `הסתר תזכורות ששוחררו (${releasedAutoRows.length})`
@@ -1447,21 +1485,7 @@ async function renderReminders() {
     ? `
     <div style="margin-top: 14px; border-top: 1px solid #eee; padding-top: 12px;">
       <h3 style="margin: 0 0 8px 0;">תזכורות ששוחררו</h3>
-      ${releasedAutoRows.length ? `
-      <table class="payments-table">
-        <thead>
-          <tr>
-            <th>עדיפות</th>
-            <th>נושא</th>
-            <th>פרטים</th>
-            <th>מקור</th>
-            <th>יעד</th>
-            <th>פעולות</th>
-          </tr>
-        </thead>
-        <tbody>${releasedRowsHtml}</tbody>
-      </table>
-      ` : '<p style="color:#666;">אין תזכורות ששוחררו</p>'}
+      ${releasedSectionContent}
     </div>
     `
     : '';
