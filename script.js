@@ -3894,7 +3894,6 @@ async function renderTenants() {
           <div style="font-size:12px; color:#4a6077;">${escapeHtml(tenantName)} · ${escapeHtml(targetKind)}</div>
           ${targetDate ? `<div style="font-size:12px; color:#7a3d14;">${escapeHtml(targetDate)}</div>` : ''}
         </button>
-        <div class="actions"><button data-id="${t.id}" class="btn-edit">ערוך</button><button data-id="${t.id}" class="btn-archive">ארכב</button><button data-id="${t.id}" class="btn-delete">מחק</button></div>
       </div>
     `;
     tenantList.appendChild(el);
@@ -7848,11 +7847,7 @@ document.getElementById('payments-list')?.addEventListener('change', async e => 
 // Tenant list handlers
 tenantList?.addEventListener('click', async e => {
   const openBalanceBtn = e.target.closest('.btn-open-tenant-balance');
-  const editBtn = e.target.closest('.btn-edit');
-  const archiveBtn = e.target.closest('.btn-archive');
-  const deleteBtn = e.target.closest('.btn-delete');
-  
-  const id = Number(openBalanceBtn?.dataset.tenantId || editBtn?.dataset.id || archiveBtn?.dataset.id || deleteBtn?.dataset.id);
+  const id = Number(openBalanceBtn?.dataset.tenantId);
   if (!id) return;
 
   if (openBalanceBtn) {
@@ -7861,30 +7856,7 @@ tenantList?.addEventListener('click', async e => {
     setActiveButton('show-reminders');
     await renderReminders();
     show(remindersView);
-    return;
   }
-  
-  if (editBtn) {
-    const tx = await getTx('tenants', 'readonly');
-    const store = tx.objectStore('tenants');
-    const rec = await new Promise((res, rej) => { const r = store.get(id); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); });
-    const tenant = rec;
-    show(tenantForm);
-    tenantForm.editId = tenant.id;
-    document.getElementById('form-title').textContent = 'ערוך דייר';
-    for (const k of ['firstName', 'lastName', 'nationalId', 'phone', 'rentAmount', 'arnonaAmount', 'depositDay', 'apartmentNumber', 'electricityMeter', 'waterMeter', 'notes'])
-      tenantForm.elements[k].value = tenant[k] || '';
-    tenantForm.elements['startDate'].value = formatDateEu(tenant.startDate || '');
-    tenantForm.elements['endDate'].value = formatDateEu(tenant.endDate || '');
-    const rentHistoryInput = document.getElementById('rent-history');
-    if (rentHistoryInput) rentHistoryInput.value = formatRentHistoryForText(tenant.rentHistory || []);
-    const arnonaHistoryInput = document.getElementById('arnona-history');
-    if (arnonaHistoryInput) arnonaHistoryInput.value = formatArnonaHistoryForText(tenant.arnonaHistory || []);
-    if (tenantForm.elements['active']) tenantForm.elements['active'].checked = !tenant.archived;
-    return;
-  }
-  if (archiveBtn) { await updateTenant(id, { archived: true }); await renderTenants(); }
-  if (deleteBtn) { if (await confirmDialog('מחק?')) { await detachTenantData(id); await deleteTenant(id); await renderTenants(); } }
 });
 
 // Archive list handlers
