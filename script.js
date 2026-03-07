@@ -1786,6 +1786,7 @@ async function renderReminders() {
       <div style="font-size:12px; color:#b35c1e; margin-bottom:4px;">📅 ${formatDateEu(item.dueDate)}</div>
       <button type="button" class="btn-toggle-contract-balance" data-tenant-id="${tenantId}" style="all:unset; cursor:pointer; font-weight:700; color:#7a3d14; margin-bottom:2px; display:block;">${escapeHtml(item.title)}</button>
       <div style="font-size:12px; color:#8a5a39;">${escapeHtml(item.details)}</div>
+      <div style="font-size:12px; margin-top:4px; font-weight:700; color:${totalColor};">סה"כ מאזן (${totalLabel}): <span style="direction:ltr; display:inline-block;">₪${formatCurrency(balance.total)}</span></div>
       ${balanceSection}
     </div>
   `;
