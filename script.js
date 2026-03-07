@@ -1121,7 +1121,26 @@ function countMonthsInclusive(fromIso, toIso) {
   return ((toYear - fromYear) * 12) + (toMonth - fromMonth) + 1;
 }
 
-function calculateTenantBalanceBreakdown(tenant, payments, readings, waterPrice, kvaCon, todayIso = currentIsoDate()) {
+const YEARLY_ARNONA_SETTING_KEY = 'yearlyArnonaByApartment';
+
+function normalizeApartmentKey(value) {
+  return String(value ?? '').trim();
+}
+
+function sanitizeYearlyArnonaByApartment(rawValue) {
+  if (!rawValue || typeof rawValue !== 'object') return {};
+  const cleaned = {};
+  Object.entries(rawValue).forEach(([apartmentRaw, amountRaw]) => {
+    const apartment = normalizeApartmentKey(apartmentRaw);
+    if (!apartment) return;
+    const amount = Number(amountRaw);
+    if (!Number.isFinite(amount) || amount <= 0) return;
+    cleaned[apartment] = Number(amount.toFixed(2));
+  });
+  return cleaned;
+}
+
+function calculateTenantBalanceBreakdown(tenant, payments, readings, waterPrice, kvaCon, todayIso = currentIsoDate(), yearlyArnonaByApartment = null) {
   const tenantId = Number(tenant?.id);
   if (!Number.isFinite(tenantId) || tenantId <= 0) {
     return {
@@ -1132,7 +1151,7 @@ function calculateTenantBalanceBreakdown(tenant, payments, readings, waterPrice,
       total: 0,
       details: {
         rent: { rentAmount: 0, rentStartIso: '', monthsDue: 0, expectedRent: 0, paidApplied: 0, paymentItems: [] },
-        arnona: { arnonaAmount: 0, expectedArnona: 0, paidApplied: 0 },
+        arnona: { arnonaAmount: 0, expectedArnona: 0, paidApplied: 0, annualArnona: 0, source: 'tenant' },
         electricity: [],
         water: []
       }
@@ -1152,7 +1171,11 @@ function calculateTenantBalanceBreakdown(tenant, payments, readings, waterPrice,
   const totalPaid = paymentItemsForCurrentAndPastMonths.reduce((sum, p) => sum + Number(p.amount || 0), 0);
 
   const rentAmount = Number(tenant?.rentAmount || 0);
-  const arnonaAmount = Number(tenant?.arnonaAmount || 0);
+  const annualArnonaMap = sanitizeYearlyArnonaByApartment(yearlyArnonaByApartment);
+  const apartmentKey = normalizeApartmentKey(tenant?.apartmentNumber);
+  const annualArnona = apartmentKey ? Number(annualArnonaMap[apartmentKey] || 0) : 0;
+  const arnonaAmount = annualArnona > 0 ? (annualArnona / 12) : Number(tenant?.arnonaAmount || 0);
+  const arnonaSource = annualArnona > 0 ? 'yearlyByApartment' : 'tenant';
   const firstPaymentIso = tenantPayments
     .map(p => parseDateToIso(p?.date || ''))
     .filter(Boolean)
@@ -1230,7 +1253,9 @@ function calculateTenantBalanceBreakdown(tenant, payments, readings, waterPrice,
       arnona: {
         arnonaAmount,
         expectedArnona,
-        paidApplied: arnonaPaidApplied
+        paidApplied: arnonaPaidApplied,
+        annualArnona,
+        source: arnonaSource
       },
       electricity: utilityDetails.electricity,
       water: utilityDetails.water
@@ -1476,6 +1501,7 @@ async function renderReminders() {
   ]);
   const waterPrice = Number(waterPriceRaw ?? 0);
   const kvaCon = Number(kvaConRaw ?? 0);
+  const yearlyArnonaByApartment = sanitizeYearlyArnonaByApartment(await getSetting(YEARLY_ARNONA_SETTING_KEY));
 
   if (contractDaysInput && !contractDaysInput.value) {
     contractDaysInput.value = String(config.contractDays);
@@ -1659,7 +1685,7 @@ async function renderReminders() {
     if (!tenant) return;
     contractBalanceByTenantId.set(
       tenantId,
-      calculateTenantBalanceBreakdown(tenant, payments || [], readings || [], waterPrice, kvaCon)
+      calculateTenantBalanceBreakdown(tenant, payments || [], readings || [], waterPrice, kvaCon, currentIsoDate(), yearlyArnonaByApartment)
     );
   });
 
@@ -1706,7 +1732,7 @@ async function renderReminders() {
           שכירות: ${rentDetails.monthsDue} חודשים × ₪${formatCurrency(rentDetails.rentAmount || 0)} = ₪${formatCurrency(rentDetails.expectedRent || 0)}
           ${rentDetails.rentStartIso ? ` (מהתאריך ${formatDateEu(rentDetails.rentStartIso)})` : ''}
         </div>
-        <div style="font-size:12px; color:#5d3a22; margin-bottom:6px;">ארנונה: ${rentDetails.monthsDue} חודשים × ₪${formatCurrency(arnonaDetails.arnonaAmount || 0)} = ₪${formatCurrency(arnonaDetails.expectedArnona || 0)}</div>
+        <div style="font-size:12px; color:#5d3a22; margin-bottom:6px;">ארנונה: ${rentDetails.monthsDue} חודשים × ₪${formatCurrency(arnonaDetails.arnonaAmount || 0)} = ₪${formatCurrency(arnonaDetails.expectedArnona || 0)}${(arnonaDetails.source === 'yearlyByApartment' && Number(arnonaDetails.annualArnona || 0) > 0) ? ` (שנתי לדירה: ₪${formatCurrency(arnonaDetails.annualArnona || 0)})` : ''}</div>
         <div style="font-size:12px; color:#5d3a22; margin-bottom:6px;">תשלומים שנכללו (עד חודש נוכחי): ₪${formatCurrency(rentDetails.totalPaid || 0)} · יוחסו לשכירות: ₪${formatCurrency(rentDetails.paidApplied || 0)} · יוחסו לארנונה: ₪${formatCurrency(arnonaDetails.paidApplied || 0)}</div>
         ${(paymentRows) ? `
           <table class="payments-table" style="margin-top:6px;">
@@ -3379,6 +3405,64 @@ function sortTenantsByApartment(tenants) {
     if (bIsNum) return 1;
     return aRaw.localeCompare(bRaw, 'he');
   });
+}
+
+async function renderYearlyArnonaSettingsList(yearlyArnonaRaw = null) {
+  const listEl = document.getElementById('yearly-arnona-settings-list');
+  if (!listEl) return;
+
+  const yearlyArnonaMap = sanitizeYearlyArnonaByApartment(
+    yearlyArnonaRaw === null ? await getSetting(YEARLY_ARNONA_SETTING_KEY) : yearlyArnonaRaw
+  );
+  const tenants = await getAllTenants(true);
+  const apartmentsFromTenants = sortTenantsByApartment(tenants || [])
+    .map(t => normalizeApartmentKey(t?.apartmentNumber))
+    .filter(Boolean);
+  const apartmentSet = new Set([...apartmentsFromTenants, ...Object.keys(yearlyArnonaMap)]);
+  const apartments = Array.from(apartmentSet).sort((a, b) => {
+    const aNum = Number(a);
+    const bNum = Number(b);
+    const aIsNum = !Number.isNaN(aNum);
+    const bIsNum = !Number.isNaN(bNum);
+    if (aIsNum && bIsNum) return aNum - bNum;
+    if (aIsNum) return -1;
+    if (bIsNum) return 1;
+    return a.localeCompare(b, 'he');
+  });
+
+  if (!apartments.length) {
+    listEl.innerHTML = '<small style="color:#666;">אין דירות להגדרה</small>';
+    return;
+  }
+
+  const rows = apartments.map(apartment => `
+    <tr>
+      <td>דירה ${escapeHtml(apartment)}</td>
+      <td>
+        <input
+          type="number"
+          step="0.01"
+          min="0"
+          class="yearly-arnona-input"
+          data-apartment="${escapeHtml(apartment)}"
+          value="${yearlyArnonaMap[apartment] ?? ''}"
+          style="width: 100%;"
+        >
+      </td>
+    </tr>
+  `).join('');
+
+  listEl.innerHTML = `
+    <table class="payments-table" style="margin-top:0;">
+      <thead>
+        <tr>
+          <th>דירה</th>
+          <th>ארנונה שנתית (₪)</th>
+        </tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>
+  `;
 }
 
 function buildLatestReadingMap(readings, meterType) {
@@ -5735,11 +5819,13 @@ showSettingsBtn?.addEventListener('click', async () => {
   const kva = await getSetting('kvaCon');
   const t = await getSetting('appTitle'); 
   const serverUrl = await getSetting('serverUrl');
+  const yearlyArnonaByApartment = await getSetting(YEARLY_ARNONA_SETTING_KEY);
   document.getElementById('electricity-price').value = e ?? ''; 
   document.getElementById('water-price').value = w ?? ''; 
   document.getElementById('kva-con').value = kva ?? '';
   document.getElementById('app-title').value = t ?? ''; 
   document.getElementById('server-url').value = serverUrl ?? '';
+  await renderYearlyArnonaSettingsList(yearlyArnonaByApartment);
   show(settingsView); 
 });
 showPaymentsBtn?.addEventListener('click', async () => {
@@ -6497,6 +6583,17 @@ saveSettingsBtn?.addEventListener('click', async () => {
   const kva = Number(document.getElementById('kva-con').value);
   const t = document.getElementById('app-title').value || '';
   const serverUrl = document.getElementById('server-url').value.trim();
+  const yearlyArnonaInputs = Array.from(document.querySelectorAll('.yearly-arnona-input'));
+  const yearlyArnonaByApartment = {};
+  yearlyArnonaInputs.forEach(input => {
+    const apartment = normalizeApartmentKey(input?.dataset?.apartment || '');
+    if (!apartment) return;
+    const valueRaw = String(input.value || '').trim();
+    if (!valueRaw) return;
+    const amount = Number(valueRaw);
+    if (!Number.isFinite(amount) || amount <= 0) return;
+    yearlyArnonaByApartment[apartment] = Number(amount.toFixed(2));
+  });
   
   if (isNaN(e) || isNaN(w) || isNaN(kva)) { alert('הזן מספרים'); return; }
   
@@ -6505,6 +6602,7 @@ saveSettingsBtn?.addEventListener('click', async () => {
   await setSetting('kvaCon', kva);
   await setSetting('appTitle', t);
   await setSetting('serverUrl', serverUrl);
+  await setSetting(YEARLY_ARNONA_SETTING_KEY, yearlyArnonaByApartment);
   
   // Update global server URL
   window.CURRENT_SERVER_URL = serverUrl || 'http://localhost:3001';
