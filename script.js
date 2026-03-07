@@ -3880,10 +3880,23 @@ async function saveBulkReadings(meterType, dateInputId, listId, statusId) {
 async function renderTenants() {
   const tenants = await getAllTenants(false);
   tenantList.innerHTML = tenants.length === 0 ? '<p>אין דיירים</p>' : '';
-  tenants.forEach(t => {
+  tenants.slice().sort((a, b) => Number(a.apartmentNumber || 0) - Number(b.apartmentNumber || 0)).forEach(t => {
     const el = document.createElement('div');
     el.className = 'tenant-item';
-    el.innerHTML = `<div><strong>${t.apartmentNumber || '-'}: ${t.firstName} ${t.lastName}</strong><div class="muted">${t.phone || ''}</div></div><div class="actions"><button data-id="${t.id}" class="btn-edit">ערוך</button><button data-id="${t.id}" class="btn-archive">ארכב</button><button data-id="${t.id}" class="btn-delete">מחק</button></div>`;
+    const tenantName = `${t.firstName || ''} ${t.lastName || ''}`.trim() || 'ללא שם';
+    const target = buildTenantTargetDate(t);
+    const targetKind = target ? tenantTargetKindLabel(target.kind) : 'ללא יעד';
+    const targetDate = target?.iso ? formatDateEu(target.iso) : '';
+    el.innerHTML = `
+      <div style="display:flex; flex-direction:column; gap:8px; width:100%;">
+        <button type="button" class="btn-open-tenant-balance" data-tenant-id="${t.id}" style="text-align:right; width:100%;">
+          <div style="font-weight:700; color:#1f3f5f;">דירה ${escapeHtml(t.apartmentNumber || '-')}</div>
+          <div style="font-size:12px; color:#4a6077;">${escapeHtml(tenantName)} · ${escapeHtml(targetKind)}</div>
+          ${targetDate ? `<div style="font-size:12px; color:#7a3d14;">${escapeHtml(targetDate)}</div>` : ''}
+        </button>
+        <div class="actions"><button data-id="${t.id}" class="btn-edit">ערוך</button><button data-id="${t.id}" class="btn-archive">ארכב</button><button data-id="${t.id}" class="btn-delete">מחק</button></div>
+      </div>
+    `;
     tenantList.appendChild(el);
   });
   await renderTenantsTable();
@@ -7834,12 +7847,22 @@ document.getElementById('payments-list')?.addEventListener('change', async e => 
 
 // Tenant list handlers
 tenantList?.addEventListener('click', async e => {
+  const openBalanceBtn = e.target.closest('.btn-open-tenant-balance');
   const editBtn = e.target.closest('.btn-edit');
   const archiveBtn = e.target.closest('.btn-archive');
   const deleteBtn = e.target.closest('.btn-delete');
   
-  const id = Number(editBtn?.dataset.id || archiveBtn?.dataset.id || deleteBtn?.dataset.id);
+  const id = Number(openBalanceBtn?.dataset.tenantId || editBtn?.dataset.id || archiveBtn?.dataset.id || deleteBtn?.dataset.id);
   if (!id) return;
+
+  if (openBalanceBtn) {
+    remindersExpandedContractTenantId = id;
+    remindersExpandedContractCalcTenantId = null;
+    setActiveButton('show-reminders');
+    await renderReminders();
+    show(remindersView);
+    return;
+  }
   
   if (editBtn) {
     const tx = await getTx('tenants', 'readonly');
