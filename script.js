@@ -1962,6 +1962,19 @@ async function renderReminders() {
       calculateTenantBalanceBreakdown(tenant, payments || [], readings || [], waterPrice, kvaCon, currentIsoDate())
     );
   });
+  let upcomingContractsTotalBalance = 0;
+  contractBalanceByTenantId.forEach(balance => {
+    upcomingContractsTotalBalance += Number(balance?.total || 0);
+  });
+  const upcomingContractsTotalColor = upcomingContractsTotalBalance > 0
+    ? '#b71c1c'
+    : (upcomingContractsTotalBalance < 0 ? '#1b5e20' : '#666');
+  const upcomingContractsTotalAbs = Math.abs(upcomingContractsTotalBalance);
+  const upcomingContractsTotalLabel = upcomingContractsTotalBalance > 0
+    ? `חוב: ₪${formatCurrency(upcomingContractsTotalAbs)}`
+    : (upcomingContractsTotalBalance < 0
+      ? `זכות: ₪${formatCurrency(upcomingContractsTotalAbs)}`
+      : `מאוזן: ₪${formatCurrency(upcomingContractsTotalAbs)}`);
 
   const upcomingContractCards = (upcoming.upcomingContracts || []).slice(0, 8).map(item => {
     const tenantId = Number(item?.tenantId || 0);
@@ -2143,6 +2156,7 @@ async function renderReminders() {
       </div>
       <div style="border:1px solid #ffe0cc; border-radius:12px; padding:10px; background:linear-gradient(135deg,#fffdfb 0%,#fff5ec 100%);">
         <h3 style="margin: 0 0 8px 0; color:#b35c1e; font-size:15px;">מועדי סיום/עזיבה קרובים</h3>
+        <div style="font-size:12px; margin:0 0 8px 0; font-weight:700; color:${upcomingContractsTotalColor};">סה"כ מאזן כל הדיירים: <span style="direction:ltr; display:inline-block;">${upcomingContractsTotalLabel}</span></div>
         ${(upcoming.upcomingContracts || []).length
           ? `<div style="display:grid; gap:8px;">${upcomingContractCards}</div>`
           : '<div style="color:#666; font-size:13px;">אין מועדי סיום/עזיבה קרובים</div>'}
