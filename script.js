@@ -342,6 +342,9 @@ function applyRoleUI() {
   const bulkPanel = document.querySelector('.bulk-readings');
   if (isTenant) {
     if (tenantSubmitPanel) tenantSubmitPanel.style.display = canSubmitReadingsCurrentUser() ? 'block' : 'none';
+    if (tenantSubmitPanel && tenantSubmitPanel.style.display !== 'none') {
+      document.getElementById('tenant-reading-date').value = formatDateEu(new Date());
+    }
     if (bulkPanel) bulkPanel.style.display = 'none';
   }
 }
@@ -6897,6 +6900,7 @@ paymentForm?.addEventListener('submit', async e => {
 
   f.reset();
   document.getElementById('payment-reading-row').style.display = 'none';
+  document.getElementById('payment-date').value = formatDateEu(new Date());
   await renderPayments();
   await renderBalance();
 });
