@@ -6913,7 +6913,7 @@ document.getElementById('payment-tenant')?.addEventListener('change', async e =>
     ? await getAllReadingsRemote()
     : await getAllReadings();
   const unpaid = readings.filter(r => r.tenantId == tenantId && !r.paid);
-  select.innerHTML = '<option value="">ללא קריאה</option>';
+  select.innerHTML = '';
   unpaid.forEach(r => {
     const opt = document.createElement('option');
     opt.value = r.id;
