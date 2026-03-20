@@ -1526,11 +1526,8 @@ function calculateTenantBalanceBreakdown(tenant, payments, readings, waterPrice,
   const utilityDetails = { electricity: [], water: [] };
   const readingDebtMap = new Map();
   const readingTypeById = new Map();
-  const linkedReadingIds = new Set();
-  readingPayments.forEach(p => normalizePaymentReadingIds(p?.readingId).forEach(id => {
-    if (Number.isFinite(Number(id))) linkedReadingIds.add(Number(id));
-  }));
 
+  // Build base debt for each reading (unpaid readings carry their calculated amount; paid readings are zero debt).
   ['electricity', 'water'].forEach(type => {
     const chain = (byType.get(type) || []).sort((a, b) => dateValueFromAny(a?.date) - dateValueFromAny(b?.date));
     for (let i = 1; i < chain.length; i++) {
@@ -1544,32 +1541,36 @@ function calculateTenantBalanceBreakdown(tenant, payments, readings, waterPrice,
         amount = Math.max(0, consumption) * Number(waterPrice || 0);
       }
       const finalAmount = Math.max(0, amount || 0);
+      const debt = current?.paid ? 0 : finalAmount;
+
       if (current?.id !== undefined && current?.id !== null) {
-        readingDebtMap.set(Number(current.id), finalAmount);
+        readingDebtMap.set(Number(current.id), debt);
         readingTypeById.set(Number(current.id), type);
       }
 
-      const isLinked = current?.id !== undefined && current?.id !== null && linkedReadingIds.has(Number(current.id));
-      if (current?.paid || isLinked) {
-        continue;
-      }
-
-      utilityDebt[type] += finalAmount;
       utilityDetails[type].push({
         prevDate: parseDateToIso(prev?.date || ''),
         prevValue: Number(prev?.value || 0),
         currDate: parseDateToIso(current?.date || ''),
         currValue: Number(current?.value || 0),
         consumption: Math.max(0, Number(consumption || 0)),
-        amount: finalAmount,
-        readingId: current?.id || null
+        amount: debt,
+        readingId: current?.id || null,
+        paid: !!current?.paid
       });
     }
   });
 
+  const remainingReadingDebt = new Map(readingDebtMap);
+  const linkedReadingIds = new Set(
+    readingPayments
+      .flatMap(p => normalizePaymentReadingIds(p?.readingId))
+      .map(id => Number(id))
+      .filter(id => Number.isFinite(id))
+  );
+
   let readingPaymentRemainder = 0;
   let linkedReadingUnderpayment = 0;
-  const remainingLinkedDebt = new Map();
 
   readingPayments.forEach(p => {
     let amount = Number(p?.amount || 0);
@@ -1577,11 +1578,10 @@ function calculateTenantBalanceBreakdown(tenant, payments, readings, waterPrice,
     ids.forEach(id => {
       const rid = Number(id);
       if (!Number.isFinite(rid) || amount <= 0) return;
-      const debt = Number(readingDebtMap.get(rid) || 0);
-      const existingRemaining = Number(remainingLinkedDebt.get(rid) ?? debt);
+      const existingRemaining = Number(remainingReadingDebt.get(rid) || 0);
       const applied = Math.min(amount, existingRemaining);
       const updated = existingRemaining - applied;
-      remainingLinkedDebt.set(rid, updated);
+      remainingReadingDebt.set(rid, updated);
       amount -= applied;
     });
     if (amount > 0) {
@@ -1589,15 +1589,17 @@ function calculateTenantBalanceBreakdown(tenant, payments, readings, waterPrice,
     }
   });
 
-  for (const [rid, remaining] of remainingLinkedDebt.entries()) {
+  for (const [rid, remaining] of remainingReadingDebt.entries()) {
     if (remaining <= 0) continue;
     const type = readingTypeById.get(rid);
-    if (type === 'electricity' || type === 'water') {
-      utilityDebt[type] += remaining;
+    if (type !== 'electricity' && type !== 'water') continue;
+    utilityDebt[type] += remaining;
+    if (linkedReadingIds.has(rid)) {
       linkedReadingUnderpayment += remaining;
     }
   }
 
+  const finalReadingDebtMap = new Map(remainingReadingDebt);
   const effectiveOverpayment = overpaymentCredit + readingPaymentRemainder;
   const total = rentBalance + arnonaBalance + utilityDebt.electricity + utilityDebt.water - effectiveOverpayment;
 
@@ -1605,7 +1607,7 @@ function calculateTenantBalanceBreakdown(tenant, payments, readings, waterPrice,
   console.log('tenantId', tenantId);
   console.log('rentBalance', rentBalance, 'arnonaBalance', arnonaBalance);
   console.log('utilityDebt.electricity', utilityDebt.electricity, 'utilityDebt.water', utilityDebt.water);
-  console.log('readingDebtMap', Object.fromEntries(readingDebtMap));
+  console.log('readingDebtMap', Object.fromEntries(finalReadingDebtMap));
   console.log('paymentItems', paymentItemsForCurrentAndPastMonths);
   console.log('totalPaid', totalPaid, 'overpaymentCredit', overpaymentCredit, 'readingPaymentRemainder', readingPaymentRemainder, 'linkedReadingUnderpayment', linkedReadingUnderpayment, 'effectiveOverpayment', effectiveOverpayment);
   console.log('total', total);
@@ -6992,11 +6994,13 @@ paymentForm?.addEventListener('submit', async e => {
     resetPaymentFormMode();
   } else {
     await addPayment(payload);
-    if (payload.readingId && payload.readingId.length) {
-      for (const id of payload.readingId) {
-        await updateReading(id, { paid: true });
-      }
-    }
+    // We no longer force-mark readings as fully paid here because linked payments can be partial.
+    // The balance calculation now handles partial reading payments correctly.
+    //if (payload.readingId && payload.readingId.length) {
+    //  for (const id of payload.readingId) {
+    //    await updateReading(id, { paid: true });
+    //  }
+    //}
   }
 
   f.reset();
