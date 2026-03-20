@@ -6996,13 +6996,15 @@ paymentForm?.addEventListener('submit', async e => {
     resetPaymentFormMode();
   } else {
     await addPayment(payload);
-    // We no longer force-mark readings as fully paid here because linked payments can be partial.
-    // The balance calculation now handles partial reading payments correctly.
-    //if (payload.readingId && payload.readingId.length) {
-    //  for (const id of payload.readingId) {
-    //    await updateReading(id, { paid: true });
-    //  }
-    //}
+    if (payload.readingId && payload.readingId.length) {
+      for (const id of payload.readingId) {
+        try {
+          await updateReading(id, { paid: true });
+        } catch (err) {
+          console.warn('Failed to mark reading paid:', id, err);
+        }
+      }
+    }
   }
 
   f.reset();
