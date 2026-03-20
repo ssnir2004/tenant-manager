@@ -7012,6 +7012,7 @@ paymentForm?.addEventListener('submit', async e => {
   document.getElementById('payment-date').value = formatDateEu(new Date());
   await renderPayments();
   await renderBalance();
+  await renderReadings();
 });
 
 document.getElementById('payment-tenant')?.addEventListener('change', async e => {
