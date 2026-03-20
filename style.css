@@ -703,20 +703,62 @@ textarea {
     width: 100%;
     border-right: none;
     border-bottom: 1px solid var(--border);
+    padding: 12px;
   }
   .controls {
     flex-direction: row;
     flex-wrap: wrap;
+    gap: 6px;
   }
   .controls button {
     flex: 1;
-    min-width: 120px;
+    min-width: 100px;
+    padding: 8px 12px;
+    font-size: 12px;
   }
   .content {
-    padding: 16px;
+    padding: 12px;
   }
   .card {
-    padding: 16px;
+    padding: 12px;
+    margin-bottom: 12px;
+  }
+  .card h2 {
+    font-size: 18px;
+    margin-bottom: 12px;
+  }
+  .section-container {
+    padding: 8px;
+  }
+  .tenant-list {
+    gap: 6px;
+    max-height: calc(100vh - 200px);
+  }
+  .btn-open-tenant-balance {
+    padding: 8px;
+    border-radius: 8px;
+  }
+  .tenant-main-card-title {
+    font-size: 13px;
+  }
+  .tenant-main-card-sub {
+    font-size: 11px;
+  }
+  .tenant-main-card-date {
+    font-size: 11px;
+  }
+  .tenant-main-card-balance {
+    font-size: 12px;
+    margin-top: 4px;
+  }
+  .dashboard-section {
+    margin-bottom: 16px;
+  }
+  .income-summary {
+    font-size: 12px;
+  }
+  .timeline-container {
+    font-size: 11px;
   }
 }
 
