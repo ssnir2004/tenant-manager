@@ -1510,6 +1510,7 @@ function calculateTenantBalanceBreakdown(tenant, payments, readings, waterPrice,
 
   const rentBalance = expectedRent - rentPaidApplied;
   const arnonaBalance = expectedArnona - arnonaPaidApplied;
+  console.log('rentPaidApplied', rentPaidApplied, 'arnonaPaidApplied', arnonaPaidApplied, 'remainingCredit', remainingCredit, 'overpaymentCredit', overpaymentCredit);
 
   const tenantReadings = (readings || [])
     .filter(r => Number(r?.tenantId) === tenantId)
@@ -1608,6 +1609,7 @@ function calculateTenantBalanceBreakdown(tenant, payments, readings, waterPrice,
   console.log('rentBalance', rentBalance, 'arnonaBalance', arnonaBalance);
   console.log('utilityDebt.electricity', utilityDebt.electricity, 'utilityDebt.water', utilityDebt.water);
   console.log('readingDebtMap', Object.fromEntries(finalReadingDebtMap));
+  console.log('tenantPayments', tenantPayments, 'readingPayments', readingPayments);
   console.log('paymentItems', paymentItemsForCurrentAndPastMonths);
   console.log('totalPaid', totalPaid, 'overpaymentCredit', overpaymentCredit, 'readingPaymentRemainder', readingPaymentRemainder, 'linkedReadingUnderpayment', linkedReadingUnderpayment, 'effectiveOverpayment', effectiveOverpayment);
   console.log('total', total);
