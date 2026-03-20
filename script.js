@@ -6862,7 +6862,7 @@ paymentForm?.addEventListener('submit', async e => {
     account: f.elements['account'].value,
     date: f.elements['date'].value,
     notes: f.elements['notes'].value || '',
-    readingId: f.elements['readingId'].value ? Number(f.elements['readingId'].value) : null
+    readingId: Array.from(f.elements['readingId'].selectedOptions).map(o => Number(o.value)).filter(id => id)
   };
 
   if (payload.date) {
@@ -6888,8 +6888,10 @@ paymentForm?.addEventListener('submit', async e => {
     resetPaymentFormMode();
   } else {
     await addPayment(payload);
-    if (payload.readingId) {
-      await updateReading(payload.readingId, { paid: true });
+    if (payload.readingId && payload.readingId.length) {
+      for (const id of payload.readingId) {
+        await updateReading(id, { paid: true });
+      }
     }
   }
 
