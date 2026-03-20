@@ -1357,7 +1357,7 @@ function calculateTenantBalanceBreakdown(tenant, payments, readings, waterPrice,
     };
   }
 
-  const tenantPayments = (payments || []).filter(p => Number(p?.tenantId) === tenantId);
+  const tenantPayments = (payments || []).filter(p => Number(p?.tenantId) === tenantId && (!p.readingId || p.readingId.length === 0));
   const todayMonthKey = (parseDateToIso(todayIso) || todayIso).slice(0, 7);
   const paymentItems = tenantPayments
     .map(p => ({
