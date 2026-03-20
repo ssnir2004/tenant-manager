@@ -1525,21 +1525,17 @@ function calculateTenantBalanceBreakdown(tenant, payments, readings, waterPrice,
   const utilityDebt = { electricity: 0, water: 0 };
   const utilityDetails = { electricity: [], water: [] };
   const readingDebtMap = new Map();
+  const readingTypeById = new Map();
+  const linkedReadingIds = new Set();
+  readingPayments.forEach(p => normalizePaymentReadingIds(p?.readingId).forEach(id => {
+    if (Number.isFinite(Number(id))) linkedReadingIds.add(Number(id));
+  }));
+
   ['electricity', 'water'].forEach(type => {
     const chain = (byType.get(type) || []).sort((a, b) => dateValueFromAny(a?.date) - dateValueFromAny(b?.date));
     for (let i = 1; i < chain.length; i++) {
       const prev = chain[i - 1];
       const current = chain[i];
-      const isLinked = readingPayments.some(p => {
-        const ids = normalizePaymentReadingIds(p?.readingId);
-        return ids.some(id => Number(id) === Number(current.id));
-      });
-      if (current?.paid || isLinked) {
-        if (isLinked) {
-          readingDebtMap.set(Number(current.id), finalAmount);
-        }
-        continue;
-      }
       const consumption = Number(current?.value || 0) - Number(prev?.value || 0);
       let amount = 0;
       if (type === 'electricity') {
@@ -1548,10 +1544,17 @@ function calculateTenantBalanceBreakdown(tenant, payments, readings, waterPrice,
         amount = Math.max(0, consumption) * Number(waterPrice || 0);
       }
       const finalAmount = Math.max(0, amount || 0);
-      utilityDebt[type] += finalAmount;
       if (current?.id !== undefined && current?.id !== null) {
         readingDebtMap.set(Number(current.id), finalAmount);
+        readingTypeById.set(Number(current.id), type);
       }
+
+      const isLinked = current?.id !== undefined && current?.id !== null && linkedReadingIds.has(Number(current.id));
+      if (current?.paid || isLinked) {
+        continue;
+      }
+
+      utilityDebt[type] += finalAmount;
       utilityDetails[type].push({
         prevDate: parseDateToIso(prev?.date || ''),
         prevValue: Number(prev?.value || 0),
@@ -1565,25 +1568,43 @@ function calculateTenantBalanceBreakdown(tenant, payments, readings, waterPrice,
   });
 
   let readingPaymentRemainder = 0;
+  let linkedReadingUnderpayment = 0;
+  const remainingLinkedDebt = new Map();
+
   readingPayments.forEach(p => {
-    const amount = Number(p?.amount || 0);
+    let amount = Number(p?.amount || 0);
     const ids = normalizePaymentReadingIds(p?.readingId);
-    const covered = ids.reduce((sum, id) => {
+    ids.forEach(id => {
       const rid = Number(id);
-      if (!Number.isFinite(rid)) return sum;
-      return sum + Number(readingDebtMap.get(rid) || 0);
-    }, 0);
-    readingPaymentRemainder += Math.max(0, amount - covered);
+      if (!Number.isFinite(rid) || amount <= 0) return;
+      const debt = Number(readingDebtMap.get(rid) || 0);
+      const existingRemaining = Number(remainingLinkedDebt.get(rid) ?? debt);
+      const applied = Math.min(amount, existingRemaining);
+      const updated = existingRemaining - applied;
+      remainingLinkedDebt.set(rid, updated);
+      amount -= applied;
+    });
+    if (amount > 0) {
+      readingPaymentRemainder += amount;
+    }
   });
-  const effectiveOverpayment = overpaymentCredit + readingPaymentRemainder;
-  const total = rentBalance + arnonaBalance + utilityDebt.electricity + utilityDebt.water - effectiveOverpayment;
+
+  for (const [rid, remaining] of remainingLinkedDebt.entries()) {
+    if (remaining <= 0) continue;
+    const type = readingTypeById.get(rid);
+    if (type === 'electricity' || type === 'water') {
+      utilityDebt[type] += remaining;
+      linkedReadingUnderpayment += remaining;
+    }
+  }
+
   console.groupCollapsed(`balance debug tenant ${tenantId}`);
   console.log('tenantId', tenantId);
   console.log('rentBalance', rentBalance, 'arnonaBalance', arnonaBalance);
   console.log('utilityDebt.electricity', utilityDebt.electricity, 'utilityDebt.water', utilityDebt.water);
   console.log('readingDebtMap', Object.fromEntries(readingDebtMap));
   console.log('paymentItems', paymentItemsForCurrentAndPastMonths);
-  console.log('totalPaid', totalPaid, 'overpaymentCredit', overpaymentCredit, 'readingPaymentRemainder', readingPaymentRemainder, 'effectiveOverpayment', effectiveOverpayment);
+  console.log('totalPaid', totalPaid, 'overpaymentCredit', overpaymentCredit, 'readingPaymentRemainder', readingPaymentRemainder, 'linkedReadingUnderpayment', linkedReadingUnderpayment, 'effectiveOverpayment', effectiveOverpayment);
   console.log('total', total);
   console.groupEnd();
   return {
