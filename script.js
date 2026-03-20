@@ -6861,7 +6861,8 @@ paymentForm?.addEventListener('submit', async e => {
     method: f.elements['method'].value,
     account: f.elements['account'].value,
     date: f.elements['date'].value,
-    notes: f.elements['notes'].value || ''
+    notes: f.elements['notes'].value || '',
+    readingId: f.elements['readingId'].value ? Number(f.elements['readingId'].value) : null
   };
 
   if (payload.date) {
@@ -6887,11 +6888,37 @@ paymentForm?.addEventListener('submit', async e => {
     resetPaymentFormMode();
   } else {
     await addPayment(payload);
+    if (payload.readingId) {
+      await updateReading(payload.readingId, { paid: true });
+    }
   }
 
   f.reset();
+  document.getElementById('payment-reading-row').style.display = 'none';
   await renderPayments();
   await renderBalance();
+});
+
+document.getElementById('payment-tenant')?.addEventListener('change', async e => {
+  const tenantId = Number(e.target.value || 0);
+  const row = document.getElementById('payment-reading-row');
+  const select = document.getElementById('payment-reading');
+  if (!tenantId || !row || !select) {
+    row.style.display = 'none';
+    return;
+  }
+  const readings = isRemoteApp()
+    ? await getAllReadingsRemote()
+    : await getAllReadings();
+  const unpaid = readings.filter(r => r.tenantId == tenantId && !r.paid);
+  select.innerHTML = '<option value="">ללא קריאה</option>';
+  unpaid.forEach(r => {
+    const opt = document.createElement('option');
+    opt.value = r.id;
+    opt.textContent = `${r.meterType === 'water' ? 'מים' : 'חשמל'} - ${formatDateEu(r.date)} - ${r.value}`;
+    select.appendChild(opt);
+  });
+  row.style.display = unpaid.length ? '' : 'none';
 });
 
 const paymentsExportBtn = document.getElementById('payments-export-csv');
