@@ -6996,7 +6996,15 @@ paymentForm?.addEventListener('submit', async e => {
     resetPaymentFormMode();
   } else {
     await addPayment(payload);
-    // Do NOT mark readings as paid automatically. Let the balance logic handle partial/full payment coverage.
+    if (payload.readingId && payload.readingId.length) {
+      for (const id of payload.readingId) {
+        try {
+          await updateReading(id, { paid: true });
+        } catch (err) {
+          console.warn('Failed to mark reading paid:', id, err);
+        }
+      }
+    }
   }
 
   f.reset();
