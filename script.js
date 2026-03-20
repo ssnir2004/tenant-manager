@@ -1339,6 +1339,37 @@ function enumerateMonthsInclusive(fromIso, toIso) {
   return result;
 }
 
+function normalizePaymentReadingIds(readingId) {
+  if (readingId === null || readingId === undefined || readingId === '') return [];
+  if (Array.isArray(readingId)) {
+    return readingId
+      .map(id => Number(id))
+      .filter(id => Number.isFinite(id));
+  }
+  if (typeof readingId === 'string') {
+    const trimmed = readingId.trim();
+    if (!trimmed) return [];
+    // json-encoded array
+    if (trimmed.startsWith('[') && trimmed.endsWith(']')) {
+      try {
+        const parsed = JSON.parse(trimmed);
+        if (Array.isArray(parsed)) {
+          return parsed.map(id => Number(id)).filter(id => Number.isFinite(id));
+        }
+      } catch (err) {
+        // ignore
+      }
+    }
+    // comma-separated
+    return trimmed
+      .split(',')
+      .map(part => Number(part.trim()))
+      .filter(id => Number.isFinite(id));
+  }
+  const numeric = Number(readingId);
+  return Number.isFinite(numeric) ? [numeric] : [];
+}
+
 function calculateTenantBalanceBreakdown(tenant, payments, readings, waterPrice, kvaCon, todayIso = currentIsoDate()) {
   const tenantId = Number(tenant?.id);
   if (!Number.isFinite(tenantId) || tenantId <= 0) {
@@ -1359,14 +1390,12 @@ function calculateTenantBalanceBreakdown(tenant, payments, readings, waterPrice,
 
   const tenantPaymentsAll = (payments || []).filter(p => Number(p?.tenantId) === tenantId);
   const tenantPayments = tenantPaymentsAll.filter(p => {
-    if (!p.readingId) return true;
-    if (Array.isArray(p.readingId)) return p.readingId.length === 0;
-    return false;
+    const ids = normalizePaymentReadingIds(p?.readingId);
+    return ids.length === 0;
   });
   const readingPayments = tenantPaymentsAll.filter(p => {
-    if (!p.readingId) return false;
-    if (Array.isArray(p.readingId)) return p.readingId.length > 0;
-    return true;
+    const ids = normalizePaymentReadingIds(p?.readingId);
+    return ids.length > 0;
   });
 
   const todayMonthKey = (parseDateToIso(todayIso) || todayIso).slice(0, 7);
@@ -1502,7 +1531,7 @@ function calculateTenantBalanceBreakdown(tenant, payments, readings, waterPrice,
       const prev = chain[i - 1];
       const current = chain[i];
       const isLinked = readingPayments.some(p => {
-        const ids = Array.isArray(p.readingId) ? p.readingId : (p.readingId ? [p.readingId] : []);
+        const ids = normalizePaymentReadingIds(p?.readingId);
         return ids.some(id => Number(id) === Number(current.id));
       });
       if (current?.paid || isLinked) {
@@ -1538,9 +1567,7 @@ function calculateTenantBalanceBreakdown(tenant, payments, readings, waterPrice,
   let readingPaymentRemainder = 0;
   readingPayments.forEach(p => {
     const amount = Number(p?.amount || 0);
-    const ids = Array.isArray(p.readingId)
-      ? p.readingId
-      : (p.readingId ? [p.readingId] : []);
+    const ids = normalizePaymentReadingIds(p?.readingId);
     const covered = ids.reduce((sum, id) => {
       const rid = Number(id);
       if (!Number.isFinite(rid)) return sum;
