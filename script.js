@@ -1580,7 +1580,8 @@ function calculateTenantBalanceBreakdown(tenant, payments, readings, waterPrice,
   console.groupCollapsed(`balance debug tenant ${tenantId}`);
   console.log('tenantId', tenantId);
   console.log('rentBalance', rentBalance, 'arnonaBalance', arnonaBalance);
-  console.log('utilityDebt', utilityDebt, 'readingDebtMap', Object.fromEntries(readingDebtMap));
+  console.log('utilityDebt.electricity', utilityDebt.electricity, 'utilityDebt.water', utilityDebt.water);
+  console.log('readingDebtMap', Object.fromEntries(readingDebtMap));
   console.log('paymentItems', paymentItemsForCurrentAndPastMonths);
   console.log('totalPaid', totalPaid, 'overpaymentCredit', overpaymentCredit, 'readingPaymentRemainder', readingPaymentRemainder, 'effectiveOverpayment', effectiveOverpayment);
   console.log('total', total);
