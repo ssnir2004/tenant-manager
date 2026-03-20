@@ -1505,7 +1505,7 @@ function calculateTenantBalanceBreakdown(tenant, payments, readings, waterPrice,
         const ids = Array.isArray(p.readingId) ? p.readingId : (p.readingId ? [p.readingId] : []);
         return ids.some(id => Number(id) === Number(current.id));
       });
-      if (current?.paid || isLinked) continue;
+      if (current?.paid) continue;
       const consumption = Number(current?.value || 0) - Number(prev?.value || 0);
       let amount = 0;
       if (type === 'electricity') {
