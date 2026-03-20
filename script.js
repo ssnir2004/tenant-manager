@@ -1357,7 +1357,18 @@ function calculateTenantBalanceBreakdown(tenant, payments, readings, waterPrice,
     };
   }
 
-  const tenantPayments = (payments || []).filter(p => Number(p?.tenantId) === tenantId && (!p.readingId || p.readingId.length === 0));
+  const tenantPaymentsAll = (payments || []).filter(p => Number(p?.tenantId) === tenantId);
+  const tenantPayments = tenantPaymentsAll.filter(p => {
+    if (!p.readingId) return true;
+    if (Array.isArray(p.readingId)) return p.readingId.length === 0;
+    return false;
+  });
+  const readingPayments = tenantPaymentsAll.filter(p => {
+    if (!p.readingId) return false;
+    if (Array.isArray(p.readingId)) return p.readingId.length > 0;
+    return true;
+  });
+
   const todayMonthKey = (parseDateToIso(todayIso) || todayIso).slice(0, 7);
   const paymentItems = tenantPayments
     .map(p => ({
@@ -1367,7 +1378,9 @@ function calculateTenantBalanceBreakdown(tenant, payments, readings, waterPrice,
     .filter(p => !!p.dateIso)
     .sort((a, b) => a.dateIso.localeCompare(b.dateIso));
   const paymentItemsForCurrentAndPastMonths = paymentItems.filter(p => p.dateIso.slice(0, 7) <= todayMonthKey);
-  const totalPaid = paymentItemsForCurrentAndPastMonths.reduce((sum, p) => sum + Number(p.amount || 0), 0);
+  let totalPaid = paymentItemsForCurrentAndPastMonths.reduce((sum, p) => sum + Number(p.amount || 0), 0);
+
+  // readingPayments will be handled later, after utility costs calculation
 
   const rentAmount = Number(tenant?.rentAmount || 0);
   const apartmentKey = normalizeApartmentKey(tenant?.apartmentNumber);
@@ -1482,6 +1495,7 @@ function calculateTenantBalanceBreakdown(tenant, payments, readings, waterPrice,
 
   const utilityDebt = { electricity: 0, water: 0 };
   const utilityDetails = { electricity: [], water: [] };
+  const readingDebtMap = new Map();
   ['electricity', 'water'].forEach(type => {
     const chain = (byType.get(type) || []).sort((a, b) => dateValueFromAny(a?.date) - dateValueFromAny(b?.date));
     for (let i = 1; i < chain.length; i++) {
@@ -1497,18 +1511,36 @@ function calculateTenantBalanceBreakdown(tenant, payments, readings, waterPrice,
       }
       const finalAmount = Math.max(0, amount || 0);
       utilityDebt[type] += finalAmount;
+      if (current?.id !== undefined && current?.id !== null) {
+        readingDebtMap.set(Number(current.id), finalAmount);
+      }
       utilityDetails[type].push({
         prevDate: parseDateToIso(prev?.date || ''),
         prevValue: Number(prev?.value || 0),
         currDate: parseDateToIso(current?.date || ''),
         currValue: Number(current?.value || 0),
         consumption: Math.max(0, Number(consumption || 0)),
-        amount: finalAmount
+        amount: finalAmount,
+        readingId: current?.id || null
       });
     }
   });
 
-  const total = rentBalance + arnonaBalance + utilityDebt.electricity + utilityDebt.water - overpaymentCredit;
+  let readingPaymentRemainder = 0;
+  readingPayments.forEach(p => {
+    const amount = Number(p?.amount || 0);
+    const ids = Array.isArray(p.readingId)
+      ? p.readingId
+      : (p.readingId ? [p.readingId] : []);
+    const covered = ids.reduce((sum, id) => {
+      const rid = Number(id);
+      if (!Number.isFinite(rid)) return sum;
+      return sum + Number(readingDebtMap.get(rid) || 0);
+    }, 0);
+    readingPaymentRemainder += Math.max(0, amount - covered);
+  });
+  const effectiveOverpayment = overpaymentCredit + readingPaymentRemainder;
+  const total = rentBalance + arnonaBalance + utilityDebt.electricity + utilityDebt.water - effectiveOverpayment;
   return {
     rent: rentBalance,
     arnona: arnonaBalance,
