@@ -1577,7 +1577,7 @@ function calculateTenantBalanceBreakdown(tenant, payments, readings, waterPrice,
   });
   const effectiveOverpayment = overpaymentCredit + readingPaymentRemainder;
   const total = rentBalance + arnonaBalance + utilityDebt.electricity + utilityDebt.water - effectiveOverpayment;
-  console.groupCollapsed('balance debug tenant #{tenantId}');
+  console.groupCollapsed(`balance debug tenant ${tenantId}`);
   console.log('tenantId', tenantId);
   console.log('rentBalance', rentBalance, 'arnonaBalance', arnonaBalance);
   console.log('utilityDebt', utilityDebt, 'readingDebtMap', Object.fromEntries(readingDebtMap));
