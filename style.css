@@ -731,25 +731,29 @@ textarea {
     padding: 8px;
   }
   .tenant-list {
-    gap: 6px;
-    max-height: calc(100vh - 200px);
+    gap: 4px;
+    max-height: calc(100vh - 180px);
+  }
+  .tenant-item {
+    padding: 8px;
+    border-radius: 6px;
   }
   .btn-open-tenant-balance {
-    padding: 8px;
-    border-radius: 8px;
+    padding: 6px;
+    border-radius: 6px;
   }
   .tenant-main-card-title {
-    font-size: 13px;
+    font-size: 12px;
   }
   .tenant-main-card-sub {
-    font-size: 11px;
+    font-size: 10px;
   }
   .tenant-main-card-date {
-    font-size: 11px;
+    font-size: 10px;
   }
   .tenant-main-card-balance {
-    font-size: 12px;
-    margin-top: 4px;
+    font-size: 11px;
+    margin-top: 3px;
   }
   .dashboard-section {
     margin-bottom: 16px;
