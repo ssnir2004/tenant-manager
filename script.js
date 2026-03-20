@@ -1530,6 +1530,16 @@ function calculateTenantBalanceBreakdown(tenant, payments, readings, waterPrice,
     for (let i = 1; i < chain.length; i++) {
       const prev = chain[i - 1];
       const current = chain[i];
+      const isLinked = readingPayments.some(p => {
+        const ids = normalizePaymentReadingIds(p?.readingId);
+        return ids.some(id => Number(id) === Number(current.id));
+      });
+      if (current?.paid || isLinked) {
+        if (isLinked) {
+          readingDebtMap.set(Number(current.id), finalAmount);
+        }
+        continue;
+      }
       const consumption = Number(current?.value || 0) - Number(prev?.value || 0);
       let amount = 0;
       if (type === 'electricity') {
@@ -1565,7 +1575,7 @@ function calculateTenantBalanceBreakdown(tenant, payments, readings, waterPrice,
     }, 0);
     readingPaymentRemainder += Math.max(0, amount - covered);
   });
-  const effectiveOverpayment = readingPaymentRemainder;
+  const effectiveOverpayment = overpaymentCredit + readingPaymentRemainder;
   const total = rentBalance + arnonaBalance + utilityDebt.electricity + utilityDebt.water - effectiveOverpayment;
   console.groupCollapsed(`balance debug tenant ${tenantId}`);
   console.log('tenantId', tenantId);
