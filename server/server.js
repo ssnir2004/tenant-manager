@@ -1012,9 +1012,10 @@ function respondDbError(res, err) {
     const p = req.body || {};
     const now = new Date().toISOString();
     try {
+      const readingIdValue = p.readingId === undefined ? null : (typeof p.readingId === 'string' ? p.readingId : JSON.stringify(p.readingId));
       const result = await db.run(
-        'INSERT INTO payments (tenantId, amount, method, account, date, notes, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?)',
-        [p.tenantId ?? null, p.amount ?? null, p.method || '', p.account || '', p.date || '', p.notes || '', now]
+        'INSERT INTO payments (tenantId, amount, method, account, date, notes, readingId, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+        [p.tenantId ?? null, p.amount ?? null, p.method || '', p.account || '', p.date || '', p.notes || '', readingIdValue, now]
       );
       const row = await db.get('SELECT * FROM payments WHERE id = ?', [result.lastID]);
       res.json(row);
@@ -1027,9 +1028,10 @@ function respondDbError(res, err) {
     if (!canWrite(req.user)) return res.status(403).json({ error: 'Forbidden' });
     const p = req.body || {};
     try {
+      const readingIdValue = p.readingId === undefined ? null : (typeof p.readingId === 'string' ? p.readingId : JSON.stringify(p.readingId));
       await db.run(
-        'UPDATE payments SET tenantId = ?, amount = ?, method = ?, account = ?, date = ?, notes = ? WHERE id = ?',
-        [p.tenantId ?? null, p.amount ?? null, p.method || '', p.account || '', p.date || '', p.notes || '', req.params.id]
+        'UPDATE payments SET tenantId = ?, amount = ?, method = ?, account = ?, date = ?, notes = ?, readingId = ? WHERE id = ?',
+        [p.tenantId ?? null, p.amount ?? null, p.method || '', p.account || '', p.date || '', p.notes || '', readingIdValue, req.params.id]
       );
       const row = await db.get('SELECT * FROM payments WHERE id = ?', [req.params.id]);
       res.json(row);

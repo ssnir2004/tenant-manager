@@ -75,6 +75,7 @@ CREATE TABLE IF NOT EXISTS payments (
   account TEXT,
   date TEXT,
   notes TEXT,
+  "readingId" JSONB,
   "createdAt" TEXT,
   FOREIGN KEY ("tenantId") REFERENCES tenants(id) ON DELETE SET NULL
 );

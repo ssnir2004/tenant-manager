@@ -182,6 +182,9 @@ async function migrateSchema(db) {
 
   const expensesColumns = await getTableColumns(db, 'expenses');
   await ensureColumn(db, 'expenses', 'paid', 'INTEGER DEFAULT 0', expensesColumns);
+
+  const paymentsColumns = await getTableColumns(db, 'payments');
+  await ensureColumn(db, 'payments', 'readingId', db.isPostgres ? 'JSONB' : 'TEXT', paymentsColumns);
 }
 
 async function getTableColumns(db, tableName) {

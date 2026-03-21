@@ -950,7 +950,8 @@ async function addPaymentRemote(p) {
     method: p.method || '',
     account: p.account || '',
     date: p.date || '',
-    notes: p.notes || ''
+    notes: p.notes || '',
+    readingId: p.readingId ?? []
   };
   return await apiRequest('/api/payments', {
     method: 'POST',
