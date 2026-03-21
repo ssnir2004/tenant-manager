@@ -7090,6 +7090,13 @@ tenantForm?.addEventListener('submit', async e => {
     if (!parsedEnd) { alert('תאריך סיום לא תקין'); return; }
     data.endDate = parsedEnd;
   }
+  if (data.moveOutDate) {
+    const parsedMoveOut = parseDateToIso(data.moveOutDate);
+    if (!parsedMoveOut) { alert('תאריך עזיבה לא תקין'); return; }
+    data.moveOutDate = parsedMoveOut;
+  } else {
+    data.moveOutDate = null;
+  }
   data.depositDay = normalizeDepositDay(data.depositDay);
   if (isRemoteApp()) {
     if (f.editId) {
@@ -8327,6 +8334,7 @@ document.getElementById('tenants-table')?.addEventListener('click', async e => {
     }
     tenantForm.elements['startDate'].value = formatDateEu(tenant.startDate || '');
     tenantForm.elements['endDate'].value = formatDateEu(tenant.endDate || '');
+    tenantForm.elements['moveOutDate'].value = formatDateEu(tenant.moveOutDate || '');
     const rentHistoryInput = document.getElementById('rent-history');
     if (rentHistoryInput) rentHistoryInput.value = formatRentHistoryForText(tenant.rentHistory || []);
     const arnonaHistoryInput = document.getElementById('arnona-history');
