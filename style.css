@@ -5,6 +5,7 @@
 }
 
 :root {
+  --sidebar-width: 280px;
   --accent: #2b6cb0;
   --accent-dark: #1e4d7b;
   --accent-light: #5a8fd6;
@@ -100,12 +101,46 @@ main {
 }
 
 .sidebar {
-  width: 280px;
+  width: var(--sidebar-width);
+  min-width: 220px;
+  max-width: 620px;
   padding: 16px;
   background: var(--card);
   border-right: 1px solid var(--border);
   overflow-y: auto;
   box-shadow: 1px 0 10px rgba(0,0,0,0.05);
+}
+
+.sidebar-resizer {
+  width: 10px;
+  cursor: col-resize;
+  background: linear-gradient(180deg, #f7fbff 0%, #eef4fa 100%);
+  border-left: 1px solid #dde6ef;
+  border-right: 1px solid #dde6ef;
+  flex: 0 0 10px;
+  position: relative;
+}
+
+.sidebar-resizer::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 3px;
+  height: 48px;
+  transform: translate(-50%, -50%);
+  border-radius: 999px;
+  background: rgba(43, 108, 176, 0.35);
+}
+
+.sidebar-resizer:hover,
+body.sidebar-resizing .sidebar-resizer {
+  background: linear-gradient(180deg, #eef6ff 0%, #e1edf9 100%);
+}
+
+body.sidebar-resizing {
+  user-select: none;
+  cursor: col-resize;
 }
 
 .controls {
@@ -699,9 +734,14 @@ textarea {
   }
   .sidebar {
     width: 100%;
+    max-width: none;
+    min-width: 0;
     border-right: none;
     border-bottom: 1px solid var(--border);
     padding: 12px;
+  }
+  .sidebar-resizer {
+    display: none;
   }
   .controls {
     flex-direction: row;

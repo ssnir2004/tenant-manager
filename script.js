@@ -4,6 +4,71 @@ console.log('App version:', APP_VERSION);
 const DB_NAME = 'tenant_mgmt_v1';
 const DB_VERSION = 5;
 const STORES = ['tenants', 'readings', 'bills', 'payments', 'expenses', 'solar', 'settings'];
+const SIDEBAR_WIDTH_STORAGE_KEY = 'sidebarWidthPx';
+
+function initSidebarResize() {
+  const sidebar = document.getElementById('main-sidebar');
+  const resizer = document.getElementById('sidebar-resizer');
+  const mainEl = document.querySelector('main');
+  if (!sidebar || !resizer || !mainEl) return;
+
+  const minWidth = 220;
+  const calcMaxWidth = () => Math.max(320, Math.min(620, window.innerWidth - 320));
+
+  const applySidebarWidth = (widthPx) => {
+    const maxWidth = calcMaxWidth();
+    const clamped = Math.max(minWidth, Math.min(maxWidth, Number(widthPx) || 280));
+    document.documentElement.style.setProperty('--sidebar-width', `${clamped}px`);
+    return clamped;
+  };
+
+  const savedWidth = Number(localStorage.getItem(SIDEBAR_WIDTH_STORAGE_KEY));
+  if (Number.isFinite(savedWidth) && savedWidth > 0) {
+    applySidebarWidth(savedWidth);
+  }
+
+  const handleDragMove = (clientX) => {
+    if (window.matchMedia('(max-width: 768px)').matches) return;
+    const mainRect = mainEl.getBoundingClientRect();
+    const nextWidth = mainRect.right - clientX;
+    applySidebarWidth(nextWidth);
+  };
+
+  const onPointerDown = (event) => {
+    if (event.button !== 0) return;
+    if (window.matchMedia('(max-width: 768px)').matches) return;
+    event.preventDefault();
+    document.body.classList.add('sidebar-resizing');
+    resizer.setPointerCapture(event.pointerId);
+  };
+
+  const onPointerMove = (event) => {
+    if (!document.body.classList.contains('sidebar-resizing')) return;
+    handleDragMove(event.clientX);
+  };
+
+  const onPointerUp = () => {
+    if (!document.body.classList.contains('sidebar-resizing')) return;
+    document.body.classList.remove('sidebar-resizing');
+    const computed = getComputedStyle(document.documentElement).getPropertyValue('--sidebar-width').trim();
+    const numericWidth = Number((computed || '').replace('px', ''));
+    if (Number.isFinite(numericWidth) && numericWidth > 0) {
+      localStorage.setItem(SIDEBAR_WIDTH_STORAGE_KEY, String(Math.round(numericWidth)));
+    }
+  };
+
+  resizer.addEventListener('pointerdown', onPointerDown);
+  window.addEventListener('pointermove', onPointerMove);
+  window.addEventListener('pointerup', onPointerUp);
+
+  window.addEventListener('resize', () => {
+    if (window.matchMedia('(max-width: 768px)').matches) return;
+    const current = Number(getComputedStyle(document.documentElement).getPropertyValue('--sidebar-width').replace('px', '').trim());
+    if (Number.isFinite(current) && current > 0) {
+      applySidebarWidth(current);
+    }
+  });
+}
 
 function isRemoteApp() {
   // Check if accessing via file:// protocol - always treat as local
@@ -9364,6 +9429,8 @@ async function clearAllParentPaymentsData() {
 
 // Init
 window.addEventListener('DOMContentLoaded', async () => { 
+  initSidebarResize();
+
   const authActionBtn = document.getElementById('auth-action-btn');
   if (authActionBtn) {
     authActionBtn.addEventListener('click', async () => {
