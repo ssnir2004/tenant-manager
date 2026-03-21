@@ -1539,7 +1539,6 @@ function calculateTenantBalanceBreakdown(tenant, payments, readings, waterPrice,
 
   const rentBalance = expectedRent - rentPaidApplied;
   const arnonaBalance = expectedArnona - arnonaPaidApplied;
-  console.log('rentPaidApplied', rentPaidApplied, 'arnonaPaidApplied', arnonaPaidApplied, 'remainingCredit', remainingCredit, 'overpaymentCredit', overpaymentCredit);
 
   const tenantReadings = (readings || [])
     .filter(r => Number(r?.tenantId) === tenantId)
@@ -1603,7 +1602,6 @@ function calculateTenantBalanceBreakdown(tenant, payments, readings, waterPrice,
   const remainingReadingDebt = new Map(readingDebtMap);
 
   let readingPaymentRemainder = 0;
-  let linkedReadingUnderpayment = 0;
 
   readingPayments.forEach(p => {
     let amount = Number(p?.amount || 0);
@@ -1627,25 +1625,10 @@ function calculateTenantBalanceBreakdown(tenant, payments, readings, waterPrice,
     const type = readingTypeById.get(rid);
     if (type !== 'electricity' && type !== 'water') continue;
     utilityDebt[type] += remaining;
-    if (linkedReadingIds.has(rid)) {
-      linkedReadingUnderpayment += remaining;
-    }
   }
 
-  const finalReadingDebtMap = new Map(remainingReadingDebt);
   const effectiveOverpayment = overpaymentCredit + readingPaymentRemainder;
   const total = rentBalance + arnonaBalance + utilityDebt.electricity + utilityDebt.water - effectiveOverpayment;
-
-  console.groupCollapsed(`balance debug tenant ${tenantId}`);
-  console.log('tenantId', tenantId);
-  console.log('rentBalance', rentBalance, 'arnonaBalance', arnonaBalance);
-  console.log('utilityDebt.electricity', utilityDebt.electricity, 'utilityDebt.water', utilityDebt.water);
-  console.log('readingDebtMap', Object.fromEntries(finalReadingDebtMap));
-  console.log('tenantPayments', tenantPayments, 'readingPayments', readingPayments);
-  console.log('paymentItems', paymentItemsForCurrentAndPastMonths);
-  console.log('totalPaid', totalPaid, 'overpaymentCredit', overpaymentCredit, 'readingPaymentRemainder', readingPaymentRemainder, 'linkedReadingUnderpayment', linkedReadingUnderpayment, 'effectiveOverpayment', effectiveOverpayment);
-  console.log('total', total);
-  console.groupEnd();
   return {
     rent: rentBalance,
     arnona: arnonaBalance,
