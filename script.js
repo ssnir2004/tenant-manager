@@ -1841,6 +1841,8 @@ let remindersShowReleased = false;
 let remindersExpandedDepositTenantId = null;
 let remindersExpandedContractTenantId = null;
 let remindersExpandedContractCalcTenantId = null;
+let sidebarExpandedTenantId = null;
+let sidebarCalcExpandedTenantId = null;
 
 async function maybeNotifyForReminders(reminders) {
   if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
@@ -4025,6 +4027,132 @@ async function renderTenants() {
     const balanceLabel = totalBalance > 0
       ? `חוב: ₪${formatCurrency(balanceAbs)}`
       : (totalBalance < 0 ? `זכות: ₪${formatCurrency(balanceAbs)}` : `מאוזן: ₪${formatCurrency(balanceAbs)}`);
+
+    const isExpandedSidebar = sidebarExpandedTenantId === t.id;
+    const showCalcDetailsSidebar = sidebarCalcExpandedTenantId === t.id;
+    let sidebarBalanceSection = '';
+    if (isExpandedSidebar) {
+      const totalColor = totalBalance > 0 ? '#b71c1c' : (totalBalance < 0 ? '#1b5e20' : '#555');
+      const totalLabel = totalBalance > 0 ? 'חוב' : (totalBalance < 0 ? 'זכות' : 'מאוזן');
+      const totalAmountText = `₪${formatCurrency(balanceAbs)}`;
+      const totalSummaryText = totalBalance > 0
+        ? `חוב: ${totalAmountText}`
+        : (totalBalance < 0 ? `זכות: ${totalAmountText}` : `מאוזן: ${totalAmountText}`);
+      const rentDetails = balance?.details?.rent || { rentAmount: 0, rentStartIso: '', monthsDue: 0, expectedRent: 0, paidApplied: 0, totalPaid: 0, paymentItems: [], historyUsed: false, historyBreakdown: [], overpaymentCredit: 0 };
+      const arnonaDetails = balance?.details?.arnona || { arnonaAmount: 0, expectedArnona: 0, paidApplied: 0, source: 'tenant', historyBreakdown: [] };
+      const electricityDetails = balance?.details?.electricity || [];
+      const waterDetails = balance?.details?.water || [];
+      let calcDetailsSection = '';
+      if (showCalcDetailsSidebar) {
+        const rentHistoryRows = (rentDetails.historyBreakdown || []).map(entry => `
+          <tr>
+            <td>${formatDateEu(entry.startIso)}${entry.endIso ? ` עד ${formatDateEu(entry.endIso)}` : ' ומעלה'}</td>
+            <td style="direction:ltr; text-align:left;">${entry.months}</td>
+            <td style="direction:ltr; text-align:left;">₪${formatCurrency(entry.rentAmount || 0)}</td>
+            <td style="direction:ltr; text-align:left;">₪${formatCurrency(entry.amount || 0)}</td>
+          </tr>`).join('');
+        const arnonaHistoryRows = (arnonaDetails.historyBreakdown || []).map(entry => `
+          <tr>
+            <td>${formatDateEu(entry.startIso)}${entry.endIso ? ` עד ${formatDateEu(entry.endIso)}` : ' ומעלה'}</td>
+            <td style="direction:ltr; text-align:left;">${entry.months}</td>
+            <td style="direction:ltr; text-align:left;">₪${formatCurrency(entry.arnonaAmount || 0)}</td>
+            <td style="direction:ltr; text-align:left;">₪${formatCurrency(entry.amount || 0)}</td>
+          </tr>`).join('');
+        const paymentRows = (rentDetails.paymentItems || []).map(p => `
+          <tr>
+            <td>${formatDateEu(p.dateIso)}</td>
+            <td style="direction:ltr; text-align:left;">₪${formatCurrency(p.amount || 0)}</td>
+          </tr>`).join('');
+        const electricityRows = electricityDetails.map(entry => `
+          <tr>
+            <td>${formatDateEu(entry.prevDate)} → ${formatDateEu(entry.currDate)}</td>
+            <td style="direction:ltr; text-align:left;">${Number(entry.consumption || 0).toFixed(2)}</td>
+            <td style="direction:ltr; text-align:left;">₪${formatCurrency(entry.amount || 0)}</td>
+          </tr>`).join('');
+        const waterRows = waterDetails.map(entry => `
+          <tr>
+            <td>${formatDateEu(entry.prevDate)} → ${formatDateEu(entry.currDate)}</td>
+            <td style="direction:ltr; text-align:left;">${Number(entry.consumption || 0).toFixed(2)}</td>
+            <td style="direction:ltr; text-align:left;">₪${formatCurrency(entry.amount || 0)}</td>
+          </tr>`).join('');
+        calcDetailsSection = `
+          <div style="margin-top:8px; padding:10px; border:1px solid #dde8f4; border-radius:8px; background:#fff;">
+            <div style="font-size:12px; font-weight:700; color:#2b6cb0; margin-bottom:6px;">פירוט חישוב</div>
+            <div style="font-size:12px; color:#3a5270; margin-bottom:6px;">תקופת חישוב: ${rentDetails.rentStartIso ? formatDateEu(rentDetails.rentStartIso) : '-'} עד ${formatDateEu(currentIsoDate())}</div>
+            <div style="margin-top:8px; font-size:12px; font-weight:700; color:#2b6cb0;">שכירות</div>
+            ${rentDetails.historyUsed && rentHistoryRows ? `
+              <table class="payments-table" style="margin-top:6px;">
+                <thead><tr><th>תקופה</th><th>חודשים</th><th>₪ לחודש</th><th>סה"כ</th></tr></thead>
+                <tbody>${rentHistoryRows}</tbody>
+              </table>
+              <div style="font-size:12px; color:#3a5270; margin-top:4px;">סה"כ שכירות: ₪${formatCurrency(rentDetails.expectedRent || 0)}</div>
+            ` : `
+              <div style="font-size:12px; color:#3a5270; margin-top:4px;">${rentDetails.monthsDue} חודשים × ₪${formatCurrency(rentDetails.rentAmount || 0)} = ₪${formatCurrency(rentDetails.expectedRent || 0)}</div>
+            `}
+            <div style="margin-top:10px; font-size:12px; font-weight:700; color:#2b6cb0;">ארנונה</div>
+            ${arnonaDetails.source === 'history' && arnonaHistoryRows ? `
+              <table class="payments-table" style="margin-top:6px;">
+                <thead><tr><th>תקופה</th><th>חודשים</th><th>₪ לחודש</th><th>סה"כ</th></tr></thead>
+                <tbody>${arnonaHistoryRows}</tbody>
+              </table>
+              <div style="font-size:12px; color:#3a5270; margin-top:4px;">סה"כ ארנונה: ₪${formatCurrency(arnonaDetails.expectedArnona || 0)}</div>
+            ` : `
+              <div style="font-size:12px; color:#3a5270; margin-top:4px;">${rentDetails.monthsDue} חודשים × ₪${formatCurrency(arnonaDetails.arnonaAmount || 0)} = ₪${formatCurrency(arnonaDetails.expectedArnona || 0)}</div>
+            `}
+            <div style="margin-top:10px; font-size:12px; font-weight:700; color:#2b6cb0;">תשלומים והקצאה</div>
+            <table class="payments-table" style="margin-top:6px;">
+              <thead><tr><th>סעיף</th><th>סכום</th></tr></thead>
+              <tbody>
+                <tr><td>תשלומים שנכללו</td><td style="direction:ltr; text-align:left;">₪${formatCurrency(rentDetails.totalPaid || 0)}</td></tr>
+                <tr><td>יוחס לשכירות</td><td style="direction:ltr; text-align:left;">₪${formatCurrency(rentDetails.paidApplied || 0)}</td></tr>
+                <tr><td>יוחס לארנונה</td><td style="direction:ltr; text-align:left;">₪${formatCurrency(arnonaDetails.paidApplied || 0)}</td></tr>
+                <tr><td>יתרת זכות</td><td style="direction:ltr; text-align:left;">₪${formatCurrency(rentDetails.overpaymentCredit || 0)}</td></tr>
+              </tbody>
+            </table>
+            ${paymentRows ? `
+              <table class="payments-table" style="margin-top:6px;">
+                <thead><tr><th>תאריך תשלום</th><th>סכום</th></tr></thead>
+                <tbody>${paymentRows}</tbody>
+              </table>
+            ` : '<div style="font-size:12px; color:#666; margin-top:4px;">אין תשלומים משויכים לדייר</div>'}
+            <div style="margin-top:10px; font-size:12px; font-weight:700; color:#2b6cb0;">חשמל</div>
+            ${electricityRows ? `
+              <table class="payments-table" style="margin-top:6px;">
+                <thead><tr><th>טווח קריאות</th><th>צריכה</th><th>עלות</th></tr></thead>
+                <tbody>${electricityRows}</tbody>
+              </table>
+            ` : '<div style="font-size:12px; color:#666; margin-top:4px;">אין חיובי חשמל פתוחים</div>'}
+            <div style="margin-top:10px; font-size:12px; font-weight:700; color:#2b6cb0;">מים</div>
+            ${waterRows ? `
+              <table class="payments-table" style="margin-top:6px;">
+                <thead><tr><th>טווח קריאות</th><th>צריכה</th><th>עלות</th></tr></thead>
+                <tbody>${waterRows}</tbody>
+              </table>
+            ` : '<div style="font-size:12px; color:#666; margin-top:4px;">אין חיובי מים פתוחים</div>'}
+            <div style="margin-top:12px; padding-top:8px; border-top:1px solid #c5d8ef; font-size:13px; font-weight:700; color:${totalColor};">
+              סיכום סופי נטו: ${totalSummaryText}
+            </div>
+          </div>`;
+      }
+      sidebarBalanceSection = `
+        <div style="margin-top:8px; padding:10px 12px; border-top:2px solid rgba(43,108,176,0.2);">
+          <div style="font-size:12px; font-weight:700; color:#2b6cb0; margin-bottom:6px;">מאזן</div>
+          <table style="width:100%; border-collapse:collapse; font-size:12px;">
+            <tbody>
+              <tr><td style="padding:3px 0; color:#3a5270;">שכירות</td><td style="padding:3px 0; direction:ltr; text-align:left; font-weight:600;">₪${formatCurrency(balance.rent)}</td></tr>
+              <tr><td style="padding:3px 0; color:#3a5270;">ארנונה</td><td style="padding:3px 0; direction:ltr; text-align:left; font-weight:600;">₪${formatCurrency(balance.arnona)}</td></tr>
+              <tr><td style="padding:3px 0; color:#3a5270;">חשמל</td><td style="padding:3px 0; direction:ltr; text-align:left; font-weight:600;">₪${formatCurrency(balance.electricity)}</td></tr>
+              <tr><td style="padding:3px 0; color:#3a5270;">מים</td><td style="padding:3px 0; direction:ltr; text-align:left; font-weight:600;">₪${formatCurrency(balance.water)}</td></tr>
+              <tr><td style="padding-top:5px; border-top:1px solid #c5d8ef; font-weight:700; color:#2b6cb0;">סה"כ (${totalLabel})</td><td style="padding-top:5px; border-top:1px solid #c5d8ef; direction:ltr; text-align:left; font-weight:700; color:${totalColor};">${totalAmountText}</td></tr>
+            </tbody>
+          </table>
+          <div style="margin-top:8px;">
+            <button type="button" class="btn-toggle-sidebar-calc-details" data-tenant-id="${t.id}">${showCalcDetailsSidebar ? 'הסתר פירוט חישוב' : 'הצג פירוט חישוב'}</button>
+          </div>
+          ${calcDetailsSection}
+        </div>`;
+    }
+
     el.innerHTML = `
       <div class="tenant-main-card-wrap">
         <button type="button" class="btn-open-tenant-balance ${balanceStateClass}" data-tenant-id="${t.id}">
@@ -4033,6 +4161,7 @@ async function renderTenants() {
           ${targetDate ? `<div class="tenant-main-card-date">${escapeHtml(targetDate)}</div>` : ''}
           <div class="tenant-main-card-balance">${escapeHtml(balanceLabel)}</div>
         </button>
+        ${sidebarBalanceSection}
       </div>
     `;
     tenantList.appendChild(el);
@@ -8024,15 +8153,23 @@ document.getElementById('payments-list')?.addEventListener('change', async e => 
 // Tenant list handlers
 tenantList?.addEventListener('click', async e => {
   const openBalanceBtn = e.target.closest('.btn-open-tenant-balance');
-  const id = Number(openBalanceBtn?.dataset.tenantId);
-  if (!id) return;
+  const calcBtn = e.target.closest('.btn-toggle-sidebar-calc-details');
 
   if (openBalanceBtn) {
-    remindersExpandedContractTenantId = id;
-    remindersExpandedContractCalcTenantId = null;
-    setActiveButton('show-reminders');
-    await renderReminders();
-    show(remindersView);
+    const id = Number(openBalanceBtn.dataset.tenantId);
+    if (!id) return;
+    sidebarExpandedTenantId = sidebarExpandedTenantId === id ? null : id;
+    if (sidebarExpandedTenantId !== id) sidebarCalcExpandedTenantId = null;
+    await renderTenants();
+    return;
+  }
+
+  if (calcBtn) {
+    const id = Number(calcBtn.dataset.tenantId);
+    if (!id) return;
+    sidebarCalcExpandedTenantId = sidebarCalcExpandedTenantId === id ? null : id;
+    await renderTenants();
+    return;
   }
 });
 
