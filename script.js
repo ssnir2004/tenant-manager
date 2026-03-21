@@ -627,6 +627,26 @@ async function deleteTenantRemote(id) {
   await apiRequest(`/api/tenants/${id}`, { method: 'DELETE' });
 }
 
+async function saveTenantPatch(id, patch) {
+  if (isRemoteApp()) {
+    const current = await getTenantByIdRemote(id);
+    if (!current) throw new Error('Tenant not found');
+    await updateTenantRemote(id, { ...current, ...patch });
+    await syncRemoteTenantsToLocalCache();
+    return;
+  }
+  await updateTenant(id, patch);
+}
+
+async function removeTenantRecord(id) {
+  if (isRemoteApp()) {
+    await deleteTenantRemote(id);
+    await syncRemoteTenantsToLocalCache();
+    return;
+  }
+  await deleteTenant(id);
+}
+
 async function getAllTenantsRemote(includeArchived = false) {
   const rows = await apiRequest(`/api/tenants?includeArchived=${includeArchived ? 'true' : 'false'}`);
   return (rows || []).map(normalizeTenantRow);
@@ -8225,8 +8245,8 @@ document.getElementById('archive-list')?.addEventListener('click', async e => {
   const id = Number(restoreBtn?.dataset.id || deleteBtn?.dataset.id);
   if (!id) return;
   
-  if (restoreBtn) { await updateTenant(id, { archived: false }); await renderArchive(); await renderTenants(); }
-  if (deleteBtn) { if (await confirmDialog('מחק לצמיתות?')) { await detachTenantData(id); await deleteTenant(id); await renderArchive(); } }
+  if (restoreBtn) { await saveTenantPatch(id, { archived: false }); await renderArchive(); await renderTenants(); }
+  if (deleteBtn) { if (await confirmDialog('מחק לצמיתות?')) { await detachTenantData(id); await removeTenantRecord(id); await renderArchive(); } }
 });
 
 document.getElementById('archive-list')?.addEventListener('change', async e => {
@@ -8236,12 +8256,12 @@ document.getElementById('archive-list')?.addEventListener('change', async e => {
   if (!id) return;
   const raw = input.value.trim();
   if (!raw) {
-    await updateTenant(id, { moveOutDate: null });
+    await saveTenantPatch(id, { moveOutDate: null });
     return;
   }
   const parsedDate = parseDateToIso(raw);
   if (!parsedDate) { alert('תאריך עזיבה לא תקין'); return; }
-  await updateTenant(id, { moveOutDate: parsedDate });
+  await saveTenantPatch(id, { moveOutDate: parsedDate });
 });
 
 document.getElementById('tenants-table')?.addEventListener('change', async e => {
@@ -8251,12 +8271,12 @@ document.getElementById('tenants-table')?.addEventListener('change', async e => 
   if (!id) return;
   const raw = input.value.trim();
   if (!raw) {
-    await updateTenant(id, { moveOutDate: null });
+    await saveTenantPatch(id, { moveOutDate: null });
     return;
   }
   const parsedDate = parseDateToIso(raw);
   if (!parsedDate) { alert('תאריך עזיבה לא תקין'); return; }
-  await updateTenant(id, { moveOutDate: parsedDate });
+  await saveTenantPatch(id, { moveOutDate: parsedDate });
 });
 
 document.getElementById('tenants-show-archived')?.addEventListener('change', async () => {
@@ -8293,14 +8313,14 @@ document.getElementById('tenants-table')?.addEventListener('click', async e => {
   }
 
   if (archiveBtn) {
-    await updateTenant(id, { archived: true });
+    await saveTenantPatch(id, { archived: true });
     await renderTenants();
     await renderTenantsTable();
     return;
   }
 
   if (restoreBtn) {
-    await updateTenant(id, { archived: false });
+    await saveTenantPatch(id, { archived: false });
     await renderTenants();
     await renderTenantsTable();
     return;
@@ -8309,7 +8329,7 @@ document.getElementById('tenants-table')?.addEventListener('click', async e => {
   if (deleteBtn) {
     if (await confirmDialog('מחק?')) {
       await detachTenantData(id);
-      await deleteTenant(id);
+      await removeTenantRecord(id);
       await renderTenants();
       await renderTenantsTable();
     }
@@ -8323,12 +8343,12 @@ document.getElementById('tenants-table')?.addEventListener('change', async e => 
   if (!id) return;
   const raw = input.value.trim();
   if (!raw) {
-    await updateTenant(id, { moveOutDate: null });
+    await saveTenantPatch(id, { moveOutDate: null });
     return;
   }
   const parsedDate = parseDateToIso(raw);
   if (!parsedDate) { alert('תאריך עזיבה לא תקין'); return; }
-  await updateTenant(id, { moveOutDate: parsedDate });
+  await saveTenantPatch(id, { moveOutDate: parsedDate });
 });
 
 // Helper function to parse YYYY-MM-DD strings safely
