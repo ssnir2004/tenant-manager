@@ -9327,18 +9327,16 @@ document.getElementById('edit-dates-save')?.addEventListener('click', async () =
       endDate: parsedEnd || null,
       moveOutDate: parsedMoveout || null
     };
-    if (isRemoteApp()) {
-      await updateTenantRemote(currentEditingTenantId, payload);
-    } else {
-      await updateTenant(currentEditingTenantId, payload);
-    }
+    await saveTenantPatch(currentEditingTenantId, payload);
     
-    // Close modal and refresh timeline
+    // Close modal and refresh affected views
     document.getElementById('edit-dates-modal').classList.add('hidden');
     document.getElementById('edit-dates-modal').style.display = 'none';
     currentEditingTenantId = null;
     
-    // Re-render dashboard
+    await renderTenants();
+    await renderTenantsTable();
+    await renderArchive();
     await renderDashboard();
     
     alert('תאריכים עודכנו בהצלחה');
