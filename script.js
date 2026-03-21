@@ -1426,6 +1426,14 @@ function calculateTenantBalanceBreakdown(tenant, payments, readings, waterPrice,
     const ids = normalizePaymentReadingIdsFromPayment(p);
     return ids.length > 0;
   });
+  const readingPaymentsWithIso = readingPayments
+    .map(p => ({
+      payment: p,
+      dateIso: parseDateToIso(p?.date || ''),
+      amount: Number(p?.amount || 0)
+    }))
+    .filter(p => !!p.dateIso)
+    .sort((a, b) => a.dateIso.localeCompare(b.dateIso));
 
   const todayMonthKey = (parseDateToIso(todayIso) || todayIso).slice(0, 7);
   const paymentItems = tenantPayments
@@ -1437,6 +1445,7 @@ function calculateTenantBalanceBreakdown(tenant, payments, readings, waterPrice,
     .sort((a, b) => a.dateIso.localeCompare(b.dateIso));
   const paymentItemsForCurrentAndPastMonths = paymentItems.filter(p => p.dateIso.slice(0, 7) <= todayMonthKey);
   let totalPaid = paymentItemsForCurrentAndPastMonths.reduce((sum, p) => sum + Number(p.amount || 0), 0);
+  const readingPaymentsForCurrentAndPastMonths = readingPaymentsWithIso.filter(p => p.dateIso.slice(0, 7) <= todayMonthKey);
 
   // readingPayments will be handled later, after utility costs calculation
 
@@ -1530,15 +1539,11 @@ function calculateTenantBalanceBreakdown(tenant, payments, readings, waterPrice,
     expectedArnona = arnonaAmount > 0 ? (arnonaAmount * monthsDue) : 0;
   }
 
-  let remainingCredit = Math.max(0, totalPaid);
-  const rentPaidApplied = Math.min(expectedRent, remainingCredit);
-  remainingCredit -= rentPaidApplied;
-  const arnonaPaidApplied = Math.min(expectedArnona, remainingCredit);
-  remainingCredit -= arnonaPaidApplied;
-  const overpaymentCredit = Math.max(0, remainingCredit);
-
-  const rentBalance = expectedRent - rentPaidApplied;
-  const arnonaBalance = expectedArnona - arnonaPaidApplied;
+  let rentPaidApplied = 0;
+  let arnonaPaidApplied = 0;
+  let overpaymentCredit = 0;
+  let rentBalance = expectedRent;
+  let arnonaBalance = expectedArnona;
 
   const tenantReadings = (readings || [])
     .filter(r => Number(r?.tenantId) === tenantId)
@@ -1556,8 +1561,8 @@ function calculateTenantBalanceBreakdown(tenant, payments, readings, waterPrice,
   const readingDebtMap = new Map();
   const readingTypeById = new Map();
   const linkedReadingIds = new Set(
-    readingPayments
-      .flatMap(p => normalizePaymentReadingIdsFromPayment(p))
+    readingPaymentsForCurrentAndPastMonths
+      .flatMap(p => normalizePaymentReadingIdsFromPayment(p.payment))
       .map(id => Number(id))
       .filter(id => Number.isFinite(id))
   );
@@ -1604,10 +1609,11 @@ function calculateTenantBalanceBreakdown(tenant, payments, readings, waterPrice,
   const remainingReadingDebt = new Map(readingDebtMap);
 
   let readingPaymentRemainder = 0;
+  const readingPaymentRemainderItems = [];
 
-  readingPayments.forEach(p => {
-    let amount = Number(p?.amount || 0);
-    const ids = normalizePaymentReadingIdsFromPayment(p);
+  readingPaymentsForCurrentAndPastMonths.forEach(item => {
+    let amount = Number(item.amount || 0);
+    const ids = normalizePaymentReadingIdsFromPayment(item.payment);
     ids.forEach(id => {
       const rid = Number(id);
       if (!Number.isFinite(rid) || amount <= 0) return;
@@ -1619,6 +1625,7 @@ function calculateTenantBalanceBreakdown(tenant, payments, readings, waterPrice,
     });
     if (amount > 0) {
       readingPaymentRemainder += amount;
+      readingPaymentRemainderItems.push({ dateIso: item.dateIso, amount });
     }
   });
 
@@ -1629,8 +1636,21 @@ function calculateTenantBalanceBreakdown(tenant, payments, readings, waterPrice,
     utilityDebt[type] += remaining;
   }
 
-  const effectiveOverpayment = overpaymentCredit + readingPaymentRemainder;
-  const total = rentBalance + arnonaBalance + utilityDebt.electricity + utilityDebt.water - effectiveOverpayment;
+  const paymentItemsIncludingReadingRemainder = [...paymentItemsForCurrentAndPastMonths, ...readingPaymentRemainderItems]
+    .sort((a, b) => a.dateIso.localeCompare(b.dateIso));
+  const totalPaidIncludingReadingRemainder = totalPaid + readingPaymentRemainder;
+
+  let remainingCredit = Math.max(0, totalPaidIncludingReadingRemainder);
+  rentPaidApplied = Math.min(expectedRent, remainingCredit);
+  remainingCredit -= rentPaidApplied;
+  arnonaPaidApplied = Math.min(expectedArnona, remainingCredit);
+  remainingCredit -= arnonaPaidApplied;
+  overpaymentCredit = Math.max(0, remainingCredit);
+
+  rentBalance = expectedRent - rentPaidApplied;
+  arnonaBalance = expectedArnona - arnonaPaidApplied;
+
+  const total = rentBalance + arnonaBalance + utilityDebt.electricity + utilityDebt.water - overpaymentCredit;
   return {
     rent: rentBalance,
     arnona: arnonaBalance,
@@ -1644,8 +1664,8 @@ function calculateTenantBalanceBreakdown(tenant, payments, readings, waterPrice,
         monthsDue,
         expectedRent,
         paidApplied: rentPaidApplied,
-        totalPaid,
-        paymentItems: paymentItemsForCurrentAndPastMonths,
+        totalPaid: totalPaidIncludingReadingRemainder,
+        paymentItems: paymentItemsIncludingReadingRemainder,
         historyUsed,
         historyBreakdown: rentHistoryBreakdown,
         overpaymentCredit
