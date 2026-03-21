@@ -1527,8 +1527,15 @@ function calculateTenantBalanceBreakdown(tenant, payments, readings, waterPrice,
   const utilityDetails = { electricity: [], water: [] };
   const readingDebtMap = new Map();
   const readingTypeById = new Map();
+  const linkedReadingIds = new Set(
+    readingPayments
+      .flatMap(p => normalizePaymentReadingIds(p?.readingId))
+      .map(id => Number(id))
+      .filter(id => Number.isFinite(id))
+  );
 
-  // Build base debt for each reading (unpaid readings carry their calculated amount; paid readings are zero debt).
+  // Build base debt for each reading.
+  // Important: linked readings keep their debt here even if paid=true, so the linked payment can offset them first.
   ['electricity', 'water'].forEach(type => {
     const chain = (byType.get(type) || []).sort((a, b) => dateValueFromAny(a?.date) - dateValueFromAny(b?.date));
     for (let i = 1; i < chain.length; i++) {
@@ -1542,11 +1549,13 @@ function calculateTenantBalanceBreakdown(tenant, payments, readings, waterPrice,
         amount = Math.max(0, consumption) * Number(waterPrice || 0);
       }
       const finalAmount = Math.max(0, amount || 0);
-      const debt = current?.paid ? 0 : finalAmount;
+      const currentId = Number(current?.id);
+      const isLinked = Number.isFinite(currentId) && linkedReadingIds.has(currentId);
+      const debt = current?.paid && !isLinked ? 0 : finalAmount;
 
       if (current?.id !== undefined && current?.id !== null) {
-        readingDebtMap.set(Number(current.id), debt);
-        readingTypeById.set(Number(current.id), type);
+        readingDebtMap.set(currentId, debt);
+        readingTypeById.set(currentId, type);
       }
 
       utilityDetails[type].push({
@@ -1563,12 +1572,6 @@ function calculateTenantBalanceBreakdown(tenant, payments, readings, waterPrice,
   });
 
   const remainingReadingDebt = new Map(readingDebtMap);
-  const linkedReadingIds = new Set(
-    readingPayments
-      .flatMap(p => normalizePaymentReadingIds(p?.readingId))
-      .map(id => Number(id))
-      .filter(id => Number.isFinite(id))
-  );
 
   let readingPaymentRemainder = 0;
   let linkedReadingUnderpayment = 0;
