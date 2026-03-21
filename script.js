@@ -2158,7 +2158,8 @@ async function renderReminders() {
     const waterDetails = balance?.details?.water || [];
     const electricityCharge = Number(balance?.electricity || 0);
     const waterCharge = Number(balance?.water || 0);
-    const netOverpaymentCredit = Math.max(0, Number(rentDetails.overpaymentCredit || 0) - electricityCharge - waterCharge);
+    const netBalanceAfterUtilities = Number(rentDetails.overpaymentCredit || 0) - electricityCharge - waterCharge;
+    const netBalanceLabel = netBalanceAfterUtilities < 0 ? 'יתרה נטו (חוב)' : (netBalanceAfterUtilities > 0 ? 'יתרה נטו (זכות)' : 'יתרה נטו (מאוזן)');
     const rentHistoryRows = (rentDetails.historyBreakdown || []).map(entry => `
       <tr>
         <td>${formatDateEu(entry.startIso)}${entry.endIso ? ` עד ${formatDateEu(entry.endIso)}` : ' ומעלה'}</td>
@@ -2238,7 +2239,7 @@ async function renderReminders() {
             <tr><td>יוחס לארנונה</td><td style="direction:ltr; text-align:left;">₪${formatCurrency(arnonaDetails.paidApplied || 0)}</td></tr>
             <tr><td>חיוב חשמל פתוח</td><td style="direction:ltr; text-align:left;">₪${formatCurrency(electricityCharge)}</td></tr>
             <tr><td>חיוב מים פתוח</td><td style="direction:ltr; text-align:left;">₪${formatCurrency(waterCharge)}</td></tr>
-            <tr><td>יתרת זכות נטו</td><td style="direction:ltr; text-align:left;">₪${formatCurrency(netOverpaymentCredit)}</td></tr>
+            <tr><td>${netBalanceLabel}</td><td style="direction:ltr; text-align:left;">₪${formatCurrency(netBalanceAfterUtilities)}</td></tr>
           </tbody>
         </table>
         ${(paymentRows) ? `
@@ -4074,7 +4075,8 @@ async function renderTenants() {
       const waterDetails = balance?.details?.water || [];
       const electricityCharge = Number(balance?.electricity || 0);
       const waterCharge = Number(balance?.water || 0);
-      const netOverpaymentCredit = Math.max(0, Number(rentDetails.overpaymentCredit || 0) - electricityCharge - waterCharge);
+      const netBalanceAfterUtilities = Number(rentDetails.overpaymentCredit || 0) - electricityCharge - waterCharge;
+      const netBalanceLabel = netBalanceAfterUtilities < 0 ? 'יתרה נטו (חוב)' : (netBalanceAfterUtilities > 0 ? 'יתרה נטו (זכות)' : 'יתרה נטו (מאוזן)');
       let calcDetailsSection = '';
       if (showCalcDetailsSidebar) {
         const rentHistoryRows = (rentDetails.historyBreakdown || []).map(entry => `
@@ -4143,7 +4145,7 @@ async function renderTenants() {
                 <tr><td>יוחס לארנונה</td><td style="direction:ltr; text-align:left;">₪${formatCurrency(arnonaDetails.paidApplied || 0)}</td></tr>
                 <tr><td>חיוב חשמל פתוח</td><td style="direction:ltr; text-align:left;">₪${formatCurrency(electricityCharge)}</td></tr>
                 <tr><td>חיוב מים פתוח</td><td style="direction:ltr; text-align:left;">₪${formatCurrency(waterCharge)}</td></tr>
-                <tr><td>יתרת זכות נטו</td><td style="direction:ltr; text-align:left;">₪${formatCurrency(netOverpaymentCredit)}</td></tr>
+                <tr><td>${netBalanceLabel}</td><td style="direction:ltr; text-align:left;">₪${formatCurrency(netBalanceAfterUtilities)}</td></tr>
               </tbody>
             </table>
             ${paymentRows ? `
