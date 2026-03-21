@@ -1294,6 +1294,22 @@ function tenantTargetKindLabel(kind) {
   return 'חוזה';
 }
 
+function hasTenantMovedOut(tenant, refIso = currentIsoDate()) {
+  const today = parseDateToIso(refIso) || currentIsoDate();
+  const moveOutIso = parseDateToIso(tenant?.moveOutDate || '');
+  return !!(moveOutIso && moveOutIso <= today);
+}
+
+function tenantBalanceCalcEndIso(tenant, refIso = currentIsoDate()) {
+  const today = parseDateToIso(refIso) || currentIsoDate();
+  const moveOutIso = parseDateToIso(tenant?.moveOutDate || '');
+  const contractEndIso = parseDateToIso(tenant?.endDate || '');
+  let endIso = today;
+  if (moveOutIso && moveOutIso < endIso) endIso = moveOutIso;
+  if (contractEndIso && contractEndIso < endIso) endIso = contractEndIso;
+  return endIso;
+}
+
 function countMonthsInclusive(fromIso, toIso) {
   if (!fromIso || !toIso) return 0;
   const from = parseDateToIso(fromIso);
@@ -1421,6 +1437,7 @@ function displayPaymentNotes(notes) {
 
 function calculateTenantBalanceBreakdown(tenant, payments, readings, waterPrice, kvaCon, todayIso = currentIsoDate()) {
   const tenantId = Number(tenant?.id);
+  const calcEndIso = tenantBalanceCalcEndIso(tenant, todayIso);
   if (!Number.isFinite(tenantId) || tenantId <= 0) {
     return {
       rent: 0,
@@ -1429,7 +1446,7 @@ function calculateTenantBalanceBreakdown(tenant, payments, readings, waterPrice,
       water: 0,
       total: 0,
       details: {
-        rent: { rentAmount: 0, rentStartIso: '', monthsDue: 0, expectedRent: 0, paidApplied: 0, paymentItems: [], historyUsed: false, historyBreakdown: [], overpaymentCredit: 0 },
+        rent: { rentAmount: 0, rentStartIso: '', calculationEndIso: calcEndIso, monthsDue: 0, expectedRent: 0, paidApplied: 0, paymentItems: [], historyUsed: false, historyBreakdown: [], overpaymentCredit: 0 },
         arnona: { arnonaAmount: 0, expectedArnona: 0, paidApplied: 0, source: 'tenant', historyBreakdown: [] },
         electricity: [],
         water: []
@@ -1455,7 +1472,7 @@ function calculateTenantBalanceBreakdown(tenant, payments, readings, waterPrice,
     .filter(p => !!p.dateIso)
     .sort((a, b) => a.dateIso.localeCompare(b.dateIso));
 
-  const todayMonthKey = (parseDateToIso(todayIso) || todayIso).slice(0, 7);
+  const todayMonthKey = calcEndIso.slice(0, 7);
   const paymentItems = tenantPayments
     .map(p => ({
       dateIso: parseDateToIso(p?.date || ''),
@@ -1478,9 +1495,9 @@ function calculateTenantBalanceBreakdown(tenant, payments, readings, waterPrice,
   const contractStartIso = parseDateToIso(tenant?.startDate || '');
   const rentStartIso = contractStartIso
     ? (adjustStartIsoForLateContractDay(contractStartIso) || contractStartIso)
-    : (firstPaymentIso || todayIso);
-  const monthsDue = rentStartIso ? countMonthsInclusive(rentStartIso, todayIso) : 0;
-  const dueMonthKeys = monthsDue > 0 ? enumerateMonthsInclusive(rentStartIso, todayIso) : [];
+    : (firstPaymentIso || calcEndIso);
+  const monthsDue = rentStartIso ? countMonthsInclusive(rentStartIso, calcEndIso) : 0;
+  const dueMonthKeys = monthsDue > 0 ? enumerateMonthsInclusive(rentStartIso, calcEndIso) : [];
 
   const rentHistoryEntries = normalizeRentHistoryEntries(tenant?.rentHistory);
   const rentHistoryBreakdownMap = new Map();
@@ -1567,6 +1584,10 @@ function calculateTenantBalanceBreakdown(tenant, payments, readings, waterPrice,
 
   const tenantReadings = (readings || [])
     .filter(r => Number(r?.tenantId) === tenantId)
+    .filter(r => {
+      const readingIso = parseDateToIso(r?.date || '');
+      return !readingIso || readingIso <= calcEndIso;
+    })
     .slice();
   const byType = new Map();
   tenantReadings.forEach(r => {
@@ -1681,6 +1702,7 @@ function calculateTenantBalanceBreakdown(tenant, payments, readings, waterPrice,
       rent: {
         rentAmount,
         rentStartIso,
+        calculationEndIso: calcEndIso,
         monthsDue,
         expectedRent,
         paidApplied: rentPaidApplied,
@@ -2172,7 +2194,7 @@ async function renderReminders() {
     const totalSummaryText = balance.total > 0
       ? `חוב: ${totalAmountText}`
       : (balance.total < 0 ? `זכות: ${totalAmountText}` : `מאוזן: ${totalAmountText}`);
-    const rentDetails = balance?.details?.rent || { rentAmount: 0, rentStartIso: '', monthsDue: 0, expectedRent: 0, paidApplied: 0, totalPaid: 0, paymentItems: [], historyUsed: false, historyBreakdown: [], overpaymentCredit: 0 };
+    const rentDetails = balance?.details?.rent || { rentAmount: 0, rentStartIso: '', calculationEndIso: currentIsoDate(), monthsDue: 0, expectedRent: 0, paidApplied: 0, totalPaid: 0, paymentItems: [], historyUsed: false, historyBreakdown: [], overpaymentCredit: 0 };
     const arnonaDetails = balance?.details?.arnona || { arnonaAmount: 0, expectedArnona: 0, paidApplied: 0, source: 'tenant', historyBreakdown: [] };
     const electricityDetails = balance?.details?.electricity || [];
     const waterDetails = balance?.details?.water || [];
@@ -2226,7 +2248,7 @@ async function renderReminders() {
       ? `
       <div style="margin-top:8px; padding:10px; border:1px solid #f4d7c3; border-radius:8px; background:#fff;">
         <div style="font-size:12px; font-weight:700; color:#9c4d17; margin-bottom:6px;">פירוט חישוב</div>
-        <div style="font-size:12px; color:#5d3a22; margin-bottom:6px;">תקופת חישוב משכירות: ${rentDetails.rentStartIso ? formatDateEu(rentDetails.rentStartIso) : '-'} עד ${formatDateEu(currentIsoDate())}</div>
+        <div style="font-size:12px; color:#5d3a22; margin-bottom:6px;">תקופת חישוב משכירות: ${rentDetails.rentStartIso ? formatDateEu(rentDetails.rentStartIso) : '-'} עד ${formatDateEu(rentDetails.calculationEndIso || currentIsoDate())}</div>
 
         <div style="margin-top:8px; font-size:12px; font-weight:700; color:#9c4d17;">שכירות</div>
         ${rentDetails.historyUsed && rentHistoryRows ? `
@@ -4072,7 +4094,8 @@ async function renderTenants() {
     const targetKind = target ? tenantTargetKindLabel(target.kind) : 'ללא יעד';
     const targetDate = target?.iso ? formatDateEu(target.iso) : '';
     const depositDay = normalizeDepositDay(t?.depositDay);
-    const nextDepositIso = depositDay ? nextDepositDateIsoForDay(depositDay, currentIsoDate()) : '';
+    const movedOut = hasTenantMovedOut(t, currentIsoDate());
+    const nextDepositIso = (!movedOut && depositDay) ? nextDepositDateIsoForDay(depositDay, currentIsoDate()) : '';
     const nextDepositText = nextDepositIso ? formatDateEu(nextDepositIso) : '';
     const balance = calculateTenantBalanceBreakdown(t, payments, readings, waterPrice, kvaCon, currentIsoDate());
     const totalBalance = Number(balance?.total || 0);
@@ -4092,7 +4115,7 @@ async function renderTenants() {
       const totalSummaryText = totalBalance > 0
         ? `חוב: ${totalAmountText}`
         : (totalBalance < 0 ? `זכות: ${totalAmountText}` : `מאוזן: ${totalAmountText}`);
-      const rentDetails = balance?.details?.rent || { rentAmount: 0, rentStartIso: '', monthsDue: 0, expectedRent: 0, paidApplied: 0, totalPaid: 0, paymentItems: [], historyUsed: false, historyBreakdown: [], overpaymentCredit: 0 };
+      const rentDetails = balance?.details?.rent || { rentAmount: 0, rentStartIso: '', calculationEndIso: currentIsoDate(), monthsDue: 0, expectedRent: 0, paidApplied: 0, totalPaid: 0, paymentItems: [], historyUsed: false, historyBreakdown: [], overpaymentCredit: 0 };
       const arnonaDetails = balance?.details?.arnona || { arnonaAmount: 0, expectedArnona: 0, paidApplied: 0, source: 'tenant', historyBreakdown: [] };
       const electricityDetails = balance?.details?.electricity || [];
       const waterDetails = balance?.details?.water || [];
@@ -4138,7 +4161,7 @@ async function renderTenants() {
         calcDetailsSection = `
           <div style="margin-top:8px; padding:10px; border:1px solid #dde8f4; border-radius:8px; background:#fff;">
             <div style="font-size:12px; font-weight:700; color:#2b6cb0; margin-bottom:6px;">פירוט חישוב</div>
-            <div style="font-size:12px; color:#3a5270; margin-bottom:6px;">תקופת חישוב: ${rentDetails.rentStartIso ? formatDateEu(rentDetails.rentStartIso) : '-'} עד ${formatDateEu(currentIsoDate())}</div>
+            <div style="font-size:12px; color:#3a5270; margin-bottom:6px;">תקופת חישוב: ${rentDetails.rentStartIso ? formatDateEu(rentDetails.rentStartIso) : '-'} עד ${formatDateEu(rentDetails.calculationEndIso || currentIsoDate())}</div>
             <div style="margin-top:8px; font-size:12px; font-weight:700; color:#2b6cb0;">שכירות</div>
             ${rentDetails.historyUsed && rentHistoryRows ? `
               <table class="payments-table" style="margin-top:6px;">
