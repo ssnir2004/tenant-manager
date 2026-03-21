@@ -375,8 +375,6 @@ textarea {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  max-height: calc(100vh - 250px);
-  overflow-y: auto;
 }
 
 .tenant-item {
@@ -731,7 +729,6 @@ textarea {
   }
   .tenant-list {
     gap: 4px;
-    max-height: calc(100vh - 180px);
   }
   .tenant-item {
     padding: 8px;
