@@ -4051,6 +4051,9 @@ async function renderTenants() {
     const target = buildTenantTargetDate(t);
     const targetKind = target ? tenantTargetKindLabel(target.kind) : 'ללא יעד';
     const targetDate = target?.iso ? formatDateEu(target.iso) : '';
+    const depositDay = normalizeDepositDay(t?.depositDay);
+    const nextDepositIso = depositDay ? nextDepositDateIsoForDay(depositDay, currentIsoDate()) : '';
+    const nextDepositText = nextDepositIso ? formatDateEu(nextDepositIso) : '';
     const balance = calculateTenantBalanceBreakdown(t, payments, readings, waterPrice, kvaCon, currentIsoDate());
     const totalBalance = Number(balance?.total || 0);
     const balanceAbs = Math.abs(totalBalance);
@@ -4199,6 +4202,7 @@ async function renderTenants() {
           <div class="tenant-main-card-title">דירה ${escapeHtml(t.apartmentNumber || '-')}</div>
           <div class="tenant-main-card-sub">${escapeHtml(tenantName)} · ${escapeHtml(targetKind)}</div>
           ${targetDate ? `<div class="tenant-main-card-date">${escapeHtml(targetDate)}</div>` : ''}
+          ${nextDepositText ? `<div class="tenant-main-card-date">הפקדה הבאה: ${escapeHtml(nextDepositText)}</div>` : ''}
           <div class="tenant-main-card-balance">${escapeHtml(balanceLabel)}</div>
         </button>
         ${sidebarBalanceSection}
