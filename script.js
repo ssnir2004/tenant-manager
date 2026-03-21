@@ -1592,6 +1592,8 @@ function calculateTenantBalanceBreakdown(tenant, payments, readings, waterPrice,
         currDate: parseDateToIso(current?.date || ''),
         currValue: Number(current?.value || 0),
         consumption: Math.max(0, Number(consumption || 0)),
+        originalAmount: finalAmount,
+        remainingAmount: debt,
         amount: debt,
         readingId: current?.id || null,
         paid: !!current?.paid
@@ -2162,7 +2164,8 @@ async function renderReminders() {
       <tr>
         <td>${formatDateEu(entry.prevDate)} → ${formatDateEu(entry.currDate)}</td>
         <td style="direction:ltr; text-align:left;">${Number(entry.consumption || 0).toFixed(2)}</td>
-        <td style="direction:ltr; text-align:left;">₪${formatCurrency(entry.amount || 0)}</td>
+        <td style="direction:ltr; text-align:left;">₪${formatCurrency(entry.originalAmount ?? entry.amount ?? 0)}</td>
+        <td style="direction:ltr; text-align:left;">₪${formatCurrency(entry.remainingAmount ?? entry.amount ?? 0)}</td>
       </tr>
     `).join('');
 
@@ -2170,7 +2173,8 @@ async function renderReminders() {
       <tr>
         <td>${formatDateEu(entry.prevDate)} → ${formatDateEu(entry.currDate)}</td>
         <td style="direction:ltr; text-align:left;">${Number(entry.consumption || 0).toFixed(2)}</td>
-        <td style="direction:ltr; text-align:left;">₪${formatCurrency(entry.amount || 0)}</td>
+        <td style="direction:ltr; text-align:left;">₪${formatCurrency(entry.originalAmount ?? entry.amount ?? 0)}</td>
+        <td style="direction:ltr; text-align:left;">₪${formatCurrency(entry.remainingAmount ?? entry.amount ?? 0)}</td>
       </tr>
     `).join('');
 
@@ -2222,7 +2226,7 @@ async function renderReminders() {
         <div style="margin-top:10px; font-size:12px; font-weight:700; color:#9c4d17;">חשמל (קריאות לא מסומנות כשולם)</div>
         ${(electricityRows) ? `
           <table class="payments-table" style="margin-top:6px;">
-            <thead><tr><th>טווח קריאות</th><th>צריכה</th><th>עלות</th></tr></thead>
+            <thead><tr><th>טווח קריאות</th><th>צריכה</th><th>עלות מקורית</th><th>יתרה פתוחה</th></tr></thead>
             <tbody>${electricityRows}</tbody>
           </table>
         ` : '<div style="font-size:12px; color:#666;">אין חיובי חשמל פתוחים</div>'}
@@ -2230,7 +2234,7 @@ async function renderReminders() {
         <div style="margin-top:10px; font-size:12px; font-weight:700; color:#9c4d17;">מים (קריאות לא מסומנות כשולם)</div>
         ${(waterRows) ? `
           <table class="payments-table" style="margin-top:6px;">
-            <thead><tr><th>טווח קריאות</th><th>צריכה</th><th>עלות</th></tr></thead>
+            <thead><tr><th>טווח קריאות</th><th>צריכה</th><th>עלות מקורית</th><th>יתרה פתוחה</th></tr></thead>
             <tbody>${waterRows}</tbody>
           </table>
         ` : '<div style="font-size:12px; color:#666;">אין חיובי מים פתוחים</div>'}
@@ -4067,13 +4071,15 @@ async function renderTenants() {
           <tr>
             <td>${formatDateEu(entry.prevDate)} → ${formatDateEu(entry.currDate)}</td>
             <td style="direction:ltr; text-align:left;">${Number(entry.consumption || 0).toFixed(2)}</td>
-            <td style="direction:ltr; text-align:left;">₪${formatCurrency(entry.amount || 0)}</td>
+            <td style="direction:ltr; text-align:left;">₪${formatCurrency(entry.originalAmount ?? entry.amount ?? 0)}</td>
+            <td style="direction:ltr; text-align:left;">₪${formatCurrency(entry.remainingAmount ?? entry.amount ?? 0)}</td>
           </tr>`).join('');
         const waterRows = waterDetails.map(entry => `
           <tr>
             <td>${formatDateEu(entry.prevDate)} → ${formatDateEu(entry.currDate)}</td>
             <td style="direction:ltr; text-align:left;">${Number(entry.consumption || 0).toFixed(2)}</td>
-            <td style="direction:ltr; text-align:left;">₪${formatCurrency(entry.amount || 0)}</td>
+            <td style="direction:ltr; text-align:left;">₪${formatCurrency(entry.originalAmount ?? entry.amount ?? 0)}</td>
+            <td style="direction:ltr; text-align:left;">₪${formatCurrency(entry.remainingAmount ?? entry.amount ?? 0)}</td>
           </tr>`).join('');
         calcDetailsSection = `
           <div style="margin-top:8px; padding:10px; border:1px solid #dde8f4; border-radius:8px; background:#fff;">
@@ -4118,14 +4124,14 @@ async function renderTenants() {
             <div style="margin-top:10px; font-size:12px; font-weight:700; color:#2b6cb0;">חשמל</div>
             ${electricityRows ? `
               <table class="payments-table" style="margin-top:6px;">
-                <thead><tr><th>טווח קריאות</th><th>צריכה</th><th>עלות</th></tr></thead>
+                <thead><tr><th>טווח קריאות</th><th>צריכה</th><th>עלות מקורית</th><th>יתרה פתוחה</th></tr></thead>
                 <tbody>${electricityRows}</tbody>
               </table>
             ` : '<div style="font-size:12px; color:#666; margin-top:4px;">אין חיובי חשמל פתוחים</div>'}
             <div style="margin-top:10px; font-size:12px; font-weight:700; color:#2b6cb0;">מים</div>
             ${waterRows ? `
               <table class="payments-table" style="margin-top:6px;">
-                <thead><tr><th>טווח קריאות</th><th>צריכה</th><th>עלות</th></tr></thead>
+                <thead><tr><th>טווח קריאות</th><th>צריכה</th><th>עלות מקורית</th><th>יתרה פתוחה</th></tr></thead>
                 <tbody>${waterRows}</tbody>
               </table>
             ` : '<div style="font-size:12px; color:#666; margin-top:4px;">אין חיובי מים פתוחים</div>'}
