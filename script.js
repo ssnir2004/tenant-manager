@@ -2252,7 +2252,8 @@ async function renderReminders() {
         <div style="font-size:12px; font-weight:700; color:#9c4d17; margin-bottom:6px;">מאזן דייר</div>
         <table style="width:100%; border-collapse:collapse; font-size:12px;">
           <tbody>
-            <tr><td style="padding:4px 0; color:#5d3a22;">שכירות</td><td style="padding:4px 0; direction:ltr; text-align:left; font-weight:600;">₪${formatCurrency(balance.rent)}</td></tr>
+            <tr><td style="padding:4px 0; color:#5d3a22;">שכירות חודשית</td><td style="padding:4px 0; direction:ltr; text-align:left; font-weight:600;">₪${formatCurrency(rentDetails.rentAmount || 0)}</td></tr>
+            <tr><td style="padding:4px 0; color:#5d3a22;">יתרת שכירות</td><td style="padding:4px 0; direction:ltr; text-align:left; font-weight:600;">₪${formatCurrency(balance.rent)}</td></tr>
             <tr><td style="padding:4px 0; color:#5d3a22;">ארנונה</td><td style="padding:4px 0; direction:ltr; text-align:left; font-weight:600;">₪${formatCurrency(balance.arnona)}</td></tr>
             <tr><td style="padding:4px 0; color:#5d3a22;">חשמל</td><td style="padding:4px 0; direction:ltr; text-align:left; font-weight:600;">₪${formatCurrency(balance.electricity)}</td></tr>
             <tr><td style="padding:4px 0; color:#5d3a22;">מים</td><td style="padding:4px 0; direction:ltr; text-align:left; font-weight:600;">₪${formatCurrency(balance.water)}</td></tr>
@@ -4145,7 +4146,8 @@ async function renderTenants() {
           <div style="font-size:12px; font-weight:700; color:#2b6cb0; margin-bottom:6px;">מאזן</div>
           <table style="width:100%; border-collapse:collapse; font-size:12px;">
             <tbody>
-              <tr><td style="padding:3px 0; color:#3a5270;">שכירות</td><td style="padding:3px 0; direction:ltr; text-align:left; font-weight:600;">₪${formatCurrency(balance.rent)}</td></tr>
+              <tr><td style="padding:3px 0; color:#3a5270;">שכירות חודשית</td><td style="padding:3px 0; direction:ltr; text-align:left; font-weight:600;">₪${formatCurrency(rentDetails.rentAmount || 0)}</td></tr>
+              <tr><td style="padding:3px 0; color:#3a5270;">יתרת שכירות</td><td style="padding:3px 0; direction:ltr; text-align:left; font-weight:600;">₪${formatCurrency(balance.rent)}</td></tr>
               <tr><td style="padding:3px 0; color:#3a5270;">ארנונה</td><td style="padding:3px 0; direction:ltr; text-align:left; font-weight:600;">₪${formatCurrency(balance.arnona)}</td></tr>
               <tr><td style="padding:3px 0; color:#3a5270;">חשמל</td><td style="padding:3px 0; direction:ltr; text-align:left; font-weight:600;">₪${formatCurrency(balance.electricity)}</td></tr>
               <tr><td style="padding:3px 0; color:#3a5270;">מים</td><td style="padding:3px 0; direction:ltr; text-align:left; font-weight:600;">₪${formatCurrency(balance.water)}</td></tr>
