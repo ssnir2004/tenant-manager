@@ -1371,6 +1371,34 @@ function normalizePaymentReadingIds(readingId) {
   return Number.isFinite(numeric) ? [numeric] : [];
 }
 
+function extractPaymentReadingIdsFromNotes(notes) {
+  const text = String(notes || '');
+  const match = text.match(/\[\[RID:([^\]]+)\]\]/);
+  if (!match || !match[1]) return [];
+  return match[1]
+    .split(',')
+    .map(part => Number(part.trim()))
+    .filter(id => Number.isFinite(id));
+}
+
+function normalizePaymentReadingIdsFromPayment(payment) {
+  const direct = normalizePaymentReadingIds(payment?.readingId);
+  if (direct.length > 0) return direct;
+  return extractPaymentReadingIdsFromNotes(payment?.notes || '');
+}
+
+function withPaymentReadingIdsInNotes(notes, readingIds) {
+  const cleanNotes = String(notes || '').replace(/\s*\[\[RID:[^\]]+\]\]\s*/g, ' ').replace(/\s+/g, ' ').trim();
+  const ids = (readingIds || []).map(id => Number(id)).filter(id => Number.isFinite(id));
+  if (ids.length === 0) return cleanNotes;
+  const token = `[[RID:${ids.join(',')}]]`;
+  return cleanNotes ? `${cleanNotes} ${token}` : token;
+}
+
+function displayPaymentNotes(notes) {
+  return String(notes || '').replace(/\s*\[\[RID:[^\]]+\]\]\s*/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
 function calculateTenantBalanceBreakdown(tenant, payments, readings, waterPrice, kvaCon, todayIso = currentIsoDate()) {
   const tenantId = Number(tenant?.id);
   if (!Number.isFinite(tenantId) || tenantId <= 0) {
@@ -1391,11 +1419,11 @@ function calculateTenantBalanceBreakdown(tenant, payments, readings, waterPrice,
 
   const tenantPaymentsAll = (payments || []).filter(p => Number(p?.tenantId) === tenantId);
   const tenantPayments = tenantPaymentsAll.filter(p => {
-    const ids = normalizePaymentReadingIds(p?.readingId);
+    const ids = normalizePaymentReadingIdsFromPayment(p);
     return ids.length === 0;
   });
   const readingPayments = tenantPaymentsAll.filter(p => {
-    const ids = normalizePaymentReadingIds(p?.readingId);
+    const ids = normalizePaymentReadingIdsFromPayment(p);
     return ids.length > 0;
   });
 
@@ -1530,7 +1558,7 @@ function calculateTenantBalanceBreakdown(tenant, payments, readings, waterPrice,
   const readingTypeById = new Map();
   const linkedReadingIds = new Set(
     readingPayments
-      .flatMap(p => normalizePaymentReadingIds(p?.readingId))
+      .flatMap(p => normalizePaymentReadingIdsFromPayment(p))
       .map(id => Number(id))
       .filter(id => Number.isFinite(id))
   );
@@ -1579,7 +1607,7 @@ function calculateTenantBalanceBreakdown(tenant, payments, readings, waterPrice,
 
   readingPayments.forEach(p => {
     let amount = Number(p?.amount || 0);
-    const ids = normalizePaymentReadingIds(p?.readingId);
+    const ids = normalizePaymentReadingIdsFromPayment(p);
     ids.forEach(id => {
       const rid = Number(id);
       if (!Number.isFinite(rid) || amount <= 0) return;
@@ -4440,7 +4468,7 @@ async function renderPayments() {
     const t = tenantMap.get(p.tenantId);
     const name = t ? `${t.firstName || ''} ${t.lastName || ''}`.trim() : (p.tenantName || '');
     const apartment = t?.apartmentNumber || p.apartmentNumber || '';
-    const notes = p.notes || '';
+    const notes = displayPaymentNotes(p.notes || '');
 
     if (filters.tenantId && Number(p.tenantId) !== Number(filters.tenantId)) return false;
     if (filters.account && String(p.account || '') !== filters.account) return false;
@@ -4492,7 +4520,7 @@ async function renderPayments() {
         <td style="direction: ltr; text-align: left;">₪${formatCurrency(p.amount)}</td>
         <td>${accountLabel(p.account)}</td>
         <td>${p.method || ''}</td>
-        <td>${p.notes || ''}</td>
+        <td>${displayPaymentNotes(p.notes || '')}</td>
         <td>${linkCell}</td>
         <td>${actionsCell}</td>
       </tr>
@@ -6973,7 +7001,10 @@ paymentForm?.addEventListener('submit', async e => {
     method: f.elements['method'].value,
     account: f.elements['account'].value,
     date: f.elements['date'].value,
-    notes: f.elements['notes'].value || '',
+    notes: withPaymentReadingIdsInNotes(
+      f.elements['notes'].value || '',
+      Array.from(f.elements['readingId'].selectedOptions).map(o => Number(o.value)).filter(id => id)
+    ),
     readingId: Array.from(f.elements['readingId'].selectedOptions).map(o => Number(o.value)).filter(id => id)
   };
 
@@ -7966,7 +7997,7 @@ document.getElementById('payments-list')?.addEventListener('click', async e => {
       paymentForm.elements['method'].value = rec.method || 'cash';
       paymentForm.elements['account'].value = rec.account || 'my';
       paymentForm.elements['date'].value = formatDateEu(rec.date || '');
-      paymentForm.elements['notes'].value = rec.notes || '';
+      paymentForm.elements['notes'].value = displayPaymentNotes(rec.notes || '');
     } catch (err) {
       console.error(err);
       alert('שגיאה בעדכון: ' + err.message);
