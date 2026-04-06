@@ -433,6 +433,7 @@ function applyRoleUI() {
       'tenants-clear-all',
       'payments-import-csv',
       'payments-clear-all',
+      'credits-import-csv',
       'expenses-import-csv',
       'expenses-clear-all',
       'solar-import-csv',
@@ -2842,6 +2843,21 @@ function buildPaymentKey(tenantId, tenantName, apartmentNumber, date, amount, ac
   const apt = String(apartmentNumber || '').trim();
   const idPart = tenantId ? String(tenantId) : `${name}|${apt}`;
   return `${idPart}|${date}|${amount}|${account}`;
+}
+
+function buildCreditEntryKey(tenantId, tenantName, apartmentNumber, date, amount, type, note) {
+  const name = normalizeName(tenantName);
+  const apt = String(apartmentNumber || '').trim();
+  const idPart = tenantId ? String(tenantId) : `${name}|${apt}`;
+  const notePart = normalizeName(note || '');
+  return `${idPart}|${date}|${amount}|${normalizeTenantBalanceEntryType(type)}|${notePart}`;
+}
+
+function balanceEntryTypeFromCsv(value) {
+  const raw = String(value || '').trim().toLowerCase();
+  if (!raw) return 'credit';
+  if (raw === 'debt' || raw === 'loan' || raw === 'חיוב' || raw === 'חוב' || raw === 'הלוואה') return 'debt';
+  return 'credit';
 }
 
 function buildReadingImportKey(tenantId, tenantName, apartmentNumber, meterType, date) {
@@ -7726,6 +7742,8 @@ document.getElementById('payment-tenant')?.addEventListener('change', async e =>
 const paymentsExportBtn = document.getElementById('payments-export-csv');
 const paymentsImportBtn = document.getElementById('payments-import-csv');
 const paymentsClearBtn = document.getElementById('payments-clear-all');
+const creditsExportBtn = document.getElementById('credits-export-csv');
+const creditsImportBtn = document.getElementById('credits-import-csv');
 
 paymentsExportBtn?.addEventListener('click', async () => {
   const statusEl = document.getElementById('payments-csv-status');
@@ -7768,6 +7786,38 @@ paymentsClearBtn?.addEventListener('click', async () => {
   }
   await renderPayments();
   await renderBalance();
+});
+
+creditsExportBtn?.addEventListener('click', async () => {
+  const statusEl = document.getElementById('credits-csv-status');
+  if (statusEl) statusEl.textContent = 'מייצא...';
+  try {
+    await exportCreditsCsvEnglish();
+    if (statusEl) statusEl.textContent = 'קובץ CSV נוצר ✓';
+  } catch (e) {
+    if (statusEl) statusEl.textContent = `שגיאה: ${e.message}`;
+  }
+});
+
+creditsImportBtn?.addEventListener('click', async () => {
+  const file = document.getElementById('credits-csv-upload').files[0];
+  if (!file) { alert('בחר קובץ'); return; }
+  const statusEl = document.getElementById('credits-csv-status');
+  if (statusEl) statusEl.textContent = 'מעבד...';
+  try {
+    const text = await readCsvWithEncoding(file);
+    const res = await importCreditsCsvEnglish(text);
+    const unmatchedText = res.unmatched ? `, ${res.unmatched} ללא התאמה` : '';
+    if (statusEl) statusEl.textContent = `יובאו ${res.success}/${res.total} תנועות (${res.skipped} כפילויות דולגו${unmatchedText}) ✓`;
+  } catch (e) {
+    if (statusEl) statusEl.textContent = `שגיאה: ${e.message}`;
+  }
+
+  await renderCredits();
+  await renderTenants();
+  await renderReminders();
+  await renderBalance();
+  await renderDashboard();
 });
 
 // Settings
@@ -8622,6 +8672,126 @@ async function importPaymentsCsvEnglish(text) {
   }
   if (unmatchedNames.size > 0) {
     console.warn('Unmatched tenant names in payments import:', Array.from(unmatchedNames));
+  }
+
+  return { success, total, skipped, unmatched };
+}
+
+async function exportCreditsCsvEnglish() {
+  const creditsMap = await getTenantBalanceCreditsMap();
+  const tenants = await getAllTenants(true);
+  const tenantMap = new Map(tenants.map(t => [Number(t.id), t]));
+  const rows = [
+    ['date', 'apartment', 'first_name', 'last_name', 'amount', 'type', 'notes']
+  ];
+
+  const flatEntries = [];
+  Object.entries(creditsMap || {}).forEach(([tenantIdRaw, entries]) => {
+    const tenantId = Number(tenantIdRaw);
+    const normalizedEntries = normalizeTenantCreditEntries(entries);
+    normalizedEntries.forEach(entry => flatEntries.push({ tenantId, entry }));
+  });
+
+  flatEntries
+    .sort((a, b) => String(a.entry.dateIso || '').localeCompare(String(b.entry.dateIso || '')))
+    .forEach(item => {
+      const tenant = tenantMap.get(Number(item.tenantId)) || {};
+      const name = buildTenantName(tenant);
+      const nameParts = splitName(name);
+      rows.push([
+        item.entry.dateIso || '',
+        tenant.apartmentNumber || '',
+        nameParts.firstName || '',
+        nameParts.lastName || '',
+        Number(item.entry.amount || 0).toFixed(2),
+        normalizeTenantBalanceEntryType(item.entry.type || 'credit'),
+        item.entry.note || ''
+      ]);
+    });
+
+  const csv = rows.map(r => r.map(v => '"' + String(v).replace(/"/g, '""') + '"').join(',')).join('\n');
+  downloadCsv(csv, 'credits_debts_english.csv');
+}
+
+async function importCreditsCsvEnglish(text) {
+  const lines = text.split(/\r?\n/).filter(l => l.trim().length > 0);
+  if (lines.length < 2) throw new Error('קובץ ריק');
+  const rows = lines.map(parseCsvLine);
+
+  const startIdx = rows[0][0]?.toLowerCase() === 'date' ? 1 : 0;
+  const headerMap = {};
+  if (startIdx === 1) {
+    rows[0].forEach((h, i) => { headerMap[String(h || '').trim().toLowerCase()] = i; });
+  }
+  const idx = (name, fallback) => (headerMap[name] === undefined ? fallback : headerMap[name]);
+
+  const tenants = await getAllTenants(true);
+  const tenantIndex = buildTenantNameIndex(tenants);
+  const tenantPartsIndex = buildTenantNamePartsIndex(tenants);
+
+  const existingMap = await getTenantBalanceCreditsMap();
+  const existingSet = new Set();
+  Object.entries(existingMap || {}).forEach(([tenantIdRaw, entries]) => {
+    const tenantId = Number(tenantIdRaw);
+    const tenant = tenants.find(t => Number(t.id) === tenantId) || null;
+    const tenantName = tenant ? buildTenantName(tenant) : '';
+    const apartment = tenant?.apartmentNumber || '';
+    normalizeTenantCreditEntries(entries).forEach(entry => {
+      existingSet.add(buildCreditEntryKey(tenantId, tenantName, apartment, entry.dateIso, entry.amount, entry.type, entry.note));
+    });
+  });
+
+  let total = 0, success = 0, skipped = 0, unmatched = 0;
+  const unmatchedNames = new Set();
+
+  for (let i = startIdx; i < rows.length; i++) {
+    const row = rows[i];
+    const date = row[idx('date', 0)]?.trim();
+    const apartment = row[idx('apartment', 1)]?.trim();
+    const firstName = row[idx('first_name', 2)]?.trim();
+    const lastName = row[idx('last_name', 3)]?.trim();
+    const legacyName = row[idx('tenant', 2)]?.trim();
+    const tenantName = `${firstName || ''} ${lastName || ''}`.trim() || legacyName || '';
+    const amount = Number(String(row[idx('amount', 4)] || '').replace(/,/g, ''));
+    const type = balanceEntryTypeFromCsv(row[idx('type', 5)]);
+    const note = row[idx('notes', 6)]?.trim() || '';
+
+    if (!date || Number.isNaN(amount) || amount <= 0) continue;
+    total++;
+
+    let tenant = findTenantByName(tenantIndex, tenantName);
+    if (!tenant && tenantName) {
+      tenant = findTenantByNameParts(tenantPartsIndex, firstName, lastName);
+    }
+    if (!tenant && tenantName) {
+      tenant = findTenantByNameMatch(tenants, tenantName);
+    }
+    if (!tenant && apartment) {
+      tenant = tenants.find(t => String(t.apartmentNumber || '').trim() === String(apartment).trim()) || null;
+    }
+
+    if (!tenant) {
+      unmatched++;
+      if (tenantName) unmatchedNames.add(tenantName);
+      continue;
+    }
+
+    const resolvedTenantId = Number(tenant.id);
+    const resolvedName = buildTenantName(tenant);
+    const resolvedApartment = tenant.apartmentNumber || apartment || '';
+    const parsedDate = parseDateToIso(date);
+    if (!parsedDate) continue;
+
+    const key = buildCreditEntryKey(resolvedTenantId, resolvedName, resolvedApartment, parsedDate, amount, type, note);
+    if (existingSet.has(key)) { skipped++; continue; }
+
+    await addTenantBalanceCredit(resolvedTenantId, parsedDate, amount, note, type);
+    existingSet.add(key);
+    success++;
+  }
+
+  if (unmatchedNames.size > 0) {
+    console.warn('Unmatched tenant names in credits import:', Array.from(unmatchedNames));
   }
 
   return { success, total, skipped, unmatched };

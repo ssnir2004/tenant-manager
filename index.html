@@ -387,6 +387,17 @@
           </label>
           <button id="credits-add-btn" type="submit">שמור תנועה</button>
         </form>
+        <div class="row" style="margin-top: 12px;">
+          <label>CSV לזיכויים/חובות (כותרות באנגלית)
+            <input id="credits-csv-upload" type="file" accept=".csv">
+          </label>
+        </div>
+        <div class="actions">
+          <button id="credits-export-csv" type="button">Export CSV (EN)</button>
+          <button id="credits-import-csv" type="button">Import CSV (EN)</button>
+        </div>
+        <small style="display: block; color: #666; margin-top: 5px;">הקובץ יישמר בשם: <strong>credits_debts_english.csv</strong></small>
+        <div id="credits-csv-status" style="margin-top: 10px; color: #27ae60;"></div>
         <div id="credits-list" class="section-container" style="margin-top: 12px;"></div>
       </div>
 
