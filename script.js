@@ -407,6 +407,7 @@ function applyRoleUI() {
       'show-add',
       'show-archive',
       'show-settings',
+      'show-credits',
       'show-expenses',
       'show-solar',
       'show-balance',
@@ -440,6 +441,7 @@ function applyRoleUI() {
       'save-reminders-settings',
       'enable-browser-notifications',
       'add-manual-reminder',
+      'credits-add-btn',
       'mom-payments-import-csv',
       'mom-payments-clear-all'
     ];
@@ -3340,6 +3342,25 @@ async function addTenantBalanceCredit(tenantId, dateIso, amount, note = '') {
   return newEntry;
 }
 
+async function deleteTenantBalanceCredit(tenantId, creditId) {
+  const numericTenantId = Number(tenantId);
+  const normalizedCreditId = String(creditId || '').trim();
+  if (!Number.isFinite(numericTenantId) || numericTenantId <= 0) throw new Error('מזהה דייר לא תקין');
+  if (!normalizedCreditId) throw new Error('מזהה זיכוי לא תקין');
+
+  const creditsMap = await getTenantBalanceCreditsMap();
+  const key = String(numericTenantId);
+  const entries = getTenantCreditEntriesFromMap(creditsMap, numericTenantId);
+  const nextEntries = entries.filter(entry => String(entry.id || '') !== normalizedCreditId);
+  if (nextEntries.length === entries.length) return false;
+
+  if (nextEntries.length) creditsMap[key] = normalizeTenantCreditEntries(nextEntries);
+  else delete creditsMap[key];
+
+  await setSetting(TENANT_BALANCE_CREDITS_KEY, creditsMap);
+  return true;
+}
+
 async function getAllSettingsLocal() {
   const tx = await getTx('settings', 'readonly');
   return new Promise((res, rej) => {
@@ -4128,6 +4149,7 @@ const archiveView = document.getElementById('archive-view');
 const readingsView = document.getElementById('readings-view');
 const settingsView = document.getElementById('settings-view');
 const paymentsView = document.getElementById('payments-view');
+const creditsView = document.getElementById('credits-view');
 const remindersView = document.getElementById('reminders-view');
 const balanceView = document.getElementById('balance-view');
 const dashboardView = document.getElementById('dashboard-view');
@@ -4135,7 +4157,7 @@ const momView = document.getElementById('mom-view');
 const confirmModal = document.getElementById('confirm-modal');
 
 // UI Helpers
-function hideAll() { [tenantForm, archiveView, readingsView, settingsView, paymentsView, remindersView, expensesView, solarView, balanceView, dashboardView, momView].forEach(x => x?.classList.add('hidden')); }
+function hideAll() { [tenantForm, archiveView, readingsView, settingsView, paymentsView, creditsView, remindersView, expensesView, solarView, balanceView, dashboardView, momView].forEach(x => x?.classList.add('hidden')); }
 function show(el) { hideAll(); el?.classList.remove('hidden'); }
 function confirmDialog(msg) {
   return new Promise(res => {
@@ -4949,6 +4971,99 @@ async function renderPayments() {
         </tr>
       </thead>
       <tbody>${rows}</tbody>
+    </table>
+  `;
+}
+
+async function renderCredits() {
+  const creditTenantSelect = document.getElementById('credit-tenant');
+  const creditsList = document.getElementById('credits-list');
+  const creditsAddBtn = document.getElementById('credits-add-btn');
+  if (!creditsList) return;
+
+  const canWrite = canWriteCurrentUser();
+  if (creditsAddBtn) creditsAddBtn.disabled = !canWrite;
+
+  const tenants = isRemoteApp()
+    ? await getAllTenantsRemote(true)
+    : await getAllTenants(true);
+  const tenantMap = new Map(tenants.map(t => [Number(t.id), t]));
+
+  if (creditTenantSelect) {
+    const selectedValue = creditTenantSelect.value;
+    creditTenantSelect.innerHTML = '<option value="">בחר דייר</option>';
+    tenants
+      .sort((a, b) => String(a.apartmentNumber || '').localeCompare(String(b.apartmentNumber || ''), 'he'))
+      .forEach(t => {
+        const opt = document.createElement('option');
+        opt.value = t.id;
+        const archivedLabel = t.archived ? ' (ארכיון)' : '';
+        opt.textContent = `${t.apartmentNumber || '-'}: ${buildTenantName(t) || '-'}${archivedLabel}`;
+        creditTenantSelect.appendChild(opt);
+      });
+    const hasSelectedTenant = Array.from(creditTenantSelect.options).some(o => o.value === selectedValue);
+    creditTenantSelect.value = hasSelectedTenant ? selectedValue : '';
+  }
+
+  const creditsMap = await getTenantBalanceCreditsMap();
+  const rows = [];
+  Object.entries(creditsMap || {}).forEach(([tenantIdRaw, entries]) => {
+    const tenantId = Number(tenantIdRaw);
+    const tenant = tenantMap.get(tenantId);
+    const tenantName = tenant ? buildTenantName(tenant) : '';
+    const apartment = tenant?.apartmentNumber || '';
+    const normalized = normalizeTenantCreditEntries(entries);
+    normalized.forEach(entry => {
+      rows.push({
+        tenantId,
+        tenantName: tenantName || 'דייר לא נמצא',
+        apartment: apartment || '-',
+        dateIso: entry.dateIso || '',
+        amount: Number(entry.amount || 0),
+        note: entry.note || '',
+        creditId: entry.id || '',
+        createdAt: entry.createdAt || ''
+      });
+    });
+  });
+
+  rows.sort((a, b) => {
+    const dateCmp = String(b.dateIso || '').localeCompare(String(a.dateIso || ''));
+    if (dateCmp !== 0) return dateCmp;
+    return String(b.createdAt || '').localeCompare(String(a.createdAt || ''));
+  });
+
+  if (!rows.length) {
+    creditsList.innerHTML = '<p>אין זיכויים</p>';
+    return;
+  }
+
+  const totalAmount = rows.reduce((sum, row) => sum + Number(row.amount || 0), 0);
+  creditsList.innerHTML = `
+    <div style="margin-bottom: 10px; color: #444;">סה"כ זיכויים: <strong>₪${formatCurrency(totalAmount)}</strong></div>
+    <table class="payments-table">
+      <thead>
+        <tr>
+          <th>תאריך</th>
+          <th>דירה</th>
+          <th>דייר</th>
+          <th>סכום</th>
+          <th>הערה</th>
+          <th>פעולות</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${rows.map(row => `
+          <tr>
+            <td>${formatDateEu(row.dateIso)}</td>
+            <td>${row.apartment}</td>
+            <td>${row.tenantName}</td>
+            <td style="direction: ltr; text-align: left;">₪${formatCurrency(row.amount)}</td>
+            <td>${escapeHtml(row.note || '') || '-'}</td>
+            <td>${canWrite ? `<button class="btn-delete-credit" data-tenant-id="${row.tenantId}" data-credit-id="${row.creditId}">🗑️</button>` : '—'}</td>
+          </tr>
+        `).join('')}
+      </tbody>
     </table>
   `;
 }
@@ -6698,6 +6813,7 @@ const showArchiveBtn = document.getElementById('show-archive');
 const showSettingsBtn = document.getElementById('show-settings');
 const showReadingsBtn = document.getElementById('show-readings');
 const showPaymentsBtn = document.getElementById('show-payments');
+const showCreditsBtn = document.getElementById('show-credits');
 const showRemindersBtn = document.getElementById('show-reminders');
 const showExpensesBtn = document.getElementById('show-expenses');
 const showSolarBtn = document.getElementById('show-solar');
@@ -6726,6 +6842,13 @@ showPaymentsBtn?.addEventListener('click', async () => {
   resetPaymentFormMode();
   await renderPayments();
   show(paymentsView);
+});
+showCreditsBtn?.addEventListener('click', async () => {
+  setActiveButton('show-credits');
+  const creditDateInput = document.getElementById('credit-date');
+  if (creditDateInput && !creditDateInput.value) creditDateInput.value = formatDateEu(new Date());
+  await renderCredits();
+  show(creditsView);
 });
 showRemindersBtn?.addEventListener('click', async () => {
   setActiveButton('show-reminders');
@@ -7462,6 +7585,47 @@ paymentForm?.addEventListener('submit', async e => {
   await renderBalance();
   await renderMom();
   await renderReadings();
+});
+
+const creditForm = document.getElementById('credit-form');
+creditForm?.addEventListener('submit', async e => {
+  e.preventDefault();
+  if (!canWriteCurrentUser()) {
+    alert('אין הרשאת כתיבה למשתמש הנוכחי');
+    return;
+  }
+
+  const tenantId = Number(document.getElementById('credit-tenant')?.value || 0);
+  const amount = Number(document.getElementById('credit-amount')?.value || 0);
+  const rawDate = document.getElementById('credit-date')?.value || '';
+  const note = document.getElementById('credit-note')?.value || '';
+
+  if (!tenantId) {
+    alert('בחר דייר');
+    return;
+  }
+  if (!Number.isFinite(amount) || amount <= 0) {
+    alert('סכום זיכוי לא תקין');
+    return;
+  }
+
+  const dateIso = parseDateToIso(rawDate);
+  if (!dateIso) {
+    alert('תאריך לא תקין');
+    return;
+  }
+
+  await addTenantBalanceCredit(tenantId, dateIso, amount, note);
+
+  creditForm.reset();
+  const creditDateInput = document.getElementById('credit-date');
+  if (creditDateInput) creditDateInput.value = formatDateEu(new Date());
+
+  await renderCredits();
+  await renderTenants();
+  await renderReminders();
+  await renderBalance();
+  await renderDashboard();
 });
 
 document.getElementById('payment-tenant')?.addEventListener('change', async e => {
@@ -8450,6 +8614,26 @@ document.getElementById('payments-list')?.addEventListener('change', async e => 
   });
   await renderPayments();
   await renderBalance();
+});
+
+document.getElementById('credits-list')?.addEventListener('click', async e => {
+  const delBtn = e.target.closest('.btn-delete-credit');
+  if (!delBtn) return;
+  if (!canWriteCurrentUser()) return;
+
+  const tenantId = Number(delBtn.dataset.tenantId);
+  const creditId = String(delBtn.dataset.creditId || '').trim();
+  if (!tenantId || !creditId) return;
+
+  const confirmed = await confirmDialog('למחוק את הזיכוי?');
+  if (!confirmed) return;
+
+  await deleteTenantBalanceCredit(tenantId, creditId);
+  await renderCredits();
+  await renderTenants();
+  await renderReminders();
+  await renderBalance();
+  await renderDashboard();
 });
 
 // Tenant list handlers

@@ -21,6 +21,7 @@
         <button id="show-settings">הגדרות</button>
         <button id="show-readings">קריאות</button>
         <button id="show-payments">הכנסות</button>
+        <button id="show-credits">זיכוי</button>
         <button id="show-expenses">הוצאות</button>
         <button id="show-solar">גג סולרי</button>
         <button id="show-balance">מאזן</button>
@@ -358,6 +359,29 @@
           <button id="payments-filter-clear" type="button">נקה סינון</button>
         </div>
         <div id="payments-list" class="section-container" style="margin-top: 12px;"></div>
+      </div>
+
+      <!-- Credits View -->
+      <div id="credits-view" class="card hidden">
+        <h2>💸 זיכויים</h2>
+        <form id="credit-form" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 8px; align-items: end;">
+          <label>דייר
+            <select id="credit-tenant" name="tenantId" required>
+              <option value="">בחר דייר</option>
+            </select>
+          </label>
+          <label>סכום (₪)
+            <input id="credit-amount" name="amount" type="number" min="0" step="0.01" placeholder="0.00" required>
+          </label>
+          <label>תאריך
+            <input id="credit-date" name="date" type="text" placeholder="DD/MM/YYYY" required>
+          </label>
+          <label>הערה
+            <input id="credit-note" name="note" type="text" placeholder="סיבת זיכוי">
+          </label>
+          <button id="credits-add-btn" type="submit">הוסף זיכוי</button>
+        </form>
+        <div id="credits-list" class="section-container" style="margin-top: 12px;"></div>
       </div>
 
       <!-- Reminders View -->
