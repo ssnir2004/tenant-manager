@@ -5168,6 +5168,7 @@ async function renderBalance() {
   const readings = await getAllReadings();
   const tenants = await getAllTenants(true);
   const expenses = await getAllExpenses();
+  const tenantCreditsMap = await getTenantBalanceCreditsMap();
   const waterPrice = Number(await getSetting('waterPrice') ?? 0);
   const kvaCon = Number(await getSetting('kvaCon') ?? 0);
   const includeSolarCheckbox = document.getElementById('balance-include-solar');
@@ -5222,6 +5223,46 @@ async function renderBalance() {
     return monthlyDetails.get(key);
   };
   const tenantMap = new Map(tenants.map(t => [t.id, t]));
+
+  // Include credit/debt adjustments in monthly balance and month drill-down.
+  Object.entries(tenantCreditsMap || {}).forEach(([tenantIdRaw, entries]) => {
+    const tenantId = Number(tenantIdRaw);
+    const tenant = tenantMap.get(tenantId);
+    const tenantName = tenant
+      ? `${tenant.firstName || ''} ${tenant.lastName || ''}`.trim()
+      : 'דייר לא נמצא';
+
+    normalizeTenantCreditEntries(entries).forEach(entry => {
+      const iso = parseDateToIso(entry?.dateIso || '');
+      const amount = Number(entry?.amount || 0);
+      if (!iso || !Number.isFinite(amount) || amount <= 0) return;
+
+      const key = iso.slice(0, 7);
+      const rec = ensureMonth(key);
+      const details = ensureDetails(key);
+      const type = normalizeTenantBalanceEntryType(entry?.type);
+      const note = String(entry?.note || '').trim();
+
+      if (type === 'debt') {
+        rec.income += amount;
+        details.incomes.push({
+          date: iso,
+          tenantName,
+          account: '',
+          method: 'חיוב',
+          amount,
+          note
+        });
+      } else {
+        rec.expense += amount;
+        details.expenses.push({
+          type: 'זיכוי/החזר לדייר',
+          period: `${formatDateEu(iso)}${note ? ` · ${note}` : ''}`,
+          amount
+        });
+      }
+    });
+  });
 
   payments.forEach(p => {
     const iso = parseDateToIso(p.date);
