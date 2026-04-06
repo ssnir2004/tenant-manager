@@ -3380,6 +3380,43 @@ async function deleteTenantBalanceCredit(tenantId, creditId) {
   return true;
 }
 
+async function updateTenantBalanceCredit(tenantId, creditId, patch = {}) {
+  const numericTenantId = Number(tenantId);
+  const normalizedCreditId = String(creditId || '').trim();
+  if (!Number.isFinite(numericTenantId) || numericTenantId <= 0) throw new Error('מזהה דייר לא תקין');
+  if (!normalizedCreditId) throw new Error('מזהה תנועה לא תקין');
+
+  const creditsMap = await getTenantBalanceCreditsMap();
+  const key = String(numericTenantId);
+  const entries = getTenantCreditEntriesFromMap(creditsMap, numericTenantId);
+  const index = entries.findIndex(entry => String(entry.id || '') === normalizedCreditId);
+  if (index < 0) throw new Error('התנועה לא נמצאה');
+
+  const current = entries[index];
+  const dateIso = parseDateToIso(patch.dateIso || patch.date || current.dateIso || '');
+  const amount = Number(patch.amount ?? current.amount ?? 0);
+  const type = normalizeTenantBalanceEntryType(patch.type || patch.entryType || current.type || 'credit');
+  const note = String(patch.note ?? current.note ?? '').trim();
+
+  if (!dateIso) throw new Error('תאריך לא תקין');
+  if (!Number.isFinite(amount) || amount <= 0) throw new Error('סכום תנועה לא תקין');
+
+  entries[index] = {
+    ...current,
+    id: normalizedCreditId,
+    dateIso,
+    amount,
+    type,
+    note,
+    createdAt: String(current.createdAt || '').trim() || new Date().toISOString()
+  };
+
+  const nextEntries = normalizeTenantCreditEntries(entries);
+  creditsMap[key] = nextEntries;
+  await setSetting(TENANT_BALANCE_CREDITS_KEY, creditsMap);
+  return entries[index];
+}
+
 async function getAllSettingsLocal() {
   const tx = await getTx('settings', 'readonly');
   return new Promise((res, rej) => {
@@ -5090,7 +5127,10 @@ async function renderCredits() {
             <td>${row.tenantName}</td>
             <td style="direction: ltr; text-align: left;">${row.type === 'debt' ? '+' : '-'}₪${formatCurrency(row.amount)}</td>
             <td>${escapeHtml(row.note || '') || '-'}</td>
-            <td>${canWrite ? `<button class="btn-delete-credit" data-tenant-id="${row.tenantId}" data-credit-id="${row.creditId}">🗑️</button>` : '—'}</td>
+            <td>${canWrite
+              ? `<button class="btn-edit-credit" data-tenant-id="${row.tenantId}" data-credit-id="${row.creditId}">✏️</button>
+                 <button class="btn-delete-credit" data-tenant-id="${row.tenantId}" data-credit-id="${row.creditId}">🗑️</button>`
+              : '—'}</td>
           </tr>
         `).join('')}
       </tbody>
@@ -8650,15 +8690,66 @@ document.getElementById('payments-list')?.addEventListener('change', async e => 
 });
 
 document.getElementById('credits-list')?.addEventListener('click', async e => {
+  const editBtn = e.target.closest('.btn-edit-credit');
   const delBtn = e.target.closest('.btn-delete-credit');
-  if (!delBtn) return;
+  if (!editBtn && !delBtn) return;
   if (!canWriteCurrentUser()) return;
+
+  if (editBtn) {
+    const tenantId = Number(editBtn.dataset.tenantId);
+    const creditId = String(editBtn.dataset.creditId || '').trim();
+    if (!tenantId || !creditId) return;
+
+    const entries = getTenantCreditEntriesFromMap(await getTenantBalanceCreditsMap(), tenantId);
+    const entry = entries.find(item => String(item.id || '') === creditId);
+    if (!entry) {
+      alert('התנועה לא נמצאה');
+      return;
+    }
+
+    const typeInput = prompt('סוג תנועה: credit לזיכוי, debt לחוב', normalizeTenantBalanceEntryType(entry.type));
+    if (typeInput === null) return;
+    const type = normalizeTenantBalanceEntryType(typeInput);
+
+    const amountInput = prompt('סכום תנועה (₪):', String(entry.amount || ''));
+    if (amountInput === null) return;
+    const amount = Number(String(amountInput).replace(',', '.'));
+    if (!Number.isFinite(amount) || amount <= 0) {
+      alert('סכום לא תקין');
+      return;
+    }
+
+    const dateInput = prompt('תאריך תנועה (DD/MM/YYYY או YYYY-MM-DD):', formatDateEu(entry.dateIso));
+    if (dateInput === null) return;
+    const dateIso = parseDateToIso(dateInput);
+    if (!dateIso) {
+      alert('תאריך לא תקין');
+      return;
+    }
+
+    const noteInput = prompt('הערה (אופציונלי):', String(entry.note || ''));
+    if (noteInput === null) return;
+
+    await updateTenantBalanceCredit(tenantId, creditId, {
+      type,
+      amount,
+      dateIso,
+      note: String(noteInput || '').trim()
+    });
+
+    await renderCredits();
+    await renderTenants();
+    await renderReminders();
+    await renderBalance();
+    await renderDashboard();
+    return;
+  }
 
   const tenantId = Number(delBtn.dataset.tenantId);
   const creditId = String(delBtn.dataset.creditId || '').trim();
   if (!tenantId || !creditId) return;
 
-  const confirmed = await confirmDialog('למחוק את הזיכוי?');
+  const confirmed = await confirmDialog('למחוק את התנועה?');
   if (!confirmed) return;
 
   await deleteTenantBalanceCredit(tenantId, creditId);
