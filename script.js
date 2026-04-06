@@ -7,6 +7,11 @@ const STORES = ['tenants', 'readings', 'bills', 'payments', 'expenses', 'solar',
 const SIDEBAR_WIDTH_STORAGE_KEY = 'sidebarWidthPx';
 const TENANT_BALANCE_CREDITS_KEY = 'tenantBalanceCredits';
 
+function normalizeTenantBalanceEntryType(value) {
+  const raw = String(value || '').trim().toLowerCase();
+  return raw === 'debt' ? 'debt' : 'credit';
+}
+
 function normalizeTenantCreditEntries(value) {
   const entries = [];
   if (Array.isArray(value)) {
@@ -26,10 +31,11 @@ function normalizeTenantCreditEntries(value) {
     const dateIso = parseDateToIso(item?.dateIso || item?.date || item?.dateKey || item?.key || '');
     const amount = Number(item?.amount || 0);
     if (!dateIso || !Number.isFinite(amount) || amount <= 0) return;
+    const type = normalizeTenantBalanceEntryType(item?.type || item?.entryType);
     const note = String(item?.note || '').trim();
     const createdAt = String(item?.createdAt || item?.updatedAt || '').trim() || new Date().toISOString();
     const id = String(item?.id || `${dateIso}-${amount}-${createdAt}`);
-    normalized.push({ id, dateIso, amount, note, createdAt });
+    normalized.push({ id, dateIso, amount, type, note, createdAt });
   });
 
   normalized.sort((a, b) => {
@@ -1568,6 +1574,7 @@ function calculateTenantBalanceBreakdown(tenant, payments, readings, waterPrice,
       details: {
         rent: { rentAmount: 0, rentStartIso: '', calculationEndIso: calcEndIso, monthsDue: 0, expectedRent: 0, paidApplied: 0, paymentItems: [], historyUsed: false, historyBreakdown: [], overpaymentCredit: 0 },
         arnona: { arnonaAmount: 0, expectedArnona: 0, paidApplied: 0, source: 'tenant', historyBreakdown: [] },
+        adjustments: { creditTotal: 0, debtTotal: 0 },
         electricity: [],
         water: []
       }
@@ -1600,14 +1607,20 @@ function calculateTenantBalanceBreakdown(tenant, payments, readings, waterPrice,
     }))
     .filter(p => !!p.dateIso)
     .sort((a, b) => a.dateIso.localeCompare(b.dateIso));
-  const creditItems = tenantCreditEntries
+  const adjustmentItems = tenantCreditEntries
     .map(entry => ({
       dateIso: parseDateToIso(entry?.dateIso || ''),
-      amount: Number(entry?.amount || 0)
+      amount: Number(entry?.amount || 0),
+      type: normalizeTenantBalanceEntryType(entry?.type)
     }))
     .filter(item => !!item.dateIso && Number.isFinite(item.amount) && item.amount > 0)
     .sort((a, b) => a.dateIso.localeCompare(b.dateIso));
+
+  const creditItems = adjustmentItems.filter(item => item.type === 'credit');
+  const debtItems = adjustmentItems.filter(item => item.type === 'debt');
   const creditItemsForCurrentAndPastMonths = creditItems.filter(item => item.dateIso.slice(0, 7) <= todayMonthKey);
+  const debtItemsForCurrentAndPastMonths = debtItems.filter(item => item.dateIso.slice(0, 7) <= todayMonthKey);
+  const manualDebtTotal = debtItemsForCurrentAndPastMonths.reduce((sum, item) => sum + Number(item.amount || 0), 0);
   const paymentItemsForCurrentAndPastMonths = [...paymentItems.filter(p => p.dateIso.slice(0, 7) <= todayMonthKey), ...creditItemsForCurrentAndPastMonths]
     .sort((a, b) => a.dateIso.localeCompare(b.dateIso));
   let totalPaid = paymentItemsForCurrentAndPastMonths.reduce((sum, p) => sum + Number(p.amount || 0), 0);
@@ -1820,7 +1833,7 @@ function calculateTenantBalanceBreakdown(tenant, payments, readings, waterPrice,
   rentBalance = expectedRent - rentPaidApplied;
   arnonaBalance = expectedArnona - arnonaPaidApplied;
 
-  const total = rentBalance + arnonaBalance + utilityDebt.electricity + utilityDebt.water - overpaymentCredit;
+  const total = rentBalance + arnonaBalance + utilityDebt.electricity + utilityDebt.water + manualDebtTotal - overpaymentCredit;
   return {
     rent: rentBalance,
     arnona: arnonaBalance,
@@ -1847,6 +1860,10 @@ function calculateTenantBalanceBreakdown(tenant, payments, readings, waterPrice,
         paidApplied: arnonaPaidApplied,
         source: arnonaSource,
         historyBreakdown: arnonaHistoryBreakdown
+      },
+      adjustments: {
+        creditTotal: creditItemsForCurrentAndPastMonths.reduce((sum, item) => sum + Number(item.amount || 0), 0),
+        debtTotal: manualDebtTotal
       },
       electricity: utilityDetails.electricity,
       water: utilityDetails.water
@@ -3316,13 +3333,14 @@ async function getTenantBalanceCreditsMap() {
   return normalizeTenantCreditsMap(raw || {});
 }
 
-async function addTenantBalanceCredit(tenantId, dateIso, amount, note = '') {
+async function addTenantBalanceCredit(tenantId, dateIso, amount, note = '', entryType = 'credit') {
   const numericTenantId = Number(tenantId);
   const normalizedDateIso = parseDateToIso(dateIso || '');
   const numericAmount = Number(amount || 0);
+  const normalizedType = normalizeTenantBalanceEntryType(entryType);
   if (!Number.isFinite(numericTenantId) || numericTenantId <= 0) throw new Error('מזהה דייר לא תקין');
   if (!normalizedDateIso) throw new Error('תאריך לא תקין');
-  if (!Number.isFinite(numericAmount) || numericAmount <= 0) throw new Error('סכום זיכוי לא תקין');
+  if (!Number.isFinite(numericAmount) || numericAmount <= 0) throw new Error('סכום תנועה לא תקין');
 
   const creditsMap = await getTenantBalanceCreditsMap();
   const key = String(numericTenantId);
@@ -3333,6 +3351,7 @@ async function addTenantBalanceCredit(tenantId, dateIso, amount, note = '') {
     id,
     dateIso: normalizedDateIso,
     amount: numericAmount,
+    type: normalizedType,
     note: String(note || '').trim(),
     createdAt
   };
@@ -4501,10 +4520,9 @@ async function renderTenantsTable() {
     const arnona = !Number.isNaN(arnonaNum) && String(t.arnonaAmount).trim() !== '' ? `<span style="direction: ltr; display: inline-block;">₪${formatCurrency(arnonaNum)}</span>` : '-';
     const name = `${t.firstName || ''} ${t.lastName || ''}`.trim();
     const status = t.archived ? 'לא פעיל' : 'פעיל';
-    const creditBtn = `<button data-id="${t.id}" class="btn-tenant-credit" title="הוספת זיכוי לדייר" ${canWrite ? '' : 'disabled'}>💸</button>`;
     const actions = t.archived
-      ? `<button data-id="${t.id}" class="btn-edit">✏️</button>${creditBtn}<button data-id="${t.id}" class="btn-restore">↩️</button><button data-id="${t.id}" class="btn-delete">🗑️</button>`
-      : `<button data-id="${t.id}" class="btn-edit">✏️</button>${creditBtn}<button data-id="${t.id}" class="btn-archive">📦</button><button data-id="${t.id}" class="btn-delete">🗑️</button>`;
+      ? `<button data-id="${t.id}" class="btn-edit">✏️</button><button data-id="${t.id}" class="btn-restore">↩️</button><button data-id="${t.id}" class="btn-delete">🗑️</button>`
+      : `<button data-id="${t.id}" class="btn-edit">✏️</button><button data-id="${t.id}" class="btn-archive">📦</button><button data-id="${t.id}" class="btn-delete">🗑️</button>`;
     return `
       <tr>
         <td>${t.apartmentNumber || '-'}</td>
@@ -5020,6 +5038,7 @@ async function renderCredits() {
         apartment: apartment || '-',
         dateIso: entry.dateIso || '',
         amount: Number(entry.amount || 0),
+        type: normalizeTenantBalanceEntryType(entry.type),
         note: entry.note || '',
         creditId: entry.id || '',
         createdAt: entry.createdAt || ''
@@ -5034,17 +5053,27 @@ async function renderCredits() {
   });
 
   if (!rows.length) {
-    creditsList.innerHTML = '<p>אין זיכויים</p>';
+    creditsList.innerHTML = '<p>אין זיכויים או חובות</p>';
     return;
   }
 
-  const totalAmount = rows.reduce((sum, row) => sum + Number(row.amount || 0), 0);
+  const totalCredits = rows
+    .filter(row => row.type === 'credit')
+    .reduce((sum, row) => sum + Number(row.amount || 0), 0);
+  const totalDebts = rows
+    .filter(row => row.type === 'debt')
+    .reduce((sum, row) => sum + Number(row.amount || 0), 0);
+
   creditsList.innerHTML = `
-    <div style="margin-bottom: 10px; color: #444;">סה"כ זיכויים: <strong>₪${formatCurrency(totalAmount)}</strong></div>
+    <div style="margin-bottom: 10px; color: #444;">
+      סה"כ זיכויים: <strong>₪${formatCurrency(totalCredits)}</strong>
+      | סה"כ חובות נוספים: <strong>₪${formatCurrency(totalDebts)}</strong>
+    </div>
     <table class="payments-table">
       <thead>
         <tr>
           <th>תאריך</th>
+          <th>סוג</th>
           <th>דירה</th>
           <th>דייר</th>
           <th>סכום</th>
@@ -5056,9 +5085,10 @@ async function renderCredits() {
         ${rows.map(row => `
           <tr>
             <td>${formatDateEu(row.dateIso)}</td>
+            <td>${row.type === 'debt' ? 'חוב' : 'זיכוי'}</td>
             <td>${row.apartment}</td>
             <td>${row.tenantName}</td>
-            <td style="direction: ltr; text-align: left;">₪${formatCurrency(row.amount)}</td>
+            <td style="direction: ltr; text-align: left;">${row.type === 'debt' ? '+' : '-'}₪${formatCurrency(row.amount)}</td>
             <td>${escapeHtml(row.note || '') || '-'}</td>
             <td>${canWrite ? `<button class="btn-delete-credit" data-tenant-id="${row.tenantId}" data-credit-id="${row.creditId}">🗑️</button>` : '—'}</td>
           </tr>
@@ -7596,6 +7626,7 @@ creditForm?.addEventListener('submit', async e => {
   }
 
   const tenantId = Number(document.getElementById('credit-tenant')?.value || 0);
+  const entryType = normalizeTenantBalanceEntryType(document.getElementById('credit-type')?.value || 'credit');
   const amount = Number(document.getElementById('credit-amount')?.value || 0);
   const rawDate = document.getElementById('credit-date')?.value || '';
   const note = document.getElementById('credit-note')?.value || '';
@@ -7605,7 +7636,7 @@ creditForm?.addEventListener('submit', async e => {
     return;
   }
   if (!Number.isFinite(amount) || amount <= 0) {
-    alert('סכום זיכוי לא תקין');
+    alert('סכום לא תקין');
     return;
   }
 
@@ -7615,11 +7646,13 @@ creditForm?.addEventListener('submit', async e => {
     return;
   }
 
-  await addTenantBalanceCredit(tenantId, dateIso, amount, note);
+  await addTenantBalanceCredit(tenantId, dateIso, amount, note, entryType);
 
   creditForm.reset();
   const creditDateInput = document.getElementById('credit-date');
   if (creditDateInput) creditDateInput.value = formatDateEu(new Date());
+  const creditTypeInput = document.getElementById('credit-type');
+  if (creditTypeInput) creditTypeInput.value = 'credit';
 
   await renderCredits();
   await renderTenants();
@@ -8705,69 +8738,14 @@ document.getElementById('tenants-show-archived')?.addEventListener('change', asy
   await renderTenantsTable();
 });
 
-async function openTenantCreditPrompt(tenantId) {
-  const numericTenantId = Number(tenantId);
-  if (!Number.isFinite(numericTenantId) || numericTenantId <= 0) return;
-
-  const tenants = await getAllTenants(true);
-  const tenant = tenants.find(t => Number(t.id) === numericTenantId);
-  if (!tenant) {
-    alert('הדייר לא נמצא');
-    return;
-  }
-
-  const creditsMap = await getTenantBalanceCreditsMap();
-  const entries = getTenantCreditEntriesFromMap(creditsMap, numericTenantId);
-  const defaultDate = currentIsoDate();
-  const latestHint = entries.length
-    ? entries.slice(-5).map(entry => `${formatDateEu(entry.dateIso)}: ₪${formatCurrency(entry.amount || 0)}${entry.note ? ` (${entry.note})` : ''}`).join('\n')
-    : 'אין זיכויים קודמים';
-  const tenantName = `${tenant.firstName || ''} ${tenant.lastName || ''}`.trim() || 'ללא שם';
-
-  const amountInput = prompt(`זיכוי לדייר ${tenantName} (דירה ${tenant.apartmentNumber || '-'})\n\nזיכויים אחרונים:\n${latestHint}\n\nהכנס סכום זיכוי (₪):`, '');
-  if (amountInput === null) return;
-  const amount = Number(String(amountInput).replace(',', '.'));
-  if (!Number.isFinite(amount) || amount <= 0) {
-    alert('סכום זיכוי לא תקין');
-    return;
-  }
-
-  const dateInput = prompt('תאריך הזיכוי (DD/MM/YYYY או YYYY-MM-DD):', formatDateEu(defaultDate));
-  if (dateInput === null) return;
-  const parsedDate = parseDateToIso(dateInput);
-  if (!parsedDate) {
-    alert('תאריך לא תקין');
-    return;
-  }
-
-  const noteInput = prompt('הערה לזיכוי (אופציונלי):', '');
-  if (noteInput === null) return;
-  const note = String(noteInput || '').trim();
-
-  await addTenantBalanceCredit(numericTenantId, parsedDate, amount, note);
-  await renderTenants();
-  await renderTenantsTable();
-  await renderBalance();
-  await renderReminders();
-  await renderDashboard();
-
-  alert(`נשמר זיכוי של ₪${formatCurrency(amount)} לתאריך ${formatDateEu(parsedDate)}`);
-}
-
 document.getElementById('tenants-table')?.addEventListener('click', async e => {
   const editBtn = e.target.closest('.btn-edit');
-  const creditBtn = e.target.closest('.btn-tenant-credit');
   const archiveBtn = e.target.closest('.btn-archive');
   const restoreBtn = e.target.closest('.btn-restore');
   const deleteBtn = e.target.closest('.btn-delete');
 
-  const id = Number(editBtn?.dataset.id || creditBtn?.dataset.id || archiveBtn?.dataset.id || restoreBtn?.dataset.id || deleteBtn?.dataset.id);
+  const id = Number(editBtn?.dataset.id || archiveBtn?.dataset.id || restoreBtn?.dataset.id || deleteBtn?.dataset.id);
   if (!id) return;
-
-  if (creditBtn) {
-    await openTenantCreditPrompt(id);
-    return;
-  }
 
   if (editBtn) {
     const tenants = await getAllTenants(true);

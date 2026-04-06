@@ -363,11 +363,17 @@
 
       <!-- Credits View -->
       <div id="credits-view" class="card hidden">
-        <h2>💸 זיכויים</h2>
+        <h2>💸 זיכויים וחובות</h2>
         <form id="credit-form" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 8px; align-items: end;">
           <label>דייר
             <select id="credit-tenant" name="tenantId" required>
               <option value="">בחר דייר</option>
+            </select>
+          </label>
+          <label>סוג תנועה
+            <select id="credit-type" name="entryType" required>
+              <option value="credit" selected>זיכוי (מפחית חוב)</option>
+              <option value="debt">חוב / הלוואה (מוסיף חוב)</option>
             </select>
           </label>
           <label>סכום (₪)
@@ -379,7 +385,7 @@
           <label>הערה
             <input id="credit-note" name="note" type="text" placeholder="סיבת זיכוי">
           </label>
-          <button id="credits-add-btn" type="submit">הוסף זיכוי</button>
+          <button id="credits-add-btn" type="submit">שמור תנועה</button>
         </form>
         <div id="credits-list" class="section-container" style="margin-top: 12px;"></div>
       </div>
