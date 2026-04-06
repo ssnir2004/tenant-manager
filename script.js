@@ -449,6 +449,7 @@ function applyRoleUI() {
       'enable-browser-notifications',
       'add-manual-reminder',
       'credits-add-btn',
+      'credit-edit-save',
       'mom-payments-import-csv',
       'mom-payments-clear-all'
     ];
@@ -3399,16 +3400,19 @@ async function deleteTenantBalanceCredit(tenantId, creditId) {
 async function updateTenantBalanceCredit(tenantId, creditId, patch = {}) {
   const numericTenantId = Number(tenantId);
   const normalizedCreditId = String(creditId || '').trim();
+  const targetTenantId = Number(patch.tenantId ?? numericTenantId);
   if (!Number.isFinite(numericTenantId) || numericTenantId <= 0) throw new Error('מזהה דייר לא תקין');
   if (!normalizedCreditId) throw new Error('מזהה תנועה לא תקין');
+  if (!Number.isFinite(targetTenantId) || targetTenantId <= 0) throw new Error('דייר יעד לא תקין');
 
   const creditsMap = await getTenantBalanceCreditsMap();
-  const key = String(numericTenantId);
-  const entries = getTenantCreditEntriesFromMap(creditsMap, numericTenantId);
-  const index = entries.findIndex(entry => String(entry.id || '') === normalizedCreditId);
+  const sourceKey = String(numericTenantId);
+  const targetKey = String(targetTenantId);
+  const sourceEntries = getTenantCreditEntriesFromMap(creditsMap, numericTenantId);
+  const index = sourceEntries.findIndex(entry => String(entry.id || '') === normalizedCreditId);
   if (index < 0) throw new Error('התנועה לא נמצאה');
 
-  const current = entries[index];
+  const current = sourceEntries[index];
   const dateIso = parseDateToIso(patch.dateIso || patch.date || current.dateIso || '');
   const amount = Number(patch.amount ?? current.amount ?? 0);
   const type = normalizeTenantBalanceEntryType(patch.type || patch.entryType || current.type || 'credit');
@@ -3417,7 +3421,7 @@ async function updateTenantBalanceCredit(tenantId, creditId, patch = {}) {
   if (!dateIso) throw new Error('תאריך לא תקין');
   if (!Number.isFinite(amount) || amount <= 0) throw new Error('סכום תנועה לא תקין');
 
-  entries[index] = {
+  const updatedEntry = {
     ...current,
     id: normalizedCreditId,
     dateIso,
@@ -3427,10 +3431,15 @@ async function updateTenantBalanceCredit(tenantId, creditId, patch = {}) {
     createdAt: String(current.createdAt || '').trim() || new Date().toISOString()
   };
 
-  const nextEntries = normalizeTenantCreditEntries(entries);
-  creditsMap[key] = nextEntries;
+  const nextSourceEntries = sourceEntries.filter((_, entryIndex) => entryIndex !== index);
+  if (nextSourceEntries.length) creditsMap[sourceKey] = normalizeTenantCreditEntries(nextSourceEntries);
+  else delete creditsMap[sourceKey];
+
+  const targetEntries = getTenantCreditEntriesFromMap(creditsMap, targetTenantId);
+  creditsMap[targetKey] = normalizeTenantCreditEntries([...targetEntries, updatedEntry]);
+
   await setSetting(TENANT_BALANCE_CREDITS_KEY, creditsMap);
-  return entries[index];
+  return updatedEntry;
 }
 
 async function getAllSettingsLocal() {
@@ -8187,6 +8196,9 @@ document.getElementById('bills-report')?.addEventListener('click', async e => {
 
 let readingEditCurrentId = null;
 let readingEditTenants = [];
+let creditEditCurrentTenantId = null;
+let creditEditCurrentId = null;
+let creditEditTenants = [];
 
 function closeReadingEditModal() {
   const modal = document.getElementById('reading-edit-modal');
@@ -8194,6 +8206,67 @@ function closeReadingEditModal() {
   modal.classList.add('hidden');
   modal.style.display = 'none';
   readingEditCurrentId = null;
+}
+
+function closeCreditEditModal() {
+  const modal = document.getElementById('credit-edit-modal');
+  if (!modal) return;
+  modal.classList.add('hidden');
+  modal.style.display = 'none';
+  creditEditCurrentTenantId = null;
+  creditEditCurrentId = null;
+}
+
+async function fillCreditEditTenantOptions(selectedTenantId = null) {
+  const select = document.getElementById('credit-edit-tenant');
+  if (!select) return;
+
+  creditEditTenants = isRemoteApp()
+    ? await getAllTenantsRemote(true)
+    : await getAllTenants(true);
+  const sorted = sortTenantsForReadingModal(creditEditTenants);
+
+  select.innerHTML = '<option value="">בחר דייר</option>';
+  sorted.forEach(t => {
+    const option = document.createElement('option');
+    const fullName = `${t.firstName || ''} ${t.lastName || ''}`.trim() || '-';
+    const status = t.archived ? ' (לא פעיל)' : ' (פעיל)';
+    option.value = String(t.id);
+    option.textContent = `${t.apartmentNumber || '-'}: ${fullName}${status}`;
+    select.appendChild(option);
+  });
+
+  if (selectedTenantId) {
+    select.value = String(selectedTenantId);
+  }
+}
+
+async function openCreditEditModal(tenantId, creditId) {
+  const numericTenantId = Number(tenantId);
+  const normalizedCreditId = String(creditId || '').trim();
+  if (!numericTenantId || !normalizedCreditId) return;
+
+  const creditsMap = await getTenantBalanceCreditsMap();
+  const entries = getTenantCreditEntriesFromMap(creditsMap, numericTenantId);
+  const entry = entries.find(item => String(item.id || '') === normalizedCreditId);
+  if (!entry) {
+    alert('התנועה לא נמצאה');
+    return;
+  }
+
+  creditEditCurrentTenantId = numericTenantId;
+  creditEditCurrentId = normalizedCreditId;
+
+  await fillCreditEditTenantOptions(numericTenantId);
+  document.getElementById('credit-edit-type').value = normalizeTenantBalanceEntryType(entry.type);
+  document.getElementById('credit-edit-amount').value = Number(entry.amount || 0);
+  document.getElementById('credit-edit-date').value = formatDateEu(entry.dateIso || '');
+  document.getElementById('credit-edit-note').value = entry.note || '';
+
+  const modal = document.getElementById('credit-edit-modal');
+  if (!modal) return;
+  modal.classList.remove('hidden');
+  modal.style.display = 'flex';
 }
 
 async function getReadingByIdLocal(id) {
@@ -8295,6 +8368,55 @@ document.getElementById('reading-edit-tenant')?.addEventListener('change', e => 
 
 document.getElementById('reading-edit-cancel')?.addEventListener('click', () => {
   closeReadingEditModal();
+});
+
+document.getElementById('credit-edit-cancel')?.addEventListener('click', () => {
+  closeCreditEditModal();
+});
+
+document.getElementById('credit-edit-save')?.addEventListener('click', async () => {
+  if (!creditEditCurrentTenantId || !creditEditCurrentId) return;
+
+  const targetTenantId = Number(document.getElementById('credit-edit-tenant').value || 0);
+  if (!targetTenantId) {
+    alert('בחר דייר');
+    return;
+  }
+
+  const entryType = normalizeTenantBalanceEntryType(document.getElementById('credit-edit-type').value || 'credit');
+  const amount = Number(document.getElementById('credit-edit-amount').value || 0);
+  if (!Number.isFinite(amount) || amount <= 0) {
+    alert('סכום לא תקין');
+    return;
+  }
+
+  const dateIso = parseDateToIso(document.getElementById('credit-edit-date').value || '');
+  if (!dateIso) {
+    alert('תאריך לא תקין');
+    return;
+  }
+
+  const note = String(document.getElementById('credit-edit-note').value || '').trim();
+
+  try {
+    await updateTenantBalanceCredit(creditEditCurrentTenantId, creditEditCurrentId, {
+      tenantId: targetTenantId,
+      type: entryType,
+      amount,
+      dateIso,
+      note
+    });
+
+    closeCreditEditModal();
+    await renderCredits();
+    await renderTenants();
+    await renderReminders();
+    await renderBalance();
+    await renderDashboard();
+  } catch (err) {
+    console.error(err);
+    alert('שגיאה בעדכון: ' + err.message);
+  }
 });
 
 document.getElementById('reading-edit-save')?.addEventListener('click', async () => {
@@ -8870,48 +8992,7 @@ document.getElementById('credits-list')?.addEventListener('click', async e => {
     const creditId = String(editBtn.dataset.creditId || '').trim();
     if (!tenantId || !creditId) return;
 
-    const entries = getTenantCreditEntriesFromMap(await getTenantBalanceCreditsMap(), tenantId);
-    const entry = entries.find(item => String(item.id || '') === creditId);
-    if (!entry) {
-      alert('התנועה לא נמצאה');
-      return;
-    }
-
-    const typeInput = prompt('סוג תנועה: credit לזיכוי, debt לחוב', normalizeTenantBalanceEntryType(entry.type));
-    if (typeInput === null) return;
-    const type = normalizeTenantBalanceEntryType(typeInput);
-
-    const amountInput = prompt('סכום תנועה (₪):', String(entry.amount || ''));
-    if (amountInput === null) return;
-    const amount = Number(String(amountInput).replace(',', '.'));
-    if (!Number.isFinite(amount) || amount <= 0) {
-      alert('סכום לא תקין');
-      return;
-    }
-
-    const dateInput = prompt('תאריך תנועה (DD/MM/YYYY או YYYY-MM-DD):', formatDateEu(entry.dateIso));
-    if (dateInput === null) return;
-    const dateIso = parseDateToIso(dateInput);
-    if (!dateIso) {
-      alert('תאריך לא תקין');
-      return;
-    }
-
-    const noteInput = prompt('הערה (אופציונלי):', String(entry.note || ''));
-    if (noteInput === null) return;
-
-    await updateTenantBalanceCredit(tenantId, creditId, {
-      type,
-      amount,
-      dateIso,
-      note: String(noteInput || '').trim()
-    });
-
-    await renderCredits();
-    await renderTenants();
-    await renderReminders();
-    await renderBalance();
-    await renderDashboard();
+    await openCreditEditModal(tenantId, creditId);
     return;
   }
 

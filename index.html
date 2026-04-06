@@ -756,6 +756,45 @@
     </div>
   </div>
 
+  <!-- Edit Credit/Debt Modal -->
+  <div id="credit-edit-modal" class="modal hidden">
+    <div class="modal-content">
+      <h2 style="margin-top: 0;">עריכת זיכוי/חיוב</h2>
+      <div class="row">
+        <label>דייר (כולל לא פעילים)
+          <select id="credit-edit-tenant"></select>
+        </label>
+      </div>
+      <div class="row">
+        <label>סוג תנועה
+          <select id="credit-edit-type">
+            <option value="credit">זיכוי (מפחית חוב)</option>
+            <option value="debt">חוב / הלוואה (מוסיף חוב)</option>
+          </select>
+        </label>
+      </div>
+      <div class="row">
+        <label>סכום (₪)
+          <input id="credit-edit-amount" type="number" min="0" step="0.01" placeholder="0.00">
+        </label>
+      </div>
+      <div class="row">
+        <label>תאריך
+          <input id="credit-edit-date" type="text" placeholder="DD/MM/YYYY">
+        </label>
+      </div>
+      <div class="row">
+        <label>הערה
+          <textarea id="credit-edit-note" placeholder="הערה"></textarea>
+        </label>
+      </div>
+      <div class="modal-actions">
+        <button id="credit-edit-save" type="button">שמור</button>
+        <button id="credit-edit-cancel" type="button">בטל</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Edit Tenant Dates Modal -->
   <div id="edit-dates-modal" class="modal hidden">
     <div class="modal-content">
