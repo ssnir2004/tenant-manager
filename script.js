@@ -6976,6 +6976,8 @@ showPaymentsBtn?.addEventListener('click', async () => {
   await populateTenantSelects();
   if (paymentForm) paymentForm.reset();
   resetPaymentFormMode();
+  const paymentDateInput = document.getElementById('payment-date');
+  if (paymentDateInput && !paymentDateInput.value) paymentDateInput.value = formatDateEu(new Date());
   await renderPayments();
   show(paymentsView);
 });
