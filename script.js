@@ -2349,6 +2349,7 @@ async function renderReminders() {
     const waterDetails = balance?.details?.water || [];
     const electricityCharge = Number(balance?.electricity || 0);
     const waterCharge = Number(balance?.water || 0);
+    const adjustments = balance?.details?.adjustments || { creditTotal: 0, debtTotal: 0 };
     const netBalanceAfterUtilities = Number(rentDetails.overpaymentCredit || 0) - electricityCharge - waterCharge;
     const netBalanceLabel = netBalanceAfterUtilities < 0 ? 'יתרה נטו (חוב)' : (netBalanceAfterUtilities > 0 ? 'יתרה נטו (זכות)' : 'יתרה נטו (מאוזן)');
     const rentHistoryRows = (rentDetails.historyBreakdown || []).map(entry => `
@@ -2474,6 +2475,9 @@ async function renderReminders() {
             <tr><td style="padding:4px 0; color:#5d3a22;">ארנונה</td><td style="padding:4px 0; direction:ltr; text-align:left; font-weight:600;">₪${formatCurrency(balance.arnona)}</td></tr>
             <tr><td style="padding:4px 0; color:#5d3a22;">חשמל</td><td style="padding:4px 0; direction:ltr; text-align:left; font-weight:600;">₪${formatCurrency(balance.electricity)}</td></tr>
             <tr><td style="padding:4px 0; color:#5d3a22;">מים</td><td style="padding:4px 0; direction:ltr; text-align:left; font-weight:600;">₪${formatCurrency(balance.water)}</td></tr>
+            ${adjustments.debtTotal > 0 ? `<tr><td style="padding:4px 0; color:#b71c1c;">חיוב ידני</td><td style="padding:4px 0; direction:ltr; text-align:left; font-weight:600; color:#b71c1c;">₪${formatCurrency(adjustments.debtTotal)}</td></tr>` : ''}
+            ${adjustments.creditTotal > 0 ? `<tr><td style="padding:4px 0; color:#1b5e20;">זיכוי ידני</td><td style="padding:4px 0; direction:ltr; text-align:left; font-weight:600; color:#1b5e20;">-₪${formatCurrency(adjustments.creditTotal)}</td></tr>` : ''}
+            ${rentDetails.overpaymentCredit > 0 ? `<tr><td style="padding:4px 0; color:#1b5e20;">תשלום עודף</td><td style="padding:4px 0; direction:ltr; text-align:left; font-weight:600; color:#1b5e20;">-₪${formatCurrency(rentDetails.overpaymentCredit)}</td></tr>` : ''}
             <tr><td style="padding-top:6px; border-top:1px solid #f0c7ab; font-weight:700; color:#7a3d14;">סה"כ (${totalLabel})</td><td style="padding-top:6px; border-top:1px solid #f0c7ab; direction:ltr; text-align:left; font-weight:700; color:${totalColor};">${totalAmountText}</td></tr>
           </tbody>
         </table>
