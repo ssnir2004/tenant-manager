@@ -4260,6 +4260,67 @@ function confirmDialog(msg) {
   });
 }
 
+let pendingReadingPaidChoiceResolver = null;
+
+function closeReadingPaidChoiceModal() {
+  const modal = document.getElementById('reading-paid-choice-modal');
+  if (!modal) return;
+  modal.classList.add('hidden');
+  modal.style.display = 'none';
+}
+
+function showReadingPaidChoiceModal(context) {
+  const modal = document.getElementById('reading-paid-choice-modal');
+  if (!modal) {
+    return Promise.resolve('cancel');
+  }
+
+  const { reading, amount } = context;
+  const amountText = Number.isFinite(amount) && amount > 0
+    ? `₪${formatCurrency(amount)}`
+    : 'לא ניתן לחשב סכום אוטומטי';
+
+  document.getElementById('reading-paid-choice-details').textContent =
+    `תאריך: ${formatDateEu(reading.date)} • סוג: ${meterTypeLabel(reading.meterType)} • ערך: ${reading.value ?? '-'}`;
+  document.getElementById('reading-paid-choice-amount').textContent = amountText;
+  const createButton = document.getElementById('reading-paid-choice-create-payment');
+  if (createButton) {
+    createButton.disabled = !Number.isFinite(amount) || amount <= 0;
+  }
+
+  modal.classList.remove('hidden');
+  modal.style.display = 'flex';
+
+  return new Promise(resolve => {
+    pendingReadingPaidChoiceResolver = resolve;
+  });
+}
+
+function resolveReadingPaidChoiceModal(action) {
+  closeReadingPaidChoiceModal();
+  if (pendingReadingPaidChoiceResolver) {
+    pendingReadingPaidChoiceResolver(action);
+    pendingReadingPaidChoiceResolver = null;
+  }
+}
+
+function bindReadingPaidChoiceModal() {
+  const markOnlyButton = document.getElementById('reading-paid-choice-mark-only');
+  const createPaymentButton = document.getElementById('reading-paid-choice-create-payment');
+  const cancelButton = document.getElementById('reading-paid-choice-cancel');
+
+  if (!markOnlyButton || !createPaymentButton || !cancelButton) return;
+
+  markOnlyButton.onclick = () => resolveReadingPaidChoiceModal('paid-only');
+  createPaymentButton.onclick = () => {
+    if (createPaymentButton.disabled) return;
+    resolveReadingPaidChoiceModal('create-payment');
+  };
+  cancelButton.onclick = () => resolveReadingPaidChoiceModal('cancel');
+}
+
+bindReadingPaidChoiceModal();
+
 function findPreviousReadingForTenantMeter(readings, currentReading) {
   const currentDateValue = dateValueFromAny(currentReading?.date);
   if (!Number.isFinite(currentDateValue)) return null;
@@ -4331,79 +4392,6 @@ async function createPaymentForReading(context) {
   await addPayment(payload);
 }
 
-function openReadingPaidChoiceWindow(context) {
-  const { reading, amount } = context;
-  const popup = window.open('', 'reading-paid-choice', 'width=460,height=280,noopener,noreferrer');
-  if (!popup) {
-    alert('לא ניתן לפתוח חלון popup. אפשר לאפשר חלונות קופצים ולנסות שוב.');
-    return null;
-  }
-
-  const amountText = Number.isFinite(amount) && amount > 0
-    ? `₪${formatCurrency(amount)}`
-    : 'לא ניתן לחשב סכום אוטומטי';
-
-  popup.document.write(`<!doctype html>
-<html lang="he">
-<head>
-  <meta charset="UTF-8">
-  <title>סימון קריאה כ"שולמה"</title>
-  <style>
-    body { font-family: Arial, sans-serif; direction: rtl; text-align: center; padding: 24px; margin: 0; background: #f8f9fb; color: #1f2937; }
-    h2 { margin-top: 0; }
-    p { margin: 8px 0; line-height: 1.5; }
-    .actions { margin-top: 20px; display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
-    button { padding: 10px 16px; border: 0; border-radius: 8px; cursor: pointer; font-size: 14px; }
-    .primary { background: #2563eb; color: #fff; }
-    .secondary { background: #e5e7eb; color: #111827; }
-    .danger { background: #fee2e2; color: #991b1b; }
-    .hint { color: #6b7280; font-size: 14px; }
-  </style>
-</head>
-<body>
-  <h2>סימון קריאה כ"שולמה"</h2>
-  <p>תאריך: ${formatDateEu(reading.date)}<br>סוג: ${meterTypeLabel(reading.meterType)}<br>ערך: ${reading.value ?? '-'}</p>
-  <p>בחר מה לעשות:</p>
-  <p class="hint">${amountText}</p>
-  <div class="actions">
-    <button id="mark-only" class="secondary">סמן כ"שולם" בלבד</button>
-    <button id="create-payment" class="primary" ${Number.isFinite(amount) && amount > 0 ? '' : 'disabled'}>צור תשלום/הכנסה</button>
-    <button id="cancel" class="danger">ביטול</button>
-  </div>
-</body>
-</html>`);
-  popup.document.close();
-
-  let settled = false;
-  const finish = (action) => {
-    if (settled) return;
-    settled = true;
-    try { popup.close(); } catch (err) {}
-    if (typeof popup.remove === 'function') {
-      try { popup.remove(); } catch (err) {}
-    }
-    window.__readingPaidChoiceResult = action;
-  };
-
-  popup.addEventListener('beforeunload', () => finish('cancel'));
-  popup.document.getElementById('mark-only')?.addEventListener('click', () => finish('paid-only'));
-  popup.document.getElementById('create-payment')?.addEventListener('click', () => finish('create-payment'));
-  popup.document.getElementById('cancel')?.addEventListener('click', () => finish('cancel'));
-
-  return new Promise(resolve => {
-    const poll = () => {
-      const result = window.__readingPaidChoiceResult;
-      if (!result) {
-        setTimeout(poll, 100);
-        return;
-      }
-      delete window.__readingPaidChoiceResult;
-      resolve(result);
-    };
-    poll();
-  });
-}
-
 async function handleReadingPaidToggleChange(checkbox) {
   if (!checkbox.checked) return;
   if (!canWriteCurrentUser()) {
@@ -4427,7 +4415,7 @@ async function handleReadingPaidToggleChange(checkbox) {
     return;
   }
 
-  const popupResult = await openReadingPaidChoiceWindow(context);
+  const popupResult = await showReadingPaidChoiceModal(context);
   if (!popupResult || popupResult === 'cancel') {
     checkbox.checked = false;
     return;
