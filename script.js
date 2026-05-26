@@ -1082,11 +1082,37 @@ async function clearAllPayments() {
     await apiRequest('/api/payments', { method: 'DELETE' });
     return;
   }
+  return await clearAllPaymentsLocal();
+}
+
+async function clearAllPaymentsLocal() {
   const tx = await getTx('payments', 'readwrite');
-  return new Promise((res, rej) => {
-    const r = tx.objectStore('payments').clear();
+  const store = tx.objectStore('payments');
+  await new Promise((res, rej) => {
+    const r = store.clear();
     r.onsuccess = () => res();
     r.onerror = () => rej(r.error);
+  });
+
+  const remaining = await new Promise((res, rej) => {
+    const r = store.count();
+    r.onsuccess = () => res(r.result || 0);
+    r.onerror = () => rej(r.error);
+  });
+
+  if (remaining === 0) {
+    return;
+  }
+
+  await new Promise((res, rej) => {
+    const cursorReq = store.openCursor();
+    cursorReq.onsuccess = async () => {
+      const cursor = cursorReq.result;
+      if (!cursor) return res();
+      cursor.delete();
+      cursor.continue();
+    };
+    cursorReq.onerror = () => rej(cursorReq.error);
   });
 }
 
@@ -8590,7 +8616,12 @@ paymentsClearBtn?.addEventListener('click', async () => {
   if (statusEl) statusEl.textContent = 'מוחק...';
   try {
     await clearAllPayments();
-    if (statusEl) statusEl.textContent = 'כל התשלומים נמחקו ✓';
+    const remaining = (await getAllPayments()).length;
+    if (statusEl) {
+      statusEl.textContent = remaining === 0
+        ? 'כל התשלומים נמחקו ✓'
+        : `נשארו ${remaining} תשלומים שלא נמחקו`; 
+    }
   } catch (e) {
     if (statusEl) statusEl.textContent = `שגיאה: ${e.message}`;
   }
