@@ -4941,81 +4941,37 @@ async function renderMonthlyChargesChart() {
 
   try {
     const allReadings = await getAllReadings();
-    const elecPrice = await getSetting('electricityPrice') ?? 1.5;
-    const waterPrice = await getSetting('waterPrice') ?? 6;
-    const kvaCon = await getSetting('kvaCon') ?? 0;
+    const monthKeys = Array.from(new Set(
+      allReadings
+        .map(r => parseDateToIso(r?.date || ''))
+        .filter(Boolean)
+        .map(iso => iso.slice(0, 7))
+    )).sort();
 
-    // Sort readings by tenantId and meterType and date
-    const readingsByTenantAndMeter = {};
-    allReadings.forEach(r => {
-      const key = `${r.tenantId}|${r.meterType}`;
-      if (!readingsByTenantAndMeter[key]) {
-        readingsByTenantAndMeter[key] = [];
-      }
-      readingsByTenantAndMeter[key].push(r);
-    });
-
-    // Sort each group by date
-    Object.keys(readingsByTenantAndMeter).forEach(key => {
-      readingsByTenantAndMeter[key].sort((a, b) => 
-        new Date(a.date) - new Date(b.date)
-      );
-    });
-
-    // Calculate charges by month for electricity and water only
-    const monthlyData = {};
-    
-    Object.keys(readingsByTenantAndMeter).forEach(key => {
-      const readings = readingsByTenantAndMeter[key];
-      const meterType = key.split('|')[1];
-      if (meterType !== 'electricity' && meterType !== 'water') return;
-      
-      // Calculate charges from consecutive readings
-      for (let i = 1; i < readings.length; i++) {
-        const prev = readings[i - 1];
-        const curr = readings[i];
-        const currIso = parseDateToIso(curr.date || '');
-        if (!currIso) continue;
-        const monthKey = currIso.substring(0, 7); // YYYY-MM
-        
-        const prevValue = Number(prev.value || 0);
-        const currValue = Number(curr.value || 0);
-        const consumption = Math.max(0, currValue - prevValue);
-        
-        let amount = 0;
-        if (meterType === 'electricity') {
-          const kvaCost = kvaCon / 4;
-          const consumptionCost = consumption * elecPrice;
-          amount = kvaCost + consumptionCost;
-        } else if (meterType === 'water') {
-          amount = consumption * waterPrice;
-        }
-        
-        if (!monthlyData[monthKey]) {
-          monthlyData[monthKey] = 0;
-        }
-        monthlyData[monthKey] += amount;
-      }
-    });
-
-    // Sort by month
-    const sortedMonths = Object.keys(monthlyData).sort();
-    
-    if (sortedMonths.length === 0) {
+    if (monthKeys.length === 0) {
       container.innerHTML = '<div style="padding: 20px; text-align: center; color: #666;">אין קריאות</div>';
       return;
     }
 
-    const labels = sortedMonths.map(month => {
-      const [year, monthNum] = month.split('-');
-      return `${monthNum}-${year.slice(-2)}`;
-    });
-    const data = sortedMonths.map(month => parseFloat(monthlyData[month].toFixed(2)));
+    const labels = [];
+    const data = [];
+
+    for (const monthKey of monthKeys) {
+      const report = await buildMonthlyReport(monthKey);
+      if (!report || !report.rows || report.rows.length === 0) continue;
+      const total = report.rows.reduce((sum, row) => sum + Number(row.total || 0), 0);
+      labels.push(`${monthKey.slice(5)}-${monthKey.slice(2, 4)}`);
+      data.push(parseFloat(total.toFixed(2)));
+    }
+
+    if (data.length === 0) {
+      container.innerHTML = '<div style="padding: 20px; text-align: center; color: #666;">אין קריאות</div>';
+      return;
+    }
 
     const canvas = document.getElementById('monthly-charges-chart');
     if (!canvas) return;
 
-    // Destroy existing chart if any
     if (window.__monthlyChartsInstance) {
       window.__monthlyChartsInstance.destroy();
     }
