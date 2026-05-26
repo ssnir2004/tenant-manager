@@ -1,0 +1,29 @@
+services:
+  - type: web
+    name: tenant-manager
+    env: node
+    plan: free
+    buildCommand: npm install --prefix server
+    startCommand: npm start --prefix server
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000
+      - key: JWT_SECRET
+        generateValue: true
+      - key: ADMIN_EMAIL
+        value: admin@rentflows.work
+      - key: ADMIN_PASSWORD
+        generateValue: true
+      - key: DATABASE_URL
+        fromDatabase:
+          name: tenant-manager-db
+          property: connectionString
+
+databases:
+  - name: tenant-manager-db
+    plan: free
+    databaseName: tenant_manager
+    user: tenant_manager_user
