@@ -4935,6 +4935,187 @@ async function renderReadingApprovals() {
   }
 }
 
+function getMonthlyChargesMonthLabel(monthKey) {
+  if (!monthKey) return '';
+  return `${monthKey.slice(5)}-${monthKey.slice(2, 4)}`;
+}
+
+function getMonthlyChargesTenantLabel(row) {
+  const base = String(row?.tenantName || '').trim();
+  const apartment = String(row?.apartment || '').trim();
+  if (base && apartment) return `${base} · ${apartment}`;
+  if (base) return base;
+  if (apartment) return apartment;
+  return 'דייר ללא שם';
+}
+
+function buildMonthlyChargesRootState(monthKeys, monthTotals) {
+  return {
+    type: 'root',
+    title: 'סה"כ חיובים חודשיים לכל הדיירים',
+    subtitle: 'לחץ על עמודה כדי לראות פירוט דיירים לחודש זה',
+    labels: monthKeys.map(getMonthlyChargesMonthLabel),
+    monthKeys,
+    data: monthTotals,
+    datasets: [
+      {
+        label: 'סה"כ חיובים (₪)',
+        data: monthTotals,
+        backgroundColor: '#667eea',
+        borderColor: '#667eea',
+        borderWidth: 1,
+        borderRadius: 4
+      }
+    ]
+  };
+}
+
+function buildMonthlyChargesTenantState(monthKey, rows) {
+  const filtered = (rows || []).filter(row => Number(row?.total || 0) > 0 || Number(row?.water?.cost || 0) > 0 || Number(row?.electric?.cost || 0) > 0);
+  return {
+    type: 'tenantTotals',
+    title: `סה"כ חיובים לחודש ${getMonthlyChargesMonthLabel(monthKey)}`,
+    subtitle: 'לחץ שוב כדי לראות חלוקה למים ולחשמל',
+    monthKey,
+    labels: filtered.map(getMonthlyChargesTenantLabel),
+    data: filtered.map(row => Number(row?.total || 0)),
+    datasets: [
+      {
+        label: 'סה"כ חיובים (₪)',
+        data: filtered.map(row => Number(row?.total || 0)),
+        backgroundColor: '#5b73ff',
+        borderColor: '#5b73ff',
+        borderWidth: 1,
+        borderRadius: 4
+      }
+    ],
+    rows: filtered
+  };
+}
+
+function buildMonthlyChargesSplitState(monthKey, rows) {
+  const filtered = (rows || []).filter(row => Number(row?.total || 0) > 0 || Number(row?.water?.cost || 0) > 0 || Number(row?.electric?.cost || 0) > 0);
+  return {
+    type: 'waterElectric',
+    title: `מים וחשמל לחודש ${getMonthlyChargesMonthLabel(monthKey)}`,
+    subtitle: 'לחץ לחזור לגרף הקודם',
+    monthKey,
+    labels: filtered.map(getMonthlyChargesTenantLabel),
+    datasets: [
+      {
+        label: 'מים (₪)',
+        data: filtered.map(row => Number(row?.water?.cost || 0)),
+        backgroundColor: '#4f8ef7',
+        borderColor: '#4f8ef7',
+        borderWidth: 1,
+        borderRadius: 4
+      },
+      {
+        label: 'חשמל (₪)',
+        data: filtered.map(row => Number(row?.electric?.cost || 0)),
+        backgroundColor: '#7dd3fc',
+        borderColor: '#7dd3fc',
+        borderWidth: 1,
+        borderRadius: 4
+      }
+    ],
+    rows: filtered
+  };
+}
+
+function buildMonthlyChargesShell(title, subtitle, showBack) {
+  const container = document.getElementById('monthly-charges-container');
+  if (!container) return null;
+
+  container.innerHTML = `
+    <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:12px; margin-bottom: 12px; flex-wrap: wrap;">
+      <div>
+        <h3 style="margin: 0 0 6px 0;">${title}</h3>
+        <div id="monthly-charges-subtitle" style="color:#666; font-size: 13px;">${subtitle}</div>
+      </div>
+      <button id="monthly-charges-back" type="button" style="padding: 8px 14px; border: 0; border-radius: 8px; background: #667eea; color: white; font-weight: 700; cursor: ${showBack ? 'pointer' : 'not-allowed'}; opacity: ${showBack ? 1 : 0.55};">חזור לגרף הקודם</button>
+    </div>
+    <div style="position: relative; height: 320px;">
+      <canvas id="monthly-charges-chart"></canvas>
+    </div>
+  `;
+
+  const backButton = container.querySelector('#monthly-charges-back');
+  if (!backButton) return container.querySelector('#monthly-charges-chart');
+  if (showBack) {
+    backButton.removeAttribute('disabled');
+  } else {
+    backButton.setAttribute('disabled', 'true');
+  }
+  return container.querySelector('#monthly-charges-chart');
+}
+
+function renderMonthlyChargesChartView(state) {
+  const canvas = buildMonthlyChargesShell(state.title, state.subtitle, state.type !== 'root');
+  if (!canvas) return;
+
+  if (window.__monthlyChartsInstance) {
+    window.__monthlyChartsInstance.destroy();
+  }
+
+  const ctx = canvas.getContext('2d');
+  window.__monthlyChartsInstance = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: state.labels,
+      datasets: state.datasets
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      onClick: async (event) => {
+        if (state.type === 'root') {
+          const points = window.__monthlyChartsInstance.getElementsAtEventForMode(event, 'nearest', { intersect: true }, true);
+          if (!points.length) return;
+          const monthKey = state.monthKeys[points[0].index];
+          const report = await buildMonthlyReport(monthKey);
+          const tenantState = buildMonthlyChargesTenantState(monthKey, report?.rows || []);
+          window.__monthlyChargesHistory = window.__monthlyChargesHistory || [];
+          window.__monthlyChargesHistory.push(state);
+          renderMonthlyChargesChartView(tenantState);
+          return;
+        }
+
+        if (state.type === 'tenantTotals') {
+          const splitState = buildMonthlyChargesSplitState(state.monthKey, state.rows);
+          window.__monthlyChargesHistory = window.__monthlyChargesHistory || [];
+          window.__monthlyChargesHistory.push(state);
+          renderMonthlyChargesChartView(splitState);
+          return;
+        }
+      },
+      plugins: {
+        legend: {
+          display: true,
+          position: 'top'
+        }
+      },
+      scales: {
+        y: {
+          beginAtZero: true,
+          ticks: {
+            callback: function(value) {
+              return '₪' + parseFloat(value).toFixed(0);
+            }
+          }
+        }
+      }
+    }
+  });
+
+  const backButton = document.getElementById('monthly-charges-back');
+  backButton?.addEventListener('click', () => {
+    if (!window.__monthlyChargesHistory || window.__monthlyChargesHistory.length === 0) return;
+    const previous = window.__monthlyChargesHistory.pop();
+    renderMonthlyChargesChartView(previous);
+  }, { once: true });
+}
+
 async function renderMonthlyChargesChart() {
   const container = document.getElementById('monthly-charges-container');
   if (!container) return;
@@ -4953,68 +5134,20 @@ async function renderMonthlyChargesChart() {
       return;
     }
 
-    const labels = [];
-    const data = [];
-
+    const monthTotals = [];
     for (const monthKey of monthKeys) {
       const report = await buildMonthlyReport(monthKey);
-      if (!report || !report.rows || report.rows.length === 0) continue;
-      const total = report.rows.reduce((sum, row) => sum + Number(row.total || 0), 0);
-      labels.push(`${monthKey.slice(5)}-${monthKey.slice(2, 4)}`);
-      data.push(parseFloat(total.toFixed(2)));
+      const total = (report?.rows || []).reduce((sum, row) => sum + Number(row.total || 0), 0);
+      monthTotals.push(parseFloat(total.toFixed(2)));
     }
 
-    if (data.length === 0) {
+    if (monthTotals.length === 0) {
       container.innerHTML = '<div style="padding: 20px; text-align: center; color: #666;">אין קריאות</div>';
       return;
     }
 
-    const canvas = document.getElementById('monthly-charges-chart');
-    if (!canvas) return;
-
-    if (window.__monthlyChartsInstance) {
-      window.__monthlyChartsInstance.destroy();
-    }
-
-    const ctx = canvas.getContext('2d');
-    window.__monthlyChartsInstance = new Chart(ctx, {
-      type: 'bar',
-      data: {
-        labels: labels,
-        datasets: [{
-          label: 'סה"כ חיובים מקריאות (₪)',
-          data: data,
-          backgroundColor: '#667eea',
-          borderColor: '#667eea',
-          borderWidth: 1,
-          borderRadius: 4,
-          fill: true
-        }]
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        plugins: {
-          legend: {
-            display: true,
-            position: 'top',
-            labels: {
-              font: { size: 12 }
-            }
-          }
-        },
-        scales: {
-          y: {
-            beginAtZero: true,
-            ticks: {
-              callback: function(value) {
-                return '₪' + parseFloat(value).toFixed(0);
-              }
-            }
-          }
-        }
-      }
-    });
+    window.__monthlyChargesHistory = [];
+    renderMonthlyChargesChartView(buildMonthlyChargesRootState(monthKeys, monthTotals));
   } catch (err) {
     console.error('Chart error:', err);
     container.innerHTML = `<p style="color: #e74c3c;">שגיאה בטעינת הגרף: ${err.message}</p>`;
