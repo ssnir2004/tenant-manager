@@ -1090,6 +1090,44 @@ async function clearAllPayments() {
   });
 }
 
+function getPaymentDuplicateKey(payment) {
+  const normalized = {
+    tenantId: payment.tenantId ?? null,
+    tenantName: String(payment.tenantName || ''),
+    apartmentNumber: String(payment.apartmentNumber || ''),
+    amount: Number(payment.amount || 0),
+    method: String(payment.method || ''),
+    account: String(payment.account || ''),
+    date: String(payment.date || ''),
+    notes: String(payment.notes || ''),
+    readingId: Array.isArray(payment.readingId)
+      ? payment.readingId.map(id => Number(id || 0)).filter(id => id).sort((a, b) => a - b)
+      : []
+  };
+  return JSON.stringify(normalized);
+}
+
+async function deleteDuplicatePayments() {
+  const payments = await getAllPayments();
+  const seen = new Map();
+  const duplicateIds = [];
+
+  for (const payment of payments) {
+    const key = getPaymentDuplicateKey(payment);
+    if (seen.has(key)) {
+      duplicateIds.push(payment.id);
+    } else {
+      seen.set(key, payment.id);
+    }
+  }
+
+  for (const id of duplicateIds) {
+    await deletePayment(id);
+  }
+
+  return duplicateIds.length;
+}
+
 async function addPaymentRemote(p) {
   const payload = {
     tenantId: p.tenantId ?? null,
@@ -1547,6 +1585,8 @@ function extractPaymentReadingIdsFromNotes(notes) {
 function normalizePaymentReadingIdsFromPayment(payment) {
   const direct = normalizePaymentReadingIds(payment?.readingId);
   if (direct.length > 0) return direct;
+  const plural = normalizePaymentReadingIds(payment?.readingIds);
+  if (plural.length > 0) return plural;
   return extractPaymentReadingIdsFromNotes(payment?.notes || '');
 }
 
@@ -8551,6 +8591,26 @@ paymentsClearBtn?.addEventListener('click', async () => {
   try {
     await clearAllPayments();
     if (statusEl) statusEl.textContent = 'כל התשלומים נמחקו ✓';
+  } catch (e) {
+    if (statusEl) statusEl.textContent = `שגיאה: ${e.message}`;
+  }
+  await renderPayments();
+  await renderBalance();
+});
+
+const paymentsDeleteDuplicatesBtn = document.getElementById('payments-delete-duplicates');
+paymentsDeleteDuplicatesBtn?.addEventListener('click', async () => {
+  const confirmed = await confirmDialog('להסיר תשלומים כפולים? רשומות זהות יוסרו השאר ישמרו.');
+  if (!confirmed) return;
+  const statusEl = document.getElementById('payments-csv-status');
+  if (statusEl) statusEl.textContent = 'מוחק כפילויות...';
+  try {
+    const removed = await deleteDuplicatePayments();
+    if (statusEl) {
+      statusEl.textContent = removed > 0
+        ? `נמחקו ${removed} רשומות כפולות ✓`
+        : 'לא נמצאו תשלומים כפולים';
+    }
   } catch (e) {
     if (statusEl) statusEl.textContent = `שגיאה: ${e.message}`;
   }
