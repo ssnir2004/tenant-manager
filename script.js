@@ -4940,27 +4940,75 @@ async function renderMonthlyChargesChart() {
   if (!container) return;
 
   try {
-    const bills = await getAllBills();
-    
-    // Group bills by month (YYYY-MM format)
-    const monthlyData = {};
-    bills.forEach(bill => {
-      if (!bill.date) return;
-      const monthKey = bill.date.substring(0, 7); // Extract YYYY-MM
-      if (!monthlyData[monthKey]) {
-        monthlyData[monthKey] = 0;
+    const allReadings = await getAllReadings();
+    const elecPrice = await getSetting('electricityPrice') ?? 1.5;
+    const waterPrice = await getSetting('waterPrice') ?? 6;
+    const kvaCon = await getSetting('kvaCon') ?? 0;
+
+    // Sort readings by tenantId and meterType and date
+    const readingsByTenantAndMeter = {};
+    allReadings.forEach(r => {
+      const key = `${r.tenantId}|${r.meterType}`;
+      if (!readingsByTenantAndMeter[key]) {
+        readingsByTenantAndMeter[key] = [];
       }
-      monthlyData[monthKey] += Number(bill.amount || 0);
+      readingsByTenantAndMeter[key].push(r);
+    });
+
+    // Sort each group by date
+    Object.keys(readingsByTenantAndMeter).forEach(key => {
+      readingsByTenantAndMeter[key].sort((a, b) => 
+        new Date(a.date) - new Date(b.date)
+      );
+    });
+
+    // Calculate charges by month
+    const monthlyData = {};
+    
+    Object.keys(readingsByTenantAndMeter).forEach(key => {
+      const readings = readingsByTenantAndMeter[key];
+      const meterType = key.split('|')[1];
+      
+      // Calculate charges from consecutive readings
+      for (let i = 1; i < readings.length; i++) {
+        const prev = readings[i - 1];
+        const curr = readings[i];
+        const monthKey = curr.date.substring(0, 7); // YYYY-MM
+        
+        const prevValue = Number(prev.value || 0);
+        const currValue = Number(curr.value || 0);
+        const consumption = Math.max(0, currValue - prevValue);
+        
+        let amount = 0;
+        if (meterType === 'electricity') {
+          const kvaCost = kvaCon / 4;
+          const consumptionCost = consumption * elecPrice;
+          amount = kvaCost + consumptionCost;
+        } else if (meterType === 'water') {
+          amount = consumption * waterPrice;
+        }
+        
+        if (!monthlyData[monthKey]) {
+          monthlyData[monthKey] = 0;
+        }
+        monthlyData[monthKey] += amount;
+      }
     });
 
     // Sort by month
     const sortedMonths = Object.keys(monthlyData).sort();
+    
+    if (sortedMonths.length === 0) {
+      container.innerHTML = '<div style="padding: 20px; text-align: center; color: #666;">אין קריאות</div>';
+      return;
+    }
+
     const labels = sortedMonths.map(month => {
       const [year, monthNum] = month.split('-');
       const monthNames = ['ינו', 'פבר', 'מרץ', 'אפר', 'מאי', 'יונ', 'יול', 'אוג', 'ספט', 'אוק', 'נוב', 'דצ'];
       return `${monthNames[parseInt(monthNum) - 1]} ${year}`;
     });
-    const data = sortedMonths.map(month => monthlyData[month]);
+    const data = sortedMonths.map(month => monthlyData[month].toFixed(2));
 
     const canvas = document.getElementById('monthly-charges-chart');
     if (!canvas) return;
@@ -4976,7 +5024,7 @@ async function renderMonthlyChargesChart() {
       data: {
         labels: labels,
         datasets: [{
-          label: 'סה"כ חיובים (₪)',
+          label: 'סה"כ חיובים מקריאות (₪)',
           data: data,
           backgroundColor: '#667eea',
           borderColor: '#667eea',
@@ -5002,7 +5050,7 @@ async function renderMonthlyChargesChart() {
             beginAtZero: true,
             ticks: {
               callback: function(value) {
-                return '₪' + value.toFixed(0);
+                return '₪' + parseFloat(value).toFixed(0);
               }
             }
           }
@@ -5010,8 +5058,8 @@ async function renderMonthlyChargesChart() {
       }
     });
   } catch (err) {
-    console.error(err);
-    container.innerHTML += `<p style="color: #e74c3c;">שגיאה בטעינת הגרף: ${err.message}</p>`;
+    console.error('Chart error:', err);
+    container.innerHTML = `<p style="color: #e74c3c;">שגיאה בטעינת הגרף: ${err.message}</p>`;
   }
 }
 
