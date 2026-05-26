@@ -1769,7 +1769,7 @@ function calculateTenantBalanceBreakdown(tenant, payments, readings, waterPrice,
       const finalAmount = Math.max(0, amount || 0);
       const currentId = Number(current?.id);
       const isLinked = Number.isFinite(currentId) && linkedReadingIds.has(currentId);
-      const debt = current?.paid && !isLinked ? 0 : finalAmount;
+      const debt = isLinked ? 0 : finalAmount;
 
       if (current?.id !== undefined && current?.id !== null) {
         readingDebtMap.set(currentId, debt);
@@ -4392,6 +4392,55 @@ async function createPaymentForReading(context) {
   await addPayment(payload);
 }
 
+async function ensurePaidReadingsHavePayments() {
+  const readings = await getAllReadings();
+  const payments = await getAllPayments();
+  const tenants = await getAllTenants(true);
+  const waterPrice = Number(await getSetting('waterPrice') ?? 0);
+  const kvaCon = Number(await getSetting('kvaCon') ?? 0);
+
+  const coveredReadingIds = new Set();
+  payments.forEach(payment => {
+    normalizePaymentReadingIdsFromPayment(payment).forEach(id => {
+      coveredReadingIds.add(Number(id));
+    });
+  });
+
+  const tenantMap = new Map((tenants || []).map(tenant => [Number(tenant.id), tenant]));
+
+  for (const reading of readings) {
+    const readingId = Number(reading?.id);
+    if (!Number.isFinite(readingId) || !reading?.paid || coveredReadingIds.has(readingId)) {
+      continue;
+    }
+
+    const previousReading = findPreviousReadingForTenantMeter(readings, reading);
+    const amount = calculateReadingChargeAmount(reading, previousReading, waterPrice, kvaCon);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      continue;
+    }
+
+    const tenant = tenantMap.get(Number(reading.tenantId));
+    const tenantName = tenant
+      ? `${tenant.firstName || ''} ${tenant.lastName || ''}`.trim()
+      : (reading.tenantName || '');
+
+    await addPayment({
+      tenantId: reading.tenantId ?? null,
+      tenantName,
+      apartmentNumber: tenant?.apartmentNumber || reading.apartmentNumber || '',
+      amount,
+      method: 'cash',
+      account: 'my',
+      date: parseDateToIso(reading.date) || currentIsoDate(),
+      notes: withPaymentReadingIdsInNotes(`אוטומטי מהסימון שולם`, [reading.id]),
+      readingId: [reading.id]
+    });
+
+    coveredReadingIds.add(readingId);
+  }
+}
+
 async function handleReadingPaidToggleChange(checkbox) {
   if (!checkbox.checked) return;
   if (!canWriteCurrentUser()) {
@@ -4572,6 +4621,8 @@ async function saveBulkReadings(meterType, dateInputId, listId, statusId) {
 
 // Rendering
 async function renderTenants() {
+  await ensurePaidReadingsHavePayments();
+
   const [tenants, payments, readings, waterPriceRaw, kvaConRaw, tenantCreditsMap] = await Promise.all([
     getAllTenants(false),
     getAllPayments(),
@@ -5829,6 +5880,8 @@ async function renderCredits() {
 }
 
 async function renderBalance() {
+  await ensurePaidReadingsHavePayments();
+
   const payments = await getAllPayments();
   const readings = await getAllReadings();
   const tenants = await getAllTenants(true);
@@ -9944,6 +9997,8 @@ function normalizeDateString(dateStr) {
 
 // Dashboard
 async function renderDashboard() {
+  await ensurePaidReadingsHavePayments();
+
   const container = document.getElementById('dashboard-view');
   if (!container) return;
 
@@ -10343,53 +10398,13 @@ async function addSampleTenants() {
 async function renderIncomeSummary() {
   const payments = await getAllPayments();
   const expenses = await getAllExpenses();
-  const readings = await getAllReadings();
-  const waterPrice = Number(await getSetting('waterPrice') ?? 0);
-  const kvaCon = Number(await getSetting('kvaCon') ?? 0);
   const container = document.getElementById('income-summary');
   if (!container) return;
-
-  const readingsByTenantMeter = new Map();
-  readings.forEach(r => {
-    if (!r?.tenantId || !r?.meterType) return;
-    const key = `${r.tenantId}|${r.meterType}`;
-    if (!readingsByTenantMeter.has(key)) readingsByTenantMeter.set(key, []);
-    readingsByTenantMeter.get(key).push(r);
-  });
-  readingsByTenantMeter.forEach(arr => {
-    arr.sort((a, b) => dateValueFromAny(a.date) - dateValueFromAny(b.date));
-  });
-
-  let paidReadingsIncome = 0;
-  readings
-    .filter(r => !!r.paid)
-    .forEach(r => {
-      const keyByTenant = `${r.tenantId}|${r.meterType}`;
-      const chain = readingsByTenantMeter.get(keyByTenant) || [];
-      const currentDateValue = dateValueFromAny(r.date);
-      if (Number.isNaN(currentDateValue)) return;
-
-      const previous = chain
-        .filter(item => item.id !== r.id && dateValueFromAny(item.date) < currentDateValue)
-        .sort((a, b) => dateValueFromAny(b.date) - dateValueFromAny(a.date))[0];
-
-      if (!previous) return;
-
-      const consumption = Number(r.value || 0) - Number(previous.value || 0);
-      let amount = 0;
-      if (r.meterType === 'electricity') {
-        amount = (kvaCon / 4) + (Math.max(0, consumption) * 0.65);
-      } else if (r.meterType === 'water') {
-        amount = Math.max(0, consumption) * waterPrice;
-      }
-      if (!amount) return;
-      paidReadingsIncome += amount;
-    });
 
   const myIncomeFromPayments = payments
     .filter(p => accountValueFromCsv(p.account) === 'my')
     .reduce((sum, p) => sum + Number(p.amount || 0), 0);
-  const myIncome = myIncomeFromPayments + paidReadingsIncome;
+  const myIncome = myIncomeFromPayments;
   const grandmaIncome = payments
     .filter(p => accountValueFromCsv(p.account) === 'grandma')
     .reduce((sum, p) => sum + Number(p.amount || 0), 0);
