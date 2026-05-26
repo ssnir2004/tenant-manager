@@ -5005,10 +5005,9 @@ async function renderMonthlyChargesChart() {
 
     const labels = sortedMonths.map(month => {
       const [year, monthNum] = month.split('-');
-      const monthNames = ['ינו', 'פבר', 'מרץ', 'אפר', 'מאי', 'יונ', 'יול', 'אוג', 'ספט', 'אוק', 'נוב', 'דצ'];
-      return `${monthNames[parseInt(monthNum) - 1]} ${year}`;
+      return `${monthNum}-${year.slice(-2)}`;
     });
-    const data = sortedMonths.map(month => monthlyData[month].toFixed(2));
+    const data = sortedMonths.map(month => parseFloat(monthlyData[month].toFixed(2)));
 
     const canvas = document.getElementById('monthly-charges-chart');
     if (!canvas) return;
