@@ -4962,18 +4962,21 @@ async function renderMonthlyChargesChart() {
       );
     });
 
-    // Calculate charges by month
+    // Calculate charges by month for electricity and water only
     const monthlyData = {};
     
     Object.keys(readingsByTenantAndMeter).forEach(key => {
       const readings = readingsByTenantAndMeter[key];
       const meterType = key.split('|')[1];
+      if (meterType !== 'electricity' && meterType !== 'water') return;
       
       // Calculate charges from consecutive readings
       for (let i = 1; i < readings.length; i++) {
         const prev = readings[i - 1];
         const curr = readings[i];
-        const monthKey = curr.date.substring(0, 7); // YYYY-MM
+        const currIso = parseDateToIso(curr.date || '');
+        if (!currIso) continue;
+        const monthKey = currIso.substring(0, 7); // YYYY-MM
         
         const prevValue = Number(prev.value || 0);
         const currValue = Number(curr.value || 0);
