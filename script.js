@@ -4873,6 +4873,7 @@ async function renderReadings() {
     list.innerHTML = `<p style="color: #e74c3c;">שגיאה בטעינת קריאות: ${err.message}</p>`;
   }
 
+  await renderMonthlyChargesChart();
   await renderReadingApprovals();
 }
 
@@ -4931,6 +4932,86 @@ async function renderReadingApprovals() {
   } catch (err) {
     console.error(err);
     container.innerHTML = `<p style="color: #e74c3c;">שגיאה בטעינת אישורים: ${err.message}</p>`;
+  }
+}
+
+async function renderMonthlyChargesChart() {
+  const container = document.getElementById('monthly-charges-container');
+  if (!container) return;
+
+  try {
+    const bills = await getAllBills();
+    
+    // Group bills by month (YYYY-MM format)
+    const monthlyData = {};
+    bills.forEach(bill => {
+      if (!bill.date) return;
+      const monthKey = bill.date.substring(0, 7); // Extract YYYY-MM
+      if (!monthlyData[monthKey]) {
+        monthlyData[monthKey] = 0;
+      }
+      monthlyData[monthKey] += Number(bill.amount || 0);
+    });
+
+    // Sort by month
+    const sortedMonths = Object.keys(monthlyData).sort();
+    const labels = sortedMonths.map(month => {
+      const [year, monthNum] = month.split('-');
+      const monthNames = ['ינו', 'פבר', 'מרץ', 'אפר', 'מאי', 'יונ', 'יול', 'אוג', 'ספט', 'אוק', 'נוב', 'דצ'];
+      return `${monthNames[parseInt(monthNum) - 1]} ${year}`;
+    });
+    const data = sortedMonths.map(month => monthlyData[month]);
+
+    const canvas = document.getElementById('monthly-charges-chart');
+    if (!canvas) return;
+
+    // Destroy existing chart if any
+    if (window.__monthlyChartsInstance) {
+      window.__monthlyChartsInstance.destroy();
+    }
+
+    const ctx = canvas.getContext('2d');
+    window.__monthlyChartsInstance = new Chart(ctx, {
+      type: 'bar',
+      data: {
+        labels: labels,
+        datasets: [{
+          label: 'סה"כ חיובים (₪)',
+          data: data,
+          backgroundColor: '#667eea',
+          borderColor: '#667eea',
+          borderWidth: 1,
+          borderRadius: 4,
+          fill: true
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: {
+            display: true,
+            position: 'top',
+            labels: {
+              font: { size: 12 }
+            }
+          }
+        },
+        scales: {
+          y: {
+            beginAtZero: true,
+            ticks: {
+              callback: function(value) {
+                return '₪' + value.toFixed(0);
+              }
+            }
+          }
+        }
+      }
+    });
+  } catch (err) {
+    console.error(err);
+    container.innerHTML += `<p style="color: #e74c3c;">שגיאה בטעינת הגרף: ${err.message}</p>`;
   }
 }
 

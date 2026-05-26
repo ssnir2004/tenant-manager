@@ -10,6 +10,8 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.31/jspdf.plugin.autotable.min.js"></script>
+  <!-- Chart.js for graphs -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
 </head>
 <body>
   <main>
@@ -93,6 +95,12 @@
       <!-- Readings View -->
       <div id="readings-view" class="card hidden">
         <h2>הזנת קריאות</h2>
+        <div id="monthly-charges-container" style="margin-bottom: 24px; padding: 16px; background: #f9fafb; border-radius: 8px; border: 1px solid #e0e0e0;">
+          <h3 style="margin-top: 0; margin-bottom: 12px;">סה"כ חיובים חודשיים לכל הדיירים</h3>
+          <div style="position: relative; height: 300px;">
+            <canvas id="monthly-charges-chart"></canvas>
+          </div>
+        </div>
         <div id="tenant-reading-submit" style="display: none; margin-bottom: 12px; padding: 12px; border: 1px solid #e0e0e0; border-radius: 8px; background: #f9fafb;">
           <h3 style="margin-top: 0;">שליחת קריאה (ממתין לאישור)</h3>
           <div class="row">
