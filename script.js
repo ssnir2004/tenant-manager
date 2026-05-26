@@ -4260,6 +4260,203 @@ function confirmDialog(msg) {
   });
 }
 
+function findPreviousReadingForTenantMeter(readings, currentReading) {
+  const currentDateValue = dateValueFromAny(currentReading?.date);
+  if (!Number.isFinite(currentDateValue)) return null;
+
+  return (readings || [])
+    .filter(r => Number(r?.tenantId) === Number(currentReading?.tenantId)
+      && String(r?.meterType || '') === String(currentReading?.meterType || '')
+      && Number(r?.id) !== Number(currentReading?.id)
+      && dateValueFromAny(r?.date) < currentDateValue)
+    .sort((a, b) => dateValueFromAny(a.date) - dateValueFromAny(b.date))
+    .pop() || null;
+}
+
+function calculateReadingChargeAmount(reading, previousReading, waterPrice, kvaCon) {
+  if (!reading || !previousReading) return 0;
+  if (reading.meterType === 'electricity') {
+    return calculateElectricityReportFromPair(previousReading, reading, kvaCon)?.cost || 0;
+  }
+  if (reading.meterType === 'water') {
+    return calculateMeterReportFromPair(previousReading, reading, waterPrice)?.cost || 0;
+  }
+  return 0;
+}
+
+async function buildReadingPaidActionContext(readingId) {
+  const allReadings = await getAllReadings();
+  const tenants = await getAllTenants(true);
+  const waterPrice = Number(await getSetting('waterPrice') ?? 0);
+  const kvaCon = Number(await getSetting('kvaCon') ?? 0);
+  const reading = allReadings.find(r => Number(r.id) === Number(readingId));
+  if (!reading) return null;
+
+  const previousReading = findPreviousReadingForTenantMeter(allReadings, reading);
+  const tenant = tenants.find(t => Number(t.id) === Number(reading.tenantId));
+  const amount = calculateReadingChargeAmount(reading, previousReading, waterPrice, kvaCon);
+
+  return {
+    reading,
+    tenant,
+    previousReading,
+    amount,
+    waterPrice,
+    kvaCon
+  };
+}
+
+async function createPaymentForReading(context) {
+  const { reading, tenant, amount } = context;
+  if (!Number.isFinite(amount) || amount <= 0) {
+    throw new Error('לא ניתן לחשב סכום לתשלום עבור קריאה זו');
+  }
+
+  const tenantName = tenant
+    ? `${tenant.firstName || ''} ${tenant.lastName || ''}`.trim()
+    : (reading.tenantName || '');
+
+  const payload = {
+    tenantId: reading.tenantId ?? null,
+    tenantName,
+    apartmentNumber: tenant?.apartmentNumber || reading.apartmentNumber || '',
+    amount,
+    method: 'cash',
+    account: 'my',
+    date: currentIsoDate(),
+    notes: withPaymentReadingIdsInNotes(`אוטומטי מהסימון שולם`, [reading.id]),
+    readingId: [reading.id]
+  };
+
+  await addPayment(payload);
+}
+
+function openReadingPaidChoiceWindow(context) {
+  const { reading, amount } = context;
+  const popup = window.open('', 'reading-paid-choice', 'width=460,height=280,noopener,noreferrer');
+  if (!popup) {
+    alert('לא ניתן לפתוח חלון popup. אפשר לאפשר חלונות קופצים ולנסות שוב.');
+    return null;
+  }
+
+  const amountText = Number.isFinite(amount) && amount > 0
+    ? `₪${formatCurrency(amount)}`
+    : 'לא ניתן לחשב סכום אוטומטי';
+
+  popup.document.write(`<!doctype html>
+<html lang="he">
+<head>
+  <meta charset="UTF-8">
+  <title>סימון קריאה כ"שולמה"</title>
+  <style>
+    body { font-family: Arial, sans-serif; direction: rtl; text-align: center; padding: 24px; margin: 0; background: #f8f9fb; color: #1f2937; }
+    h2 { margin-top: 0; }
+    p { margin: 8px 0; line-height: 1.5; }
+    .actions { margin-top: 20px; display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+    button { padding: 10px 16px; border: 0; border-radius: 8px; cursor: pointer; font-size: 14px; }
+    .primary { background: #2563eb; color: #fff; }
+    .secondary { background: #e5e7eb; color: #111827; }
+    .danger { background: #fee2e2; color: #991b1b; }
+    .hint { color: #6b7280; font-size: 14px; }
+  </style>
+</head>
+<body>
+  <h2>סימון קריאה כ"שולמה"</h2>
+  <p>תאריך: ${formatDateEu(reading.date)}<br>סוג: ${meterTypeLabel(reading.meterType)}<br>ערך: ${reading.value ?? '-'}</p>
+  <p>בחר מה לעשות:</p>
+  <p class="hint">${amountText}</p>
+  <div class="actions">
+    <button id="mark-only" class="secondary">סמן כ"שולם" בלבד</button>
+    <button id="create-payment" class="primary" ${Number.isFinite(amount) && amount > 0 ? '' : 'disabled'}>צור תשלום/הכנסה</button>
+    <button id="cancel" class="danger">ביטול</button>
+  </div>
+</body>
+</html>`);
+  popup.document.close();
+
+  let settled = false;
+  const finish = (action) => {
+    if (settled) return;
+    settled = true;
+    try { popup.close(); } catch (err) {}
+    if (typeof popup.remove === 'function') {
+      try { popup.remove(); } catch (err) {}
+    }
+    window.__readingPaidChoiceResult = action;
+  };
+
+  popup.addEventListener('beforeunload', () => finish('cancel'));
+  popup.document.getElementById('mark-only')?.addEventListener('click', () => finish('paid-only'));
+  popup.document.getElementById('create-payment')?.addEventListener('click', () => finish('create-payment'));
+  popup.document.getElementById('cancel')?.addEventListener('click', () => finish('cancel'));
+
+  return new Promise(resolve => {
+    const poll = () => {
+      const result = window.__readingPaidChoiceResult;
+      if (!result) {
+        setTimeout(poll, 100);
+        return;
+      }
+      delete window.__readingPaidChoiceResult;
+      resolve(result);
+    };
+    poll();
+  });
+}
+
+async function handleReadingPaidToggleChange(checkbox) {
+  if (!checkbox.checked) return;
+  if (!canWriteCurrentUser()) {
+    checkbox.checked = false;
+    return;
+  }
+
+  const readingId = Number(checkbox.dataset.readingId || 0);
+  if (!readingId) {
+    checkbox.checked = false;
+    return;
+  }
+
+  const context = await buildReadingPaidActionContext(readingId);
+  if (!context || !context.reading) {
+    checkbox.checked = false;
+    return;
+  }
+
+  if (context.reading.paid) {
+    return;
+  }
+
+  const popupResult = await openReadingPaidChoiceWindow(context);
+  if (!popupResult || popupResult === 'cancel') {
+    checkbox.checked = false;
+    return;
+  }
+
+  try {
+    if (popupResult === 'create-payment') {
+      await createPaymentForReading(context);
+    }
+    await updateReading(readingId, { paid: true });
+    await renderPayments();
+    await renderBalance();
+    await renderMom();
+    await renderReadings();
+  } catch (err) {
+    console.error(err);
+    checkbox.checked = false;
+    alert(err.message || 'שגיאה בסימון קריאה כ"שולמה"');
+  }
+}
+
+function setupReadingPaidToggleHandlers(container) {
+  container.querySelectorAll('.reading-paid-toggle').forEach(checkbox => {
+    checkbox.onchange = async () => {
+      await handleReadingPaidToggleChange(checkbox);
+    };
+  });
+}
+
 function sortTenantsByMeter(tenants, meterKey) {
   return tenants.slice().sort((a, b) => {
     const aVal = Number(a[meterKey]);
@@ -4868,6 +5065,8 @@ async function renderReadings() {
         <tbody>${rows}</tbody>
       </table>
     `;
+
+    setupReadingPaidToggleHandlers(list);
   } catch (err) {
     console.error(err);
     list.innerHTML = `<p style="color: #e74c3c;">שגיאה בטעינת קריאות: ${err.message}</p>`;
