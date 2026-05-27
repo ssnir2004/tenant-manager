@@ -4588,7 +4588,8 @@ async function handleReadingPaidToggleChange(checkbox) {
   try {
     if (popupResult === 'create-payment') {
       await createPaymentForReading(context);
-      await updateReading(readingId, { paid: true, notes: withReadingSkipFlagInNotes(context.reading.notes, false) });
+      // Always add skip flag to prevent auto-payment duplication. The manual payment already covers the reading.
+      await updateReading(readingId, { paid: true, notes: withReadingSkipFlagInNotes(context.reading.notes, true) });
     } else {
       await updateReading(readingId, { paid: true, notes: withReadingSkipFlagInNotes(context.reading.notes, true) });
     }
