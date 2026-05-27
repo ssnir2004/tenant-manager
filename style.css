@@ -1848,6 +1848,15 @@ textarea {
   border-bottom-color: var(--border);
 }
 
+[data-theme="dark"] .timeline-legend {
+  background: #1c2233 !important;
+  color: var(--text);
+}
+
+[data-theme="dark"] .timeline-legend span {
+  color: var(--text);
+}
+
 /* Readings/balance lists nested tables */
 [data-theme="dark"] .payments-table tbody tr:hover,
 [data-theme="dark"] .readings-table tbody tr:hover,
