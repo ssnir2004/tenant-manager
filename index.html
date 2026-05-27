@@ -95,7 +95,10 @@
       <!-- Readings View -->
       <div id="readings-view" class="card hidden">
         <h2>הזנת קריאות</h2>
-        <div id="monthly-charges-container" style="margin-bottom: 24px; padding: 16px; background: #f9fafb; border-radius: 8px; border: 1px solid #e0e0e0;">
+        <div style="margin-bottom: 12px;">
+          <button id="toggle-monthly-charges-chart" type="button" style="padding: 8px 14px; border: 0; border-radius: 8px; background: #667eea; color: white; font-weight: 600; cursor: pointer;">📊 הצג גרף חיובים חודשיים</button>
+        </div>
+        <div id="monthly-charges-container" style="margin-bottom: 24px; padding: 16px; background: #f9fafb; border-radius: 8px; border: 1px solid #e0e0e0; display: none;">
           <h3 style="margin-top: 0; margin-bottom: 12px;">סה"כ חיובים חודשיים לכל הדיירים</h3>
           <div style="position: relative; height: 300px;">
             <canvas id="monthly-charges-chart"></canvas>
@@ -859,6 +862,6 @@
       </div>
     </div>
   </div>
-  <script src="script.js?v=2026052703" defer></script>
+  <script src="script.js?v=2026052704" defer></script>
 </body>
 </html>

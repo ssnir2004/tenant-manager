@@ -3948,15 +3948,10 @@ function resolveReadingDisplayInfo(tenant, waterCurrent, elecCurrent) {
   };
 }
 
-async function buildMonthlyReport(monthValue) {
+function buildMonthlyReportSync(monthValue, { waterPrice, kvaCon, tenants, allReadings }) {
   const parsed = parseMonthValue(monthValue);
   if (!parsed) throw new Error('בחר חודש תקין (MM/YYYY)');
   const { year, month, normalized } = parsed;
-
-  const waterPrice = Number(await getSetting('waterPrice') ?? 0);
-  const kvaCon = Number(await getSetting('kvaCon') ?? 0);
-  const tenants = await getAllTenants(true);
-  const allReadings = await getAllReadings();
 
   const rows = tenants.map(t => {
     const tenantReadings = allReadings.filter(r => r.tenantId === t.id);
@@ -3988,6 +3983,21 @@ async function buildMonthlyReport(monthValue) {
   }).filter(r => r.hasMonthReading);
 
   return { monthValue: normalized, rows };
+}
+
+async function buildMonthlyReport(monthValue) {
+  const [waterPriceRaw, kvaConRaw, tenants, allReadings] = await Promise.all([
+    getSetting('waterPrice'),
+    getSetting('kvaCon'),
+    getAllTenants(true),
+    getAllReadings()
+  ]);
+  return buildMonthlyReportSync(monthValue, {
+    waterPrice: Number(waterPriceRaw ?? 0),
+    kvaCon: Number(kvaConRaw ?? 0),
+    tenants,
+    allReadings
+  });
 }
 
 function renderBillsReport(report) {
@@ -5249,7 +5259,9 @@ async function renderReadings() {
     list.innerHTML = `<p style="color: #e74c3c;">שגיאה בטעינת קריאות: ${err.message}</p>`;
   }
 
-  await renderMonthlyChargesChart();
+  if (isMonthlyChargesChartVisible()) {
+    await renderMonthlyChargesChart();
+  }
   await renderReadingApprovals();
 }
 
@@ -5449,7 +5461,9 @@ function renderMonthlyChargesChartView(state) {
           const points = window.__monthlyChartsInstance.getElementsAtEventForMode(event, 'nearest', { intersect: true }, true);
           if (!points.length) return;
           const monthKey = state.monthKeys[points[0].index];
-          const report = await buildMonthlyReport(monthKey);
+          const report = window.__monthlyChargesReportCtx
+            ? buildMonthlyReportSync(monthKey, window.__monthlyChargesReportCtx)
+            : await buildMonthlyReport(monthKey);
           const tenantState = buildMonthlyChargesTenantState(monthKey, report?.rows || []);
           window.__monthlyChargesHistory = window.__monthlyChargesHistory || [];
           window.__monthlyChargesHistory.push(state);
@@ -5492,12 +5506,55 @@ function renderMonthlyChargesChartView(state) {
   }, { once: true });
 }
 
+const MONTHLY_CHARGES_CHART_VISIBLE_KEY = 'monthlyChargesChartVisible';
+
+function isMonthlyChargesChartVisible() {
+  return localStorage.getItem(MONTHLY_CHARGES_CHART_VISIBLE_KEY) === '1';
+}
+
+function setMonthlyChargesChartVisible(visible) {
+  if (visible) {
+    localStorage.setItem(MONTHLY_CHARGES_CHART_VISIBLE_KEY, '1');
+  } else {
+    localStorage.removeItem(MONTHLY_CHARGES_CHART_VISIBLE_KEY);
+  }
+}
+
+function applyMonthlyChargesChartVisibility() {
+  const visible = isMonthlyChargesChartVisible();
+  const container = document.getElementById('monthly-charges-container');
+  const button = document.getElementById('toggle-monthly-charges-chart');
+  if (container) container.style.display = visible ? '' : 'none';
+  if (button) button.textContent = visible ? '📊 הסתר גרף חיובים חודשיים' : '📊 הצג גרף חיובים חודשיים';
+  if (!visible) {
+    if (window.__monthlyChartsInstance) {
+      window.__monthlyChartsInstance.destroy();
+      window.__monthlyChartsInstance = null;
+    }
+    window.__monthlyChargesReportCtx = null;
+  }
+  return visible;
+}
+
 async function renderMonthlyChargesChart() {
   const container = document.getElementById('monthly-charges-container');
   if (!container) return;
 
   try {
-    const allReadings = await getAllReadings();
+    const [waterPriceRaw, kvaConRaw, tenants, allReadings] = await Promise.all([
+      getSetting('waterPrice'),
+      getSetting('kvaCon'),
+      getAllTenants(true),
+      getAllReadings()
+    ]);
+    const reportCtx = {
+      waterPrice: Number(waterPriceRaw ?? 0),
+      kvaCon: Number(kvaConRaw ?? 0),
+      tenants,
+      allReadings
+    };
+    window.__monthlyChargesReportCtx = reportCtx;
+
     const monthKeys = Array.from(new Set(
       allReadings
         .map(r => parseDateToIso(r?.date || ''))
@@ -5510,12 +5567,11 @@ async function renderMonthlyChargesChart() {
       return;
     }
 
-    const monthTotals = [];
-    for (const monthKey of monthKeys) {
-      const report = await buildMonthlyReport(monthKey);
+    const monthTotals = monthKeys.map(monthKey => {
+      const report = buildMonthlyReportSync(monthKey, reportCtx);
       const total = (report?.rows || []).reduce((sum, row) => sum + Number(row.total || 0), 0);
-      monthTotals.push(parseFloat(total.toFixed(2)));
-    }
+      return parseFloat(total.toFixed(2));
+    });
 
     if (monthTotals.length === 0) {
       container.innerHTML = '<div style="padding: 20px; text-align: center; color: #666;">אין קריאות</div>';
@@ -7884,6 +7940,7 @@ showMomBtn?.addEventListener('click', async () => {
 
 showReadingsBtn?.addEventListener('click', async () => {
   setActiveButton('show-readings');
+  applyMonthlyChargesChartVisibility();
   const tenants = await getAllTenants(false);
   const readings = await getAllReadings();
   const latestElectricityByTenant = buildLatestReadingMap(readings, 'electricity');
@@ -7902,6 +7959,15 @@ showReadingsBtn?.addEventListener('click', async () => {
   const reportContainer = document.getElementById('bills-report');
   if (reportContainer) reportContainer.innerHTML = '';
   show(readingsView);
+});
+
+document.getElementById('toggle-monthly-charges-chart')?.addEventListener('click', async () => {
+  const nextVisible = !isMonthlyChargesChartVisible();
+  setMonthlyChargesChartVisible(nextVisible);
+  applyMonthlyChargesChartVisibility();
+  if (nextVisible) {
+    await renderMonthlyChargesChart();
+  }
 });
 
 document.getElementById('save-reminders-settings')?.addEventListener('click', async () => {
