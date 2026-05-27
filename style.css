@@ -1721,10 +1721,49 @@ textarea {
 [data-theme="dark"] [style*="background:#fffaf2"],
 [data-theme="dark"] [style*="background:#fff7eb"],
 [data-theme="dark"] [style*="background:#fafbfc"],
-[data-theme="dark"] [style*="background: #fafbfc"] {
+[data-theme="dark"] [style*="background: #fafbfc"],
+[data-theme="dark"] [style*="background:linear-gradient(135deg,#f8fcff"],
+[data-theme="dark"] [style*="background: linear-gradient(135deg,#f8fcff"],
+[data-theme="dark"] [style*="background:linear-gradient(135deg, #f8fcff"],
+[data-theme="dark"] [style*="background:linear-gradient(135deg,#fffdfb"],
+[data-theme="dark"] [style*="background: linear-gradient(135deg,#fffdfb"],
+[data-theme="dark"] [style*="background:linear-gradient(135deg, #fffdfb"],
+[data-theme="dark"] [style*="background:#eef6ff"],
+[data-theme="dark"] [style*="background:#edf6ff"],
+[data-theme="dark"] [style*="background:#fff5ec"] {
   background: #1c2233 !important;
   border-color: var(--border) !important;
   color: var(--text) !important;
+}
+
+[data-theme="dark"] [style*="border:1px solid #d5e8ff"],
+[data-theme="dark"] [style*="border: 1px solid #d5e8ff"],
+[data-theme="dark"] [style*="border:1px solid #ffe0cc"],
+[data-theme="dark"] [style*="border: 1px solid #ffe0cc"] {
+  border-color: var(--border) !important;
+}
+
+[data-theme="dark"] [style*="color:#b35c1e"],
+[data-theme="dark"] [style*="color: #b35c1e"] {
+  color: #f5b18a !important;
+}
+
+[data-theme="dark"] [style*="color:#333"],
+[data-theme="dark"] [style*="color: #333"] {
+  color: var(--text) !important;
+}
+
+/* Default buttons in dark mode (skip those with inline backgrounds — inline style wins) */
+[data-theme="dark"] button {
+  background: linear-gradient(135deg, #2a334b 0%, #1f2638 100%);
+  color: var(--text);
+  border-color: var(--border);
+}
+
+[data-theme="dark"] button:hover {
+  background: linear-gradient(135deg, var(--accent-light) 0%, var(--accent) 100%);
+  color: white;
+  border-color: var(--accent);
 }
 
 /* Coloured text on previously-light inline backgrounds — bump to lighter tones */
