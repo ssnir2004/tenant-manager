@@ -1753,6 +1753,29 @@ textarea {
   color: var(--text) !important;
 }
 
+/* Solar/income inline bar tracks and chart wrapper */
+[data-theme="dark"] [style*="background:#eef2f5"],
+[data-theme="dark"] [style*="background: #eef2f5"],
+[data-theme="dark"] [style*="background:#f9f9f9"],
+[data-theme="dark"] [style*="background: #f9f9f9"],
+[data-theme="dark"] [style*="background:#f3f6fa"],
+[data-theme="dark"] [style*="background: #f3f6fa"],
+[data-theme="dark"] [style*="background:#fafafa"],
+[data-theme="dark"] [style*="background: #fafafa"] {
+  background: #283149 !important;
+}
+
+[data-theme="dark"] [style*="border-top: 1px solid #eee"],
+[data-theme="dark"] [style*="border-top:1px solid #eee"],
+[data-theme="dark"] [style*="border: 1px solid #eee"],
+[data-theme="dark"] [style*="border:1px solid #eee"],
+[data-theme="dark"] [style*="border-bottom: 1px solid #eee"],
+[data-theme="dark"] [style*="border-bottom:1px solid #eee"],
+[data-theme="dark"] [style*="border-top: 2px solid #333"],
+[data-theme="dark"] [style*="border-top:2px solid #333"] {
+  border-color: var(--border) !important;
+}
+
 /* Default buttons in dark mode (skip those with inline backgrounds — inline style wins) */
 [data-theme="dark"] button {
   background: linear-gradient(135deg, #2a334b 0%, #1f2638 100%);
