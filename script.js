@@ -4502,7 +4502,7 @@ async function createPaymentForReading(context) {
     amount,
     method: 'cash',
     account: 'my',
-    date: currentIsoDate(),
+    date: parseDateToIso(reading.date) || currentIsoDate(),
     notes: withPaymentReadingIdsInNotes(`אוטומטי מהסימון שולם`, [reading.id]),
     readingId: [reading.id]
   };
