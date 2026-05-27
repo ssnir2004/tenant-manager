@@ -5928,8 +5928,12 @@ async function renderPayments() {
           <button class="btn-edit-payment" data-id="${p.id}">✏️</button>
           <button class="btn-delete-payment" data-id="${p.id}">🗑️</button>
     ` : '—';
+    const selectCell = allowWrite
+      ? `<td><input type="checkbox" class="payment-select-row" data-id="${p.id}" aria-label="בחר הפקדה"></td>`
+      : '';
     return `
       <tr class="${missing ? 'row-missing' : ''}">
+        ${selectCell}
         <td>${formatDateEu(p.date)}</td>
         <td>${apartment || '-'}</td>
         <td>${name || '-'}</td>
@@ -5943,10 +5947,14 @@ async function renderPayments() {
     `;
   }).join('');
 
+  const selectAllHeader = allowWrite
+    ? `<th><input type="checkbox" id="payments-select-all" aria-label="בחר את כל ההפקדות"></th>`
+    : '';
   list.innerHTML = `
     <table class="payments-table">
       <thead>
         <tr>
+          ${selectAllHeader}
           <th data-key="date">תאריך</th>
           <th data-key="apartment">דירה</th>
           <th data-key="tenant">דייר</th>
@@ -5962,7 +5970,41 @@ async function renderPayments() {
     </table>
   `;
 
+  updatePaymentsSelectedCount();
   await renderPaymentsIncomeChart(all, tenantMap);
+}
+
+function getSelectedPaymentIds() {
+  return Array.from(document.querySelectorAll('.payment-select-row:checked'))
+    .map(cb => Number(cb.dataset.id))
+    .filter(id => Number.isFinite(id) && id > 0);
+}
+
+function updatePaymentsSelectedCount() {
+  const ids = getSelectedPaymentIds();
+  const button = document.getElementById('payments-delete-selected');
+  const countEl = document.getElementById('payments-selected-count');
+  if (countEl) countEl.textContent = String(ids.length);
+  if (button) button.disabled = ids.length === 0;
+
+  const selectAll = document.getElementById('payments-select-all');
+  if (selectAll) {
+    const allCheckboxes = document.querySelectorAll('.payment-select-row');
+    const totalCheckboxes = allCheckboxes.length;
+    if (totalCheckboxes === 0) {
+      selectAll.checked = false;
+      selectAll.indeterminate = false;
+    } else if (ids.length === 0) {
+      selectAll.checked = false;
+      selectAll.indeterminate = false;
+    } else if (ids.length === totalCheckboxes) {
+      selectAll.checked = true;
+      selectAll.indeterminate = false;
+    } else {
+      selectAll.checked = false;
+      selectAll.indeterminate = true;
+    }
+  }
 }
 
 async function renderCredits() {
@@ -10303,6 +10345,22 @@ async function importCreditsCsvEnglish(text) {
 }
 
 // Payments edit/delete handlers
+async function flagAutoPaidReadingsToSkip(payment) {
+  if (!payment || !isAutoPaidReadingPayment(payment)) return;
+  const readingIds = normalizePaymentReadingIdsFromPayment(payment);
+  for (const readingId of readingIds) {
+    if (!Number.isFinite(readingId)) continue;
+    try {
+      const reading = isRemoteApp()
+        ? await getReadingByIdRemote(readingId)
+        : await getReadingByIdLocal(readingId);
+      await updateReading(readingId, { notes: withReadingSkipFlagInNotes(reading?.notes, true) });
+    } catch (err) {
+      console.warn('Failed to flag reading to skip auto-payment:', readingId, err);
+    }
+  }
+}
+
 document.getElementById('payments-list')?.addEventListener('click', async e => {
   const editBtn = e.target.closest('.btn-edit-payment');
   const delBtn = e.target.closest('.btn-delete-payment');
@@ -10335,21 +10393,7 @@ document.getElementById('payments-list')?.addEventListener('click', async e => {
       try {
         const allPayments = await getAllPayments();
         const rec = allPayments.find(p => p.id === id);
-        if (rec && isAutoPaidReadingPayment(rec)) {
-          const readingIds = normalizePaymentReadingIdsFromPayment(rec);
-          for (const readingId of readingIds) {
-            if (Number.isFinite(readingId)) {
-              try {
-                const reading = isRemoteApp()
-                  ? await getReadingByIdRemote(readingId)
-                  : await getReadingByIdLocal(readingId);
-                await updateReading(readingId, { notes: withReadingSkipFlagInNotes(reading?.notes, true) });
-              } catch (err) {
-                console.warn('Failed to flag reading to skip auto-payment:', readingId, err);
-              }
-            }
-          }
-        }
+        await flagAutoPaidReadingsToSkip(rec);
         await deletePayment(id);
         await renderPayments();
         await renderBalance();
@@ -10359,6 +10403,40 @@ document.getElementById('payments-list')?.addEventListener('click', async e => {
         alert('שגיאה במחיקה: ' + err.message);
       }
     }
+  }
+});
+
+document.getElementById('payments-list')?.addEventListener('change', e => {
+  const selectAll = e.target.closest('#payments-select-all');
+  const rowCheckbox = e.target.closest('.payment-select-row');
+  if (selectAll) {
+    const checked = !!selectAll.checked;
+    document.querySelectorAll('.payment-select-row').forEach(cb => { cb.checked = checked; });
+  }
+  if (selectAll || rowCheckbox) {
+    updatePaymentsSelectedCount();
+  }
+});
+
+document.getElementById('payments-delete-selected')?.addEventListener('click', async () => {
+  if (!canWriteCurrentUser()) return;
+  const ids = getSelectedPaymentIds();
+  if (!ids.length) return;
+  if (!(await confirmDialog(`למחוק ${ids.length} הפקדות נבחרות?`))) return;
+  try {
+    const allPayments = await getAllPayments();
+    const recordsById = new Map(allPayments.map(p => [Number(p.id), p]));
+    for (const id of ids) {
+      const rec = recordsById.get(id);
+      await flagAutoPaidReadingsToSkip(rec);
+      await deletePayment(id);
+    }
+    await renderPayments();
+    await renderBalance();
+    alert(`${ids.length} הפקדות נמחקו`);
+  } catch (err) {
+    console.error(err);
+    alert('שגיאה במחיקה: ' + err.message);
   }
 });
 
