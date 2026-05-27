@@ -197,15 +197,15 @@ body.sidebar-resizing {
   padding: 12px;
   border-radius: 12px;
   cursor: pointer;
-  background: linear-gradient(135deg, rgba(43, 108, 176, 0.12) 0%, rgba(52, 152, 219, 0.18) 100%);
-  box-shadow: 0 6px 18px rgba(43, 108, 176, 0.18);
-  transition: transform 0.2s ease, box-shadow 0.2s ease, filter 0.2s ease;
+  background: #eef3f9;
+  border: 1px solid #d8e2ee;
+  border-right: 4px solid var(--accent-light);
+  transition: transform 0.2s ease, filter 0.2s ease;
 }
 
 .btn-open-tenant-balance:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 10px 22px rgba(43, 108, 176, 0.24);
-  filter: saturate(1.08);
+  transform: translateY(-1px);
+  filter: brightness(0.98);
 }
 
 .btn-open-tenant-balance:active {
@@ -213,17 +213,21 @@ body.sidebar-resizing {
 }
 
 .btn-open-tenant-balance.state-debt {
-  background: linear-gradient(135deg, rgba(231, 76, 60, 0.14) 0%, rgba(255, 170, 165, 0.26) 100%);
-  box-shadow: 0 6px 18px rgba(231, 76, 60, 0.2);
+  background: #fbeaea;
+  border-color: #f0c6c4;
+  border-right-color: var(--warning);
 }
 
 .btn-open-tenant-balance.state-credit {
-  background: linear-gradient(135deg, rgba(39, 174, 96, 0.14) 0%, rgba(120, 219, 170, 0.26) 100%);
-  box-shadow: 0 6px 18px rgba(39, 174, 96, 0.2);
+  background: #e6f4ec;
+  border-color: #c4e2cf;
+  border-right-color: var(--success);
 }
 
 .btn-open-tenant-balance.state-neutral {
-  background: linear-gradient(135deg, rgba(43, 108, 176, 0.1) 0%, rgba(90, 143, 214, 0.2) 100%);
+  background: #eaf1f9;
+  border-color: #cdddee;
+  border-right-color: var(--accent-light);
 }
 
 .tenant-main-card-title {
@@ -1624,32 +1628,30 @@ textarea {
 }
 
 [data-theme="dark"] .btn-open-tenant-balance {
-  background: linear-gradient(135deg, #2a334b 0%, #1f2638 100%) !important;
+  background: #1c2233 !important;
   color: var(--text) !important;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4) !important;
+  box-shadow: none !important;
   border: 1px solid var(--border);
+  border-right: 4px solid var(--accent-light);
 }
 
 [data-theme="dark"] .btn-open-tenant-balance:hover {
-  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.55) !important;
-  filter: brightness(1.1);
+  filter: brightness(1.15);
 }
 
 [data-theme="dark"] .btn-open-tenant-balance.state-debt {
-  background: linear-gradient(135deg, #3a2230 0%, #4a2530 100%) !important;
-  border-color: rgba(231, 76, 60, 0.5);
-  box-shadow: 0 4px 12px rgba(231, 76, 60, 0.25) !important;
+  background: #1c2233 !important;
+  border-right-color: var(--warning);
 }
 
 [data-theme="dark"] .btn-open-tenant-balance.state-credit {
-  background: linear-gradient(135deg, #1f3a2f 0%, #234538 100%) !important;
-  border-color: rgba(39, 174, 96, 0.5);
-  box-shadow: 0 4px 12px rgba(39, 174, 96, 0.25) !important;
+  background: #1c2233 !important;
+  border-right-color: var(--success);
 }
 
 [data-theme="dark"] .btn-open-tenant-balance.state-neutral {
-  background: linear-gradient(135deg, #232c44 0%, #1f2638 100%) !important;
-  border-color: rgba(90, 143, 214, 0.4);
+  background: #1c2233 !important;
+  border-right-color: var(--accent-light);
 }
 
 [data-theme="dark"] .tenant-main-card-title {
