@@ -1716,7 +1716,10 @@ function calculateTenantBalanceBreakdown(tenant, payments, readings, waterPrice,
     .filter(p => !!p.dateIso)
     .sort((a, b) => a.dateIso.localeCompare(b.dateIso));
 
-  const todayMonthKey = calcEndIso.slice(0, 7);
+  // Payments/credits are filtered by todayIso, not calcEndIso. Obligations stop at
+  // calcEndIso (no rent after tenancy ends), but a payment received today to settle
+  // a moved-out tenant's debt must still reduce their balance.
+  const todayMonthKey = (parseDateToIso(todayIso) || currentIsoDate()).slice(0, 7);
   const paymentItems = tenantPayments
     .map(p => ({
       dateIso: parseDateToIso(p?.date || ''),
