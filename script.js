@@ -4560,15 +4560,30 @@ async function ensurePaidReadingsHavePayments() {
 }
 
 async function handleReadingPaidToggleChange(checkbox) {
-  if (!checkbox.checked) return;
   if (!canWriteCurrentUser()) {
-    checkbox.checked = false;
+    checkbox.checked = !checkbox.checked;
     return;
   }
 
   const readingId = Number(checkbox.dataset.readingId || 0);
   if (!readingId) {
-    checkbox.checked = false;
+    checkbox.checked = !checkbox.checked;
+    return;
+  }
+
+  if (!checkbox.checked) {
+    try {
+      await updateReading(readingId, { paid: false });
+    } catch (err) {
+      console.error(err);
+      checkbox.checked = true;
+      alert(err.message || 'שגיאה בעדכון קריאה');
+      return;
+    }
+    await renderPayments();
+    await renderBalance();
+    await renderMom();
+    await renderReadings();
     return;
   }
 
