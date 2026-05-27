@@ -1702,10 +1702,62 @@ textarea {
 [data-theme="dark"] [style*="background:#f9fafb"],
 [data-theme="dark"] [style*="background-color: #f9fafb"],
 [data-theme="dark"] [style*="background-color: #f9f9f9"],
-[data-theme="dark"] [style*="background-color: #f5f5f5"] {
+[data-theme="dark"] [style*="background-color: #f5f5f5"],
+[data-theme="dark"] [style*="background:#fff"],
+[data-theme="dark"] [style*="background: #fff"],
+[data-theme="dark"] [style*="background:white"],
+[data-theme="dark"] [style*="background: white"],
+[data-theme="dark"] [style*="background-color:#fff"],
+[data-theme="dark"] [style*="background-color: #fff"],
+[data-theme="dark"] [style*="background:#f7f9fc"],
+[data-theme="dark"] [style*="background: #f7f9fc"],
+[data-theme="dark"] [style*="background:#f7fbff"],
+[data-theme="dark"] [style*="background:linear-gradient(135deg,#f7fbff"],
+[data-theme="dark"] [style*="background: linear-gradient(135deg,#f7fbff"],
+[data-theme="dark"] [style*="background:linear-gradient(135deg, #f7fbff"],
+[data-theme="dark"] [style*="background: linear-gradient(135deg, #f7fbff"],
+[data-theme="dark"] [style*="background: linear-gradient(135deg, #fff"],
+[data-theme="dark"] [style*="background:linear-gradient(135deg,#fff"],
+[data-theme="dark"] [style*="background:#fffaf2"],
+[data-theme="dark"] [style*="background:#fff7eb"],
+[data-theme="dark"] [style*="background:#fafbfc"],
+[data-theme="dark"] [style*="background: #fafbfc"] {
   background: #1c2233 !important;
   border-color: var(--border) !important;
   color: var(--text) !important;
+}
+
+/* Coloured text on previously-light inline backgrounds — bump to lighter tones */
+[data-theme="dark"] [style*="color:#2b6cb0"],
+[data-theme="dark"] [style*="color: #2b6cb0"],
+[data-theme="dark"] [style*="color:#1f3f5f"],
+[data-theme="dark"] [style*="color: #1f3f5f"],
+[data-theme="dark"] [style*="color:#335b84"],
+[data-theme="dark"] [style*="color: #335b84"],
+[data-theme="dark"] [style*="color:#4a6077"],
+[data-theme="dark"] [style*="color: #4a6077"] {
+  color: #8ab4e0 !important;
+}
+
+[data-theme="dark"] [style*="color:#9c4d17"],
+[data-theme="dark"] [style*="color: #9c4d17"],
+[data-theme="dark"] [style*="color:#5d3a22"],
+[data-theme="dark"] [style*="color: #5d3a22"],
+[data-theme="dark"] [style*="color:#7a3d14"] {
+  color: #f5b18a !important;
+}
+
+[data-theme="dark"] [style*="border:1px solid #e5e9ef"],
+[data-theme="dark"] [style*="border: 1px solid #e5e9ef"],
+[data-theme="dark"] [style*="border-bottom:1px solid #e9edf3"],
+[data-theme="dark"] [style*="border-bottom: 1px solid #e9edf3"],
+[data-theme="dark"] [style*="border:1px solid #d5e8ff"],
+[data-theme="dark"] [style*="border: 1px solid #d5e8ff"],
+[data-theme="dark"] [style*="border:1px solid #f4d7c3"],
+[data-theme="dark"] [style*="border: 1px solid #f4d7c3"],
+[data-theme="dark"] [style*="border:1px dashed #c8dcf6"],
+[data-theme="dark"] [style*="border-top:1px dashed #c8dcf6"] {
+  border-color: var(--border) !important;
 }
 
 [data-theme="dark"] #monthly-charges-container h3,
