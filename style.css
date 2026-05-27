@@ -1606,6 +1606,20 @@ textarea {
   border-color: var(--border);
 }
 
+[data-theme="dark"] .bulk-row {
+  background: #1c2233;
+  border-color: var(--border);
+  box-shadow: none;
+}
+
+[data-theme="dark"] .bulk-title {
+  color: var(--text);
+}
+
+[data-theme="dark"] .bulk-sub {
+  color: var(--text-light);
+}
+
 [data-theme="dark"] .modal-content {
   background: var(--card);
   color: var(--text);
