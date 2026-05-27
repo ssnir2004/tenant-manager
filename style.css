@@ -1624,30 +1624,57 @@ textarea {
 }
 
 [data-theme="dark"] .btn-open-tenant-balance {
-  background: linear-gradient(135deg, #2a334b 0%, #1f2638 100%);
-  color: var(--text);
+  background: linear-gradient(135deg, #2a334b 0%, #1f2638 100%) !important;
+  color: var(--text) !important;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4) !important;
+  border: 1px solid var(--border);
+}
+
+[data-theme="dark"] .btn-open-tenant-balance:hover {
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.55) !important;
+  filter: brightness(1.1);
 }
 
 [data-theme="dark"] .btn-open-tenant-balance.state-debt {
-  background: linear-gradient(135deg, rgba(231, 76, 60, 0.25) 0%, rgba(192, 57, 43, 0.35) 100%);
+  background: linear-gradient(135deg, #3a2230 0%, #4a2530 100%) !important;
+  border-color: rgba(231, 76, 60, 0.5);
+  box-shadow: 0 4px 12px rgba(231, 76, 60, 0.25) !important;
 }
 
 [data-theme="dark"] .btn-open-tenant-balance.state-credit {
-  background: linear-gradient(135deg, rgba(39, 174, 96, 0.25) 0%, rgba(34, 153, 84, 0.35) 100%);
+  background: linear-gradient(135deg, #1f3a2f 0%, #234538 100%) !important;
+  border-color: rgba(39, 174, 96, 0.5);
+  box-shadow: 0 4px 12px rgba(39, 174, 96, 0.25) !important;
 }
 
 [data-theme="dark"] .btn-open-tenant-balance.state-neutral {
-  background: linear-gradient(135deg, rgba(90, 143, 214, 0.2) 0%, rgba(43, 108, 176, 0.3) 100%);
+  background: linear-gradient(135deg, #232c44 0%, #1f2638 100%) !important;
+  border-color: rgba(90, 143, 214, 0.4);
 }
 
-[data-theme="dark"] .tenant-main-card-title,
-[data-theme="dark"] .tenant-main-card-balance,
+[data-theme="dark"] .tenant-main-card-title {
+  color: #cbd5e1 !important;
+}
+
+[data-theme="dark"] .tenant-main-card-balance {
+  color: #f1f5f9 !important;
+}
+
 [data-theme="dark"] .tenant-main-card-date {
-  color: var(--text);
+  color: #f5b18a !important;
 }
 
 [data-theme="dark"] .tenant-main-card-sub {
-  color: var(--text-light);
+  color: #94a3b8 !important;
+}
+
+/* Coloured balance values stay readable on dark cards */
+[data-theme="dark"] .btn-open-tenant-balance.state-debt .tenant-main-card-balance {
+  color: #ff8a80 !important;
+}
+
+[data-theme="dark"] .btn-open-tenant-balance.state-credit .tenant-main-card-balance {
+  color: #7ee2a8 !important;
 }
 
 /* Inline-styled chart containers / panels */
