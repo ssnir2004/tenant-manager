@@ -1078,6 +1078,32 @@ async function getPaymentsByTenant(tenantId) {
 }
 
 async function clearAllPayments() {
+  // Ensure readings covered by auto-generated payments are marked to skip
+  // auto-payment generation before we delete the payments themselves.
+  try {
+    const allPayments = await getAllPayments();
+    const readingIdsToSkip = new Set();
+    (allPayments || []).forEach(p => {
+      if (isAutoPaidReadingPayment(p)) {
+        normalizePaymentReadingIdsFromPayment(p).forEach(id => {
+          const n = Number(id);
+          if (Number.isFinite(n)) readingIdsToSkip.add(n);
+        });
+      }
+    });
+
+    for (const rid of readingIdsToSkip) {
+      try {
+        const reading = isRemoteApp() ? await getReadingByIdRemote(rid) : await getReadingByIdLocal(rid);
+        await updateReading(rid, { notes: withReadingSkipFlagInNotes(reading?.notes, true) });
+      } catch (err) {
+        console.warn('Failed to flag reading to skip auto-payment (clearAll):', rid, err);
+      }
+    }
+  } catch (err) {
+    console.warn('Failed to collect payments before clearAll:', err);
+  }
+
   if (isRemoteApp()) {
     await apiRequest('/api/payments', { method: 'DELETE' });
     return;
