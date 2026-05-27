@@ -294,6 +294,12 @@
       <!-- Payments View -->
       <div id="payments-view" class="card hidden">
         <h2>תשלומים / הפקדות</h2>
+        <div id="payments-chart-container" style="margin-bottom: 18px; padding: 16px; background: #f9fafb; border-radius: 8px; border: 1px solid #e0e0e0;">
+          <h3 style="margin-top: 0; margin-bottom: 12px;">סה"כ הכנסות חודשיות</h3>
+          <div style="position: relative; height: 320px;">
+            <canvas id="payments-income-chart"></canvas>
+          </div>
+        </div>
         <form id="payment-form">
           <div class="row">
             <select name="tenantId" id="payment-tenant">
@@ -373,12 +379,6 @@
             <input id="payments-filter-to" type="date">
           </label>
           <button id="payments-filter-clear" type="button">נקה סינון</button>
-        </div>
-        <div id="payments-chart-container" style="margin-top: 18px; padding: 16px; background: #f9fafb; border-radius: 8px; border: 1px solid #e0e0e0;">
-          <h3 style="margin-top: 0; margin-bottom: 12px;">סה"כ הכנסות חודשיות</h3>
-          <div style="position: relative; height: 320px;">
-            <canvas id="payments-income-chart"></canvas>
-          </div>
         </div>
         <div id="payments-list" class="section-container" style="margin-top: 12px;"></div>
       </div>
@@ -885,6 +885,6 @@
       </div>
     </div>
   </div>
-  <script src="script.js?v=2026052707" defer></script>
+  <script src="script.js?v=2026052708" defer></script>
 </body>
 </html>
