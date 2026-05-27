@@ -1628,6 +1628,10 @@ function displayPaymentNotes(notes) {
   return String(notes || '').replace(/\s*\[\[RID:[^\]]+\]\]\s*/g, ' ').replace(/\s+/g, ' ').trim();
 }
 
+function isAutoPaidReadingPayment(payment) {
+  return String(payment?.notes || '').includes('אוטומטי מהסימון שולם');
+}
+
 function calculateTenantBalanceBreakdown(tenant, payments, readings, waterPrice, kvaCon, todayIso = currentIsoDate(), tenantCreditsMap = null) {
   const tenantId = Number(tenant?.id);
   const calcEndIso = tenantBalanceCalcEndIso(tenant, todayIso);
@@ -4476,7 +4480,7 @@ async function ensurePaidReadingsHavePayments() {
 
   for (const reading of readings) {
     const readingId = Number(reading?.id);
-    if (!Number.isFinite(readingId) || !reading?.paid || coveredReadingIds.has(readingId)) {
+    if (!Number.isFinite(readingId) || !reading?.paid || reading?.paidAutoPaymentDeleted || coveredReadingIds.has(readingId)) {
       continue;
     }
 
@@ -4539,8 +4543,10 @@ async function handleReadingPaidToggleChange(checkbox) {
   try {
     if (popupResult === 'create-payment') {
       await createPaymentForReading(context);
+      await updateReading(readingId, { paid: true, paidAutoPaymentDeleted: false });
+    } else {
+      await updateReading(readingId, { paid: true, paidAutoPaymentDeleted: true });
     }
-    await updateReading(readingId, { paid: true });
     await renderPayments();
     await renderBalance();
     await renderMom();
@@ -8492,7 +8498,7 @@ paymentForm?.addEventListener('submit', async e => {
     if (payload.readingId && payload.readingId.length) {
       for (const id of payload.readingId) {
         try {
-          await updateReading(id, { paid: true });
+          await updateReading(id, { paid: true, paidAutoPaymentDeleted: false });
         } catch (err) {
           console.warn('Failed to mark reading paid:', id, err);
         }
@@ -9802,6 +9808,20 @@ document.getElementById('payments-list')?.addEventListener('click', async e => {
     const id = Number(delBtn.dataset.id);
     if (await confirmDialog('להסיר הפקדה זו?')) {
       try {
+        const allPayments = await getAllPayments();
+        const rec = allPayments.find(p => p.id === id);
+        if (rec && isAutoPaidReadingPayment(rec)) {
+          const readingIds = normalizePaymentReadingIdsFromPayment(rec);
+          for (const readingId of readingIds) {
+            if (Number.isFinite(readingId)) {
+              try {
+                await updateReading(readingId, { paidAutoPaymentDeleted: true });
+              } catch (err) {
+                console.warn('Failed to flag reading to skip auto-payment:', readingId, err);
+              }
+            }
+          }
+        }
         await deletePayment(id);
         await renderPayments();
         await renderBalance();
