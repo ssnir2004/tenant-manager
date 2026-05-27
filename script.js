@@ -4408,6 +4408,9 @@ function showReadingPaidChoiceModal(context) {
     ? `₪${formatCurrency(amount)}`
     : 'לא ניתן לחשב סכום אוטומטי';
 
+  const title = document.getElementById('reading-paid-choice-title');
+  if (title) title.textContent = 'סימון קריאה כ"שולמה"';
+
   document.getElementById('reading-paid-choice-details').textContent =
     `תאריך: ${formatDateEu(reading.date)} • סוג: ${meterTypeLabel(reading.meterType)} • ערך: ${reading.value ?? '-'}`;
   document.getElementById('reading-paid-choice-amount').textContent = amountText;
@@ -4640,6 +4643,127 @@ function setupReadingPaidToggleHandlers(container) {
     // mark this checkbox as having a dedicated handler so delegated listeners can ignore it
     try { checkbox.dataset.handled = '1'; } catch (e) { /* ignore */ }
   });
+}
+
+function getSelectedReadingIds() {
+  return Array.from(document.querySelectorAll('.reading-select-row:checked'))
+    .map(cb => Number(cb.dataset.id))
+    .filter(id => Number.isFinite(id) && id > 0);
+}
+
+function updateReadingsSelectedCount() {
+  const ids = getSelectedReadingIds();
+  const button = document.getElementById('readings-mark-paid-selected');
+  const countEl = document.getElementById('readings-selected-count');
+  if (countEl) countEl.textContent = String(ids.length);
+  if (button) button.disabled = ids.length === 0;
+
+  const selectAll = document.getElementById('readings-select-all');
+  if (selectAll) {
+    const selectable = document.querySelectorAll('.reading-select-row:not([disabled])');
+    const total = selectable.length;
+    if (total === 0) {
+      selectAll.checked = false;
+      selectAll.indeterminate = false;
+      selectAll.disabled = true;
+    } else {
+      selectAll.disabled = false;
+      if (ids.length === 0) {
+        selectAll.checked = false;
+        selectAll.indeterminate = false;
+      } else if (ids.length === total) {
+        selectAll.checked = true;
+        selectAll.indeterminate = false;
+      } else {
+        selectAll.checked = false;
+        selectAll.indeterminate = true;
+      }
+    }
+  }
+}
+
+function showReadingPaidChoiceModalForBulk(contexts) {
+  const modal = document.getElementById('reading-paid-choice-modal');
+  if (!modal) return Promise.resolve('cancel');
+
+  const validContexts = contexts.filter(c => c && c.reading);
+  const totalAmount = validContexts.reduce((sum, c) => sum + (Number.isFinite(c.amount) ? Math.max(0, c.amount) : 0), 0);
+  const withAmountCount = validContexts.filter(c => Number.isFinite(c.amount) && c.amount > 0).length;
+
+  const title = document.getElementById('reading-paid-choice-title');
+  if (title) title.textContent = `סימון ${validContexts.length} קריאות כ"שולמו"`;
+
+  const detailsEl = document.getElementById('reading-paid-choice-details');
+  if (detailsEl) {
+    const noAmountCount = validContexts.length - withAmountCount;
+    const detailParts = [`${validContexts.length} קריאות נבחרו`];
+    if (withAmountCount > 0) detailParts.push(`${withAmountCount} עם סכום מחושב`);
+    if (noAmountCount > 0) detailParts.push(`${noAmountCount} ללא סכום (יסומנו "שולם" בלבד)`);
+    detailsEl.textContent = detailParts.join(' • ');
+  }
+
+  const amountEl = document.getElementById('reading-paid-choice-amount');
+  if (amountEl) {
+    amountEl.textContent = withAmountCount > 0
+      ? `סה"כ סכום לתשלום: ₪${formatCurrency(totalAmount)}`
+      : 'לא ניתן לחשב סכום אוטומטי לקריאות אלו';
+  }
+
+  const createButton = document.getElementById('reading-paid-choice-create-payment');
+  if (createButton) createButton.disabled = withAmountCount === 0;
+
+  modal.classList.remove('hidden');
+  modal.style.display = 'flex';
+
+  return new Promise(resolve => {
+    pendingReadingPaidChoiceResolver = resolve;
+  });
+}
+
+async function handleReadingsBulkMarkPaid() {
+  if (!canWriteCurrentUser()) return;
+  const ids = getSelectedReadingIds();
+  if (!ids.length) return;
+
+  const contexts = [];
+  for (const readingId of ids) {
+    try {
+      const ctx = await buildReadingPaidActionContext(readingId);
+      if (ctx && ctx.reading && !ctx.reading.paid) {
+        contexts.push(ctx);
+      }
+    } catch (err) {
+      console.warn('Failed to build context for reading', readingId, err);
+    }
+  }
+
+  if (!contexts.length) {
+    alert('לא נמצאו קריאות לא-משולמות לסימון');
+    return;
+  }
+
+  const action = await showReadingPaidChoiceModalForBulk(contexts);
+  if (!action || action === 'cancel') return;
+
+  try {
+    for (const ctx of contexts) {
+      if (action === 'create-payment' && Number.isFinite(ctx.amount) && ctx.amount > 0) {
+        await createPaymentForReading(ctx);
+      }
+      await updateReading(ctx.reading.id, {
+        paid: true,
+        notes: withReadingSkipFlagInNotes(ctx.reading.notes, true)
+      });
+    }
+    await renderPayments();
+    await renderBalance();
+    await renderMom();
+    await renderReadings();
+    alert(`${contexts.length} קריאות סומנו כשולמו`);
+  } catch (err) {
+    console.error(err);
+    alert(err.message || 'שגיאה בסימון קריאות');
+  }
 }
 
 function sortTenantsByMeter(tenants, meterKey) {
@@ -5213,8 +5337,12 @@ async function renderReadings() {
           <button class="btn-edit-reading" data-id="${r.id}">✏️</button>
           <button class="btn-delete-reading" data-id="${r.id}">🗑️</button>
       ` : '—';
+      const selectCell = allowWrite
+        ? `<td><input type="checkbox" class="reading-select-row" data-id="${r.id}" ${r.paid ? 'disabled' : ''} aria-label="בחר קריאה"></td>`
+        : '';
       return `
         <tr class="${missing ? 'row-missing' : ''} reading-row" data-reading-id="${r.id}">
+          ${selectCell}
           <td>${formatDateEu(r.date)}</td>
           <td>${apartment || '-'}</td>
           <td>${name || '-'}</td>
@@ -5227,16 +5355,20 @@ async function renderReadings() {
           <td>${actionsCell}</td>
         </tr>
         <tr class="reading-detail-row hidden" data-reading-id="${r.id}">
-          <td colspan="${showStatus ? 10 : 9}"></td>
+          <td colspan="${(showStatus ? 10 : 9) + (allowWrite ? 1 : 0)}"></td>
         </tr>
       `;
     }).join('');
 
     const statusHeader = showStatus ? '<th>סטטוס</th>' : '';
+    const selectAllHeader = allowWrite
+      ? `<th><input type="checkbox" id="readings-select-all" aria-label="בחר את כל הקריאות"></th>`
+      : '';
     list.innerHTML = `
       <table class="payments-table">
         <thead>
           <tr>
+            ${selectAllHeader}
             <th data-key="date">תאריך</th>
             <th data-key="apartment">דירה</th>
             <th data-key="tenant">דייר</th>
@@ -5254,6 +5386,7 @@ async function renderReadings() {
     `;
 
     setupReadingPaidToggleHandlers(list);
+    updateReadingsSelectedCount();
   } catch (err) {
     console.error(err);
     list.innerHTML = `<p style="color: #e74c3c;">שגיאה בטעינת קריאות: ${err.message}</p>`;
@@ -9991,6 +10124,18 @@ document.getElementById('readings-list')?.addEventListener('change', async e => 
     await renderReadings();
     return;
   }
+  const selectAll = e.target.closest('#readings-select-all');
+  if (selectAll) {
+    const checked = !!selectAll.checked;
+    document.querySelectorAll('.reading-select-row:not([disabled])').forEach(cb => { cb.checked = checked; });
+    updateReadingsSelectedCount();
+    return;
+  }
+  const rowSelect = e.target.closest('.reading-select-row');
+  if (rowSelect) {
+    updateReadingsSelectedCount();
+    return;
+  }
   const select = e.target.closest('.link-reading-select');
   if (!select) return;
   const tenantId = Number(select.value);
@@ -10005,6 +10150,10 @@ document.getElementById('readings-list')?.addEventListener('change', async e => 
   };
   await updateReading(readingId, patch);
   await renderReadings();
+});
+
+document.getElementById('readings-mark-paid-selected')?.addEventListener('click', async () => {
+  await handleReadingsBulkMarkPaid();
 });
 
 // Payments header double-click sort
