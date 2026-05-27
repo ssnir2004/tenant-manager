@@ -6,6 +6,31 @@ const DB_VERSION = 5;
 const STORES = ['tenants', 'readings', 'bills', 'payments', 'expenses', 'solar', 'settings'];
 const SIDEBAR_WIDTH_STORAGE_KEY = 'sidebarWidthPx';
 const TENANT_BALANCE_CREDITS_KEY = 'tenantBalanceCredits';
+const THEME_STORAGE_KEY = 'appTheme';
+
+function applyStoredTheme() {
+  const theme = localStorage.getItem(THEME_STORAGE_KEY);
+  if (theme === 'dark') {
+    document.documentElement.setAttribute('data-theme', 'dark');
+  } else {
+    document.documentElement.removeAttribute('data-theme');
+  }
+}
+
+function setTheme(theme) {
+  if (theme === 'dark') {
+    localStorage.setItem(THEME_STORAGE_KEY, 'dark');
+  } else {
+    localStorage.removeItem(THEME_STORAGE_KEY);
+  }
+  applyStoredTheme();
+}
+
+applyStoredTheme();
+
+document.getElementById('theme-dark-toggle')?.addEventListener('change', e => {
+  setTheme(e.target.checked ? 'dark' : 'light');
+});
 
 function normalizeTenantBalanceEntryType(value) {
   const raw = String(value || '').trim().toLowerCase();
@@ -8438,19 +8463,21 @@ const showBalanceBtn = document.getElementById('show-balance');
 
 showAddBtn?.addEventListener('click', async () => { setActiveButton('show-add'); show(tenantForm); tenantForm.editId = null; document.getElementById('form-title').textContent = 'הוספת דייר'; tenantForm.reset(); const rentHistoryInput = document.getElementById('rent-history'); if (rentHistoryInput) rentHistoryInput.value = ''; const arnonaHistoryInput = document.getElementById('arnona-history'); if (arnonaHistoryInput) arnonaHistoryInput.value = ''; await renderTenantsTable(); });
 showArchiveBtn?.addEventListener('click', async () => { setActiveButton('show-archive'); await renderArchive(); show(archiveView); });
-showSettingsBtn?.addEventListener('click', async () => { 
+showSettingsBtn?.addEventListener('click', async () => {
   setActiveButton('show-settings');
-  const e = await getSetting('electricityPrice'); 
-  const w = await getSetting('waterPrice'); 
+  const e = await getSetting('electricityPrice');
+  const w = await getSetting('waterPrice');
   const kva = await getSetting('kvaCon');
-  const t = await getSetting('appTitle'); 
+  const t = await getSetting('appTitle');
   const serverUrl = await getSetting('serverUrl');
-  document.getElementById('electricity-price').value = e ?? ''; 
-  document.getElementById('water-price').value = w ?? ''; 
+  document.getElementById('electricity-price').value = e ?? '';
+  document.getElementById('water-price').value = w ?? '';
   document.getElementById('kva-con').value = kva ?? '';
-  document.getElementById('app-title').value = t ?? ''; 
+  document.getElementById('app-title').value = t ?? '';
   document.getElementById('server-url').value = serverUrl ?? '';
-  show(settingsView); 
+  const themeToggle = document.getElementById('theme-dark-toggle');
+  if (themeToggle) themeToggle.checked = localStorage.getItem(THEME_STORAGE_KEY) === 'dark';
+  show(settingsView);
 });
 showPaymentsBtn?.addEventListener('click', async () => {
   setActiveButton('show-payments');

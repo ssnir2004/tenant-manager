@@ -1492,3 +1492,207 @@ textarea {
     width: max-content;
   }
 }
+
+/* ===== Dark theme ===== */
+[data-theme="dark"] {
+  --bg: #1a1f2e;
+  --card: #252b3d;
+  --text: #e6e9f0;
+  --text-light: #a8aebd;
+  --border: #3a4254;
+  --shadow: 0 4px 15px rgba(0,0,0,0.4);
+  --shadow-hover: 0 8px 25px rgba(0,0,0,0.55);
+}
+
+[data-theme="dark"] body {
+  background: linear-gradient(135deg, #1a1f2e 0%, #232a3d 100%);
+  color: var(--text);
+}
+
+[data-theme="dark"] .sidebar {
+  background: var(--card);
+  border-right: 1px solid var(--border);
+  box-shadow: 1px 0 10px rgba(0,0,0,0.4);
+}
+
+[data-theme="dark"] .sidebar-resizer {
+  background: linear-gradient(180deg, #1c2233 0%, #232a3d 100%);
+  border-left-color: var(--border);
+  border-right-color: var(--border);
+}
+
+[data-theme="dark"] .sidebar-resizer::after {
+  background: linear-gradient(180deg, #283149 0%, #1f2638 100%);
+}
+
+[data-theme="dark"] .card {
+  background: var(--card);
+  border: 1px solid var(--border);
+}
+
+[data-theme="dark"] .section-container {
+  background: linear-gradient(135deg, #232a3d 0%, #1f2638 100%);
+  border-color: var(--border);
+}
+
+[data-theme="dark"] input,
+[data-theme="dark"] select,
+[data-theme="dark"] textarea {
+  background: #1c2233;
+  color: var(--text);
+  border-color: var(--border);
+}
+
+[data-theme="dark"] input:focus,
+[data-theme="dark"] select:focus,
+[data-theme="dark"] textarea:focus {
+  background: #232a3d;
+  box-shadow: 0 0 0 3px rgba(90, 143, 214, 0.25);
+}
+
+[data-theme="dark"] input::placeholder,
+[data-theme="dark"] textarea::placeholder {
+  color: #6b7280;
+}
+
+[data-theme="dark"] .row label {
+  color: var(--text);
+}
+
+[data-theme="dark"] .tenant-section {
+  background: var(--card) !important;
+  border-color: var(--border);
+}
+
+[data-theme="dark"] .tenant-header {
+  border-bottom-color: var(--border) !important;
+}
+
+[data-theme="dark"] .tenant-header .toggle-readings {
+  background: #1c2233;
+  border-color: var(--border);
+  color: var(--text);
+}
+
+[data-theme="dark"] .reading-row:not(:last-child) {
+  border-bottom-color: #2f374a !important;
+}
+
+[data-theme="dark"] .reading-actions button,
+[data-theme="dark"] .payments-table .btn-edit-payment,
+[data-theme="dark"] .payments-table .btn-delete-payment {
+  background: #1c2233;
+  color: var(--text);
+  border-color: var(--border);
+}
+
+[data-theme="dark"] .payments-table th,
+[data-theme="dark"] .readings-table th,
+[data-theme="dark"] .report-table th {
+  background: #1f2638;
+  color: #8ab4e0;
+}
+
+[data-theme="dark"] .readings-table .date-col {
+  background: #1f2638;
+}
+
+[data-theme="dark"] .bulk-block {
+  background: var(--card);
+  border-color: var(--border);
+}
+
+[data-theme="dark"] .modal-content {
+  background: var(--card);
+  color: var(--text);
+  border-color: var(--border);
+}
+
+[data-theme="dark"] .modal-content p {
+  color: var(--text-light);
+}
+
+[data-theme="dark"] .auth-status {
+  color: var(--text);
+  background: rgba(255,255,255,0.08);
+}
+
+[data-theme="dark"] .row-missing,
+[data-theme="dark"] .row-missing td {
+  background: rgba(231, 76, 60, 0.15) !important;
+  border-color: rgba(231, 76, 60, 0.4) !important;
+}
+
+[data-theme="dark"] .btn-open-tenant-balance {
+  background: linear-gradient(135deg, #2a334b 0%, #1f2638 100%);
+  color: var(--text);
+}
+
+[data-theme="dark"] .btn-open-tenant-balance.state-debt {
+  background: linear-gradient(135deg, rgba(231, 76, 60, 0.25) 0%, rgba(192, 57, 43, 0.35) 100%);
+}
+
+[data-theme="dark"] .btn-open-tenant-balance.state-credit {
+  background: linear-gradient(135deg, rgba(39, 174, 96, 0.25) 0%, rgba(34, 153, 84, 0.35) 100%);
+}
+
+[data-theme="dark"] .btn-open-tenant-balance.state-neutral {
+  background: linear-gradient(135deg, rgba(90, 143, 214, 0.2) 0%, rgba(43, 108, 176, 0.3) 100%);
+}
+
+[data-theme="dark"] .tenant-main-card-title,
+[data-theme="dark"] .tenant-main-card-balance,
+[data-theme="dark"] .tenant-main-card-date {
+  color: var(--text);
+}
+
+[data-theme="dark"] .tenant-main-card-sub {
+  color: var(--text-light);
+}
+
+/* Inline-styled chart containers / panels */
+[data-theme="dark"] #monthly-charges-container,
+[data-theme="dark"] #balance-tenant-chart-section,
+[data-theme="dark"] #payments-chart-container,
+[data-theme="dark"] #monthly-charges-container *[style*="#f9fafb"],
+[data-theme="dark"] [style*="background: #f9fafb"],
+[data-theme="dark"] [style*="background:#f9fafb"],
+[data-theme="dark"] [style*="background-color: #f9fafb"],
+[data-theme="dark"] [style*="background-color: #f9f9f9"],
+[data-theme="dark"] [style*="background-color: #f5f5f5"] {
+  background: #1c2233 !important;
+  border-color: var(--border) !important;
+  color: var(--text) !important;
+}
+
+[data-theme="dark"] #monthly-charges-container h3,
+[data-theme="dark"] #balance-tenant-chart-section h3,
+[data-theme="dark"] #payments-chart-container h3 {
+  color: var(--text);
+}
+
+[data-theme="dark"] [style*="color:#666"],
+[data-theme="dark"] [style*="color: #666"] {
+  color: var(--text-light) !important;
+}
+
+[data-theme="dark"] [style*="border: 1px solid #e0e0e0"],
+[data-theme="dark"] [style*="border: 1px solid #ddd"] {
+  border-color: var(--border) !important;
+}
+
+[data-theme="dark"] hr {
+  border-color: var(--border) !important;
+}
+
+[data-theme="dark"] .reading-detail-row td {
+  background: #1c2233;
+  color: var(--text);
+}
+
+/* Readings/balance lists nested tables */
+[data-theme="dark"] .payments-table tbody tr:hover,
+[data-theme="dark"] .readings-table tbody tr:hover,
+[data-theme="dark"] .report-table tbody tr:hover {
+  background: rgba(90, 143, 214, 0.08);
+}

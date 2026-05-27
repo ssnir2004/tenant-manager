@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>ניהול דיירים — טרומפלדור 31</title>
-  <link rel="stylesheet" href="style.css?v=2026032101">
+  <link rel="stylesheet" href="style.css?v=2026052710">
   <!-- Libraries for PDF export -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
@@ -227,6 +227,13 @@
       <!-- Settings View -->
       <div id="settings-view" class="card hidden">
         <h2>הגדרות</h2>
+        <div class="row" style="display: flex; align-items: center; gap: 12px;">
+          <label style="display: inline-flex; align-items: center; gap: 8px; margin: 0;">
+            <input id="theme-dark-toggle" type="checkbox">
+            🌙 מצב לילה (כהה)
+          </label>
+          <small style="color: #888;">משנה את מראה האפליקציה לרקע כהה. ההעדפה נשמרת במכשיר הזה.</small>
+        </div>
         <div class="row">
           <label>כותרת האפליקציה
             <input id="app-title" type="text">
@@ -885,6 +892,6 @@
       </div>
     </div>
   </div>
-  <script src="script.js?v=2026052709" defer></script>
+  <script src="script.js?v=2026052710" defer></script>
 </body>
 </html>
