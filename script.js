@@ -1860,15 +1860,10 @@ function calculateTenantBalanceBreakdown(tenant, payments, readings, waterPrice,
   const utilityDetails = { electricity: [], water: [] };
   const readingDebtMap = new Map();
   const readingTypeById = new Map();
-  const linkedReadingIds = new Set(
-    readingPaymentsForCurrentAndPastMonths
-      .flatMap(p => normalizePaymentReadingIdsFromPayment(p.payment))
-      .map(id => Number(id))
-      .filter(id => Number.isFinite(id))
-  );
 
-  // Build base debt for each reading.
-  // Important: linked readings keep their debt here even if paid=true, so the linked payment can offset them first.
+  // Build base debt for each reading. Linked readings keep their full debt so the
+  // linked payment can offset them in the loop below; otherwise the linked payment
+  // would fall through to readingPaymentRemainder and double-credit rent/arnona.
   ['electricity', 'water'].forEach(type => {
     const chain = (byType.get(type) || []).sort((a, b) => dateValueFromAny(a?.date) - dateValueFromAny(b?.date));
     for (let i = 1; i < chain.length; i++) {
@@ -1881,10 +1876,8 @@ function calculateTenantBalanceBreakdown(tenant, payments, readings, waterPrice,
       } else {
         amount = Math.max(0, consumption) * Number(waterPrice || 0);
       }
-      const finalAmount = Math.max(0, amount || 0);
+      const debt = Math.max(0, amount || 0);
       const currentId = Number(current?.id);
-      const isLinked = Number.isFinite(currentId) && linkedReadingIds.has(currentId);
-      const debt = isLinked ? 0 : finalAmount;
 
       if (current?.id !== undefined && current?.id !== null) {
         readingDebtMap.set(currentId, debt);
@@ -1897,7 +1890,7 @@ function calculateTenantBalanceBreakdown(tenant, payments, readings, waterPrice,
         currDate: parseDateToIso(current?.date || ''),
         currValue: Number(current?.value || 0),
         consumption: Math.max(0, Number(consumption || 0)),
-        originalAmount: finalAmount,
+        originalAmount: debt,
         remainingAmount: debt,
         amount: debt,
         readingId: current?.id || null,
@@ -1935,6 +1928,16 @@ function calculateTenantBalanceBreakdown(tenant, payments, readings, waterPrice,
     if (type !== 'electricity' && type !== 'water') continue;
     utilityDebt[type] += remaining;
   }
+
+  ['electricity', 'water'].forEach(type => {
+    utilityDetails[type].forEach(entry => {
+      const rid = Number(entry.readingId);
+      if (!Number.isFinite(rid)) return;
+      const remaining = Number(remainingReadingDebt.get(rid) || 0);
+      entry.remainingAmount = remaining;
+      entry.amount = remaining;
+    });
+  });
 
   const paymentItemsIncludingReadingRemainder = [...paymentItemsForCurrentAndPastMonths, ...readingPaymentRemainderItems]
     .sort((a, b) => a.dateIso.localeCompare(b.dateIso));
