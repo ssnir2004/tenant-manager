@@ -1753,16 +1753,32 @@ textarea {
   color: var(--text) !important;
 }
 
-/* Solar/income inline bar tracks and chart wrapper */
-[data-theme="dark"] [style*="background:#eef2f5"],
+/* Inline bar tracks (Solar / Balance / Reminders) */
 [data-theme="dark"] [style*="background: #eef2f5"],
+[data-theme="dark"] [style*="background:#eef2f5"] {
+  background: #11151f !important;
+  border: 1px solid var(--border) !important;
+}
+
+/* Chart section wrappers and other faint backgrounds */
 [data-theme="dark"] [style*="background:#f9f9f9"],
 [data-theme="dark"] [style*="background: #f9f9f9"],
 [data-theme="dark"] [style*="background:#f3f6fa"],
 [data-theme="dark"] [style*="background: #f3f6fa"],
 [data-theme="dark"] [style*="background:#fafafa"],
-[data-theme="dark"] [style*="background: #fafafa"] {
-  background: #283149 !important;
+[data-theme="dark"] [style*="background: #fafafa"],
+[data-theme="dark"] [style*="background:#fff8e1"],
+[data-theme="dark"] [style*="background: #fff8e1"],
+[data-theme="dark"] [style*="background:#f9fbff"],
+[data-theme="dark"] [style*="background: #f9fbff"] {
+  background: #1c2233 !important;
+}
+
+[data-theme="dark"] [style*="border:1px solid #e4e8ef"],
+[data-theme="dark"] [style*="border: 1px solid #e4e8ef"],
+[data-theme="dark"] [style*="border:1px solid #dde8f4"],
+[data-theme="dark"] [style*="border: 1px solid #dde8f4"] {
+  border-color: var(--border) !important;
 }
 
 [data-theme="dark"] [style*="border-top: 1px solid #eee"],
