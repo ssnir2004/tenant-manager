@@ -1628,6 +1628,25 @@ function displayPaymentNotes(notes) {
   return String(notes || '').replace(/\s*\[\[RID:[^\]]+\]\]\s*/g, ' ').replace(/\s+/g, ' ').trim();
 }
 
+const SKIP_AUTO_PAYMENT_TOKEN = '[[SKIP_AUTO_PAYMENT]]';
+
+function escapeRegExp(value) {
+  return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function extractReadingSkipFlagFromNotes(notes) {
+  return String(notes || '').includes(SKIP_AUTO_PAYMENT_TOKEN);
+}
+
+function withReadingSkipFlagInNotes(notes, enabled) {
+  const cleanNotes = String(notes || '').replace(new RegExp(`\\s*${escapeRegExp(SKIP_AUTO_PAYMENT_TOKEN)}\\s*`, 'g'), ' ').replace(/\s+/g, ' ').trim();
+  return enabled ? `${cleanNotes} ${SKIP_AUTO_PAYMENT_TOKEN}`.trim() : cleanNotes;
+}
+
+function displayReadingNotes(notes) {
+  return String(notes || '').replace(new RegExp(`\\s*${escapeRegExp(SKIP_AUTO_PAYMENT_TOKEN)}\\s*`, 'g'), ' ').replace(/\s+/g, ' ').trim();
+}
+
 function isAutoPaidReadingPayment(payment) {
   return String(payment?.notes || '').includes('אוטומטי מהסימון שולם');
 }
@@ -4480,7 +4499,7 @@ async function ensurePaidReadingsHavePayments() {
 
   for (const reading of readings) {
     const readingId = Number(reading?.id);
-    if (!Number.isFinite(readingId) || !reading?.paid || reading?.paidAutoPaymentDeleted || coveredReadingIds.has(readingId)) {
+    if (!Number.isFinite(readingId) || !reading?.paid || extractReadingSkipFlagFromNotes(reading?.notes) || coveredReadingIds.has(readingId)) {
       continue;
     }
 
@@ -4543,9 +4562,9 @@ async function handleReadingPaidToggleChange(checkbox) {
   try {
     if (popupResult === 'create-payment') {
       await createPaymentForReading(context);
-      await updateReading(readingId, { paid: true, paidAutoPaymentDeleted: false });
+      await updateReading(readingId, { paid: true, notes: withReadingSkipFlagInNotes(context.reading.notes, false) });
     } else {
-      await updateReading(readingId, { paid: true, paidAutoPaymentDeleted: true });
+      await updateReading(readingId, { paid: true, notes: withReadingSkipFlagInNotes(context.reading.notes, true) });
     }
     await renderPayments();
     await renderBalance();
@@ -9815,7 +9834,10 @@ document.getElementById('payments-list')?.addEventListener('click', async e => {
           for (const readingId of readingIds) {
             if (Number.isFinite(readingId)) {
               try {
-                await updateReading(readingId, { paidAutoPaymentDeleted: true });
+                const reading = isRemoteApp()
+                  ? await getReadingByIdRemote(readingId)
+                  : await getReadingByIdLocal(readingId);
+                await updateReading(readingId, { notes: withReadingSkipFlagInNotes(reading?.notes, true) });
               } catch (err) {
                 console.warn('Failed to flag reading to skip auto-payment:', readingId, err);
               }
