@@ -1078,106 +1078,16 @@ async function getPaymentsByTenant(tenantId) {
 }
 
 async function clearAllPayments() {
-  // Ensure readings covered by auto-generated payments are marked to skip
-  // auto-payment generation before we delete the payments themselves.
-  try {
-    const allPayments = await getAllPayments();
-    const readingIdsToSkip = new Set();
-    (allPayments || []).forEach(p => {
-      if (isAutoPaidReadingPayment(p)) {
-        normalizePaymentReadingIdsFromPayment(p).forEach(id => {
-          const n = Number(id);
-          if (Number.isFinite(n)) readingIdsToSkip.add(n);
-        });
-      }
-    });
-
-    for (const rid of readingIdsToSkip) {
-      try {
-        const reading = isRemoteApp() ? await getReadingByIdRemote(rid) : await getReadingByIdLocal(rid);
-        await updateReading(rid, { notes: withReadingSkipFlagInNotes(reading?.notes, true) });
-      } catch (err) {
-        console.warn('Failed to flag reading to skip auto-payment (clearAll):', rid, err);
-      }
-    }
-  } catch (err) {
-    console.warn('Failed to collect payments before clearAll:', err);
-  }
-
   if (isRemoteApp()) {
     await apiRequest('/api/payments', { method: 'DELETE' });
     return;
   }
-  return await clearAllPaymentsLocal();
-}
-
-async function clearAllPaymentsLocal() {
   const tx = await getTx('payments', 'readwrite');
-  const store = tx.objectStore('payments');
-  await new Promise((res, rej) => {
-    const r = store.clear();
+  return new Promise((res, rej) => {
+    const r = tx.objectStore('payments').clear();
     r.onsuccess = () => res();
     r.onerror = () => rej(r.error);
   });
-
-  const remaining = await new Promise((res, rej) => {
-    const r = store.count();
-    r.onsuccess = () => res(r.result || 0);
-    r.onerror = () => rej(r.error);
-  });
-
-  if (remaining === 0) {
-    return;
-  }
-
-  await new Promise((res, rej) => {
-    const cursorReq = store.openCursor();
-    cursorReq.onsuccess = async () => {
-      const cursor = cursorReq.result;
-      if (!cursor) return res();
-      cursor.delete();
-      cursor.continue();
-    };
-    cursorReq.onerror = () => rej(cursorReq.error);
-  });
-}
-
-function getPaymentDuplicateKey(payment) {
-  const normalized = {
-    tenantId: payment.tenantId ?? null,
-    tenantName: String(payment.tenantName || ''),
-    apartmentNumber: String(payment.apartmentNumber || ''),
-    amount: Number(payment.amount || 0),
-    method: String(payment.method || ''),
-    account: String(payment.account || ''),
-    date: String(payment.date || ''),
-    notes: String(payment.notes || ''),
-    readingId: Array.isArray(payment.readingId)
-      ? payment.readingId.map(id => Number(id || 0)).filter(id => id).sort((a, b) => a - b)
-      : []
-  };
-  return JSON.stringify(normalized);
-}
-
-async function deleteDuplicatePayments() {
-  const payments = await getAllPayments();
-  const seen = new Map();
-  const duplicateIds = [];
-
-  for (const payment of payments) {
-    const key = getPaymentDuplicateKey(payment);
-    if (seen.has(key)) {
-      duplicateIds.push(payment.id);
-    } else {
-      seen.set(key, payment.id);
-    }
-  }
-
-  for (const id of duplicateIds) {
-    await deletePayment(id);
-  }
-
-  return duplicateIds.length;
 }
 
 async function addPaymentRemote(p) {
@@ -1637,8 +1547,6 @@ function extractPaymentReadingIdsFromNotes(notes) {
 function normalizePaymentReadingIdsFromPayment(payment) {
   const direct = normalizePaymentReadingIds(payment?.readingId);
   if (direct.length > 0) return direct;
-  const plural = normalizePaymentReadingIds(payment?.readingIds);
-  if (plural.length > 0) return plural;
   return extractPaymentReadingIdsFromNotes(payment?.notes || '');
 }
 
@@ -1652,29 +1560,6 @@ function withPaymentReadingIdsInNotes(notes, readingIds) {
 
 function displayPaymentNotes(notes) {
   return String(notes || '').replace(/\s*\[\[RID:[^\]]+\]\]\s*/g, ' ').replace(/\s+/g, ' ').trim();
-}
-
-const SKIP_AUTO_PAYMENT_TOKEN = '[[SKIP_AUTO_PAYMENT]]';
-
-function escapeRegExp(value) {
-  return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
-function extractReadingSkipFlagFromNotes(notes) {
-  return String(notes || '').includes(SKIP_AUTO_PAYMENT_TOKEN);
-}
-
-function withReadingSkipFlagInNotes(notes, enabled) {
-  const cleanNotes = String(notes || '').replace(new RegExp(`\\s*${escapeRegExp(SKIP_AUTO_PAYMENT_TOKEN)}\\s*`, 'g'), ' ').replace(/\s+/g, ' ').trim();
-  return enabled ? `${cleanNotes} ${SKIP_AUTO_PAYMENT_TOKEN}`.trim() : cleanNotes;
-}
-
-function displayReadingNotes(notes) {
-  return String(notes || '').replace(new RegExp(`\\s*${escapeRegExp(SKIP_AUTO_PAYMENT_TOKEN)}\\s*`, 'g'), ' ').replace(/\s+/g, ' ').trim();
-}
-
-function isAutoPaidReadingPayment(payment) {
-  return String(payment?.notes || '').includes('אוטומטי מהסימון שולם');
 }
 
 function calculateTenantBalanceBreakdown(tenant, payments, readings, waterPrice, kvaCon, todayIso = currentIsoDate(), tenantCreditsMap = null) {
@@ -1884,7 +1769,7 @@ function calculateTenantBalanceBreakdown(tenant, payments, readings, waterPrice,
       const finalAmount = Math.max(0, amount || 0);
       const currentId = Number(current?.id);
       const isLinked = Number.isFinite(currentId) && linkedReadingIds.has(currentId);
-      const debt = isLinked ? 0 : finalAmount;
+      const debt = current?.paid && !isLinked ? 0 : finalAmount;
 
       if (current?.id !== undefined && current?.id !== null) {
         readingDebtMap.set(currentId, debt);
@@ -4375,67 +4260,6 @@ function confirmDialog(msg) {
   });
 }
 
-let pendingReadingPaidChoiceResolver = null;
-
-function closeReadingPaidChoiceModal() {
-  const modal = document.getElementById('reading-paid-choice-modal');
-  if (!modal) return;
-  modal.classList.add('hidden');
-  modal.style.display = 'none';
-}
-
-function showReadingPaidChoiceModal(context) {
-  const modal = document.getElementById('reading-paid-choice-modal');
-  if (!modal) {
-    return Promise.resolve('cancel');
-  }
-
-  const { reading, amount } = context;
-  const amountText = Number.isFinite(amount) && amount > 0
-    ? `₪${formatCurrency(amount)}`
-    : 'לא ניתן לחשב סכום אוטומטי';
-
-  document.getElementById('reading-paid-choice-details').textContent =
-    `תאריך: ${formatDateEu(reading.date)} • סוג: ${meterTypeLabel(reading.meterType)} • ערך: ${reading.value ?? '-'}`;
-  document.getElementById('reading-paid-choice-amount').textContent = amountText;
-  const createButton = document.getElementById('reading-paid-choice-create-payment');
-  if (createButton) {
-    createButton.disabled = !Number.isFinite(amount) || amount <= 0;
-  }
-
-  modal.classList.remove('hidden');
-  modal.style.display = 'flex';
-
-  return new Promise(resolve => {
-    pendingReadingPaidChoiceResolver = resolve;
-  });
-}
-
-function resolveReadingPaidChoiceModal(action) {
-  closeReadingPaidChoiceModal();
-  if (pendingReadingPaidChoiceResolver) {
-    pendingReadingPaidChoiceResolver(action);
-    pendingReadingPaidChoiceResolver = null;
-  }
-}
-
-function bindReadingPaidChoiceModal() {
-  const markOnlyButton = document.getElementById('reading-paid-choice-mark-only');
-  const createPaymentButton = document.getElementById('reading-paid-choice-create-payment');
-  const cancelButton = document.getElementById('reading-paid-choice-cancel');
-
-  if (!markOnlyButton || !createPaymentButton || !cancelButton) return;
-
-  markOnlyButton.onclick = () => resolveReadingPaidChoiceModal('paid-only');
-  createPaymentButton.onclick = () => {
-    if (createPaymentButton.disabled) return;
-    resolveReadingPaidChoiceModal('create-payment');
-  };
-  cancelButton.onclick = () => resolveReadingPaidChoiceModal('cancel');
-}
-
-bindReadingPaidChoiceModal();
-
 function findPreviousReadingForTenantMeter(readings, currentReading) {
   const currentDateValue = dateValueFromAny(currentReading?.date);
   if (!Number.isFinite(currentDateValue)) return null;
@@ -4507,53 +4331,77 @@ async function createPaymentForReading(context) {
   await addPayment(payload);
 }
 
-async function ensurePaidReadingsHavePayments() {
-  const readings = await getAllReadings();
-  const payments = await getAllPayments();
-  const tenants = await getAllTenants(true);
-  const waterPrice = Number(await getSetting('waterPrice') ?? 0);
-  const kvaCon = Number(await getSetting('kvaCon') ?? 0);
-
-  const coveredReadingIds = new Set();
-  payments.forEach(payment => {
-    normalizePaymentReadingIdsFromPayment(payment).forEach(id => {
-      coveredReadingIds.add(Number(id));
-    });
-  });
-
-  const tenantMap = new Map((tenants || []).map(tenant => [Number(tenant.id), tenant]));
-
-  for (const reading of readings) {
-    const readingId = Number(reading?.id);
-    if (!Number.isFinite(readingId) || !reading?.paid || extractReadingSkipFlagFromNotes(reading?.notes) || coveredReadingIds.has(readingId)) {
-      continue;
-    }
-
-    const previousReading = findPreviousReadingForTenantMeter(readings, reading);
-    const amount = calculateReadingChargeAmount(reading, previousReading, waterPrice, kvaCon);
-    if (!Number.isFinite(amount) || amount <= 0) {
-      continue;
-    }
-
-    const tenant = tenantMap.get(Number(reading.tenantId));
-    const tenantName = tenant
-      ? `${tenant.firstName || ''} ${tenant.lastName || ''}`.trim()
-      : (reading.tenantName || '');
-
-    await addPayment({
-      tenantId: reading.tenantId ?? null,
-      tenantName,
-      apartmentNumber: tenant?.apartmentNumber || reading.apartmentNumber || '',
-      amount,
-      method: 'cash',
-      account: 'my',
-      date: parseDateToIso(reading.date) || currentIsoDate(),
-      notes: withPaymentReadingIdsInNotes(`אוטומטי מהסימון שולם`, [reading.id]),
-      readingId: [reading.id]
-    });
-
-    coveredReadingIds.add(readingId);
+function openReadingPaidChoiceWindow(context) {
+  const { reading, amount } = context;
+  const popup = window.open('', 'reading-paid-choice', 'width=460,height=280,noopener,noreferrer');
+  if (!popup) {
+    alert('לא ניתן לפתוח חלון popup. אפשר לאפשר חלונות קופצים ולנסות שוב.');
+    return null;
   }
+
+  const amountText = Number.isFinite(amount) && amount > 0
+    ? `₪${formatCurrency(amount)}`
+    : 'לא ניתן לחשב סכום אוטומטי';
+
+  popup.document.write(`<!doctype html>
+<html lang="he">
+<head>
+  <meta charset="UTF-8">
+  <title>סימון קריאה כ"שולמה"</title>
+  <style>
+    body { font-family: Arial, sans-serif; direction: rtl; text-align: center; padding: 24px; margin: 0; background: #f8f9fb; color: #1f2937; }
+    h2 { margin-top: 0; }
+    p { margin: 8px 0; line-height: 1.5; }
+    .actions { margin-top: 20px; display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+    button { padding: 10px 16px; border: 0; border-radius: 8px; cursor: pointer; font-size: 14px; }
+    .primary { background: #2563eb; color: #fff; }
+    .secondary { background: #e5e7eb; color: #111827; }
+    .danger { background: #fee2e2; color: #991b1b; }
+    .hint { color: #6b7280; font-size: 14px; }
+  </style>
+</head>
+<body>
+  <h2>סימון קריאה כ"שולמה"</h2>
+  <p>תאריך: ${formatDateEu(reading.date)}<br>סוג: ${meterTypeLabel(reading.meterType)}<br>ערך: ${reading.value ?? '-'}</p>
+  <p>בחר מה לעשות:</p>
+  <p class="hint">${amountText}</p>
+  <div class="actions">
+    <button id="mark-only" class="secondary">סמן כ"שולם" בלבד</button>
+    <button id="create-payment" class="primary" ${Number.isFinite(amount) && amount > 0 ? '' : 'disabled'}>צור תשלום/הכנסה</button>
+    <button id="cancel" class="danger">ביטול</button>
+  </div>
+</body>
+</html>`);
+  popup.document.close();
+
+  let settled = false;
+  const finish = (action) => {
+    if (settled) return;
+    settled = true;
+    try { popup.close(); } catch (err) {}
+    if (typeof popup.remove === 'function') {
+      try { popup.remove(); } catch (err) {}
+    }
+    window.__readingPaidChoiceResult = action;
+  };
+
+  popup.addEventListener('beforeunload', () => finish('cancel'));
+  popup.document.getElementById('mark-only')?.addEventListener('click', () => finish('paid-only'));
+  popup.document.getElementById('create-payment')?.addEventListener('click', () => finish('create-payment'));
+  popup.document.getElementById('cancel')?.addEventListener('click', () => finish('cancel'));
+
+  return new Promise(resolve => {
+    const poll = () => {
+      const result = window.__readingPaidChoiceResult;
+      if (!result) {
+        setTimeout(poll, 100);
+        return;
+      }
+      delete window.__readingPaidChoiceResult;
+      resolve(result);
+    };
+    poll();
+  });
 }
 
 async function handleReadingPaidToggleChange(checkbox) {
@@ -4579,7 +4427,7 @@ async function handleReadingPaidToggleChange(checkbox) {
     return;
   }
 
-  const popupResult = await showReadingPaidChoiceModal(context);
+  const popupResult = await openReadingPaidChoiceWindow(context);
   if (!popupResult || popupResult === 'cancel') {
     checkbox.checked = false;
     return;
@@ -4588,11 +4436,8 @@ async function handleReadingPaidToggleChange(checkbox) {
   try {
     if (popupResult === 'create-payment') {
       await createPaymentForReading(context);
-      // Always add skip flag to prevent auto-payment duplication. The manual payment already covers the reading.
-      await updateReading(readingId, { paid: true, notes: withReadingSkipFlagInNotes(context.reading.notes, true) });
-    } else {
-      await updateReading(readingId, { paid: true, notes: withReadingSkipFlagInNotes(context.reading.notes, true) });
     }
+    await updateReading(readingId, { paid: true });
     await renderPayments();
     await renderBalance();
     await renderMom();
@@ -4609,8 +4454,6 @@ function setupReadingPaidToggleHandlers(container) {
     checkbox.onchange = async () => {
       await handleReadingPaidToggleChange(checkbox);
     };
-    // mark this checkbox as having a dedicated handler so delegated listeners can ignore it
-    try { checkbox.dataset.handled = '1'; } catch (e) { /* ignore */ }
   });
 }
 
@@ -4741,8 +4584,6 @@ async function saveBulkReadings(meterType, dateInputId, listId, statusId) {
 
 // Rendering
 async function renderTenants() {
-  await ensurePaidReadingsHavePayments();
-
   const [tenants, payments, readings, waterPriceRaw, kvaConRaw, tenantCreditsMap] = await Promise.all([
     getAllTenants(false),
     getAllPayments(),
@@ -6000,8 +5841,6 @@ async function renderCredits() {
 }
 
 async function renderBalance() {
-  await ensurePaidReadingsHavePayments();
-
   const payments = await getAllPayments();
   const readings = await getAllReadings();
   const tenants = await getAllTenants(true);
@@ -8546,7 +8385,7 @@ paymentForm?.addEventListener('submit', async e => {
     if (payload.readingId && payload.readingId.length) {
       for (const id of payload.readingId) {
         try {
-          await updateReading(id, { paid: true, paidAutoPaymentDeleted: false });
+          await updateReading(id, { paid: true });
         } catch (err) {
           console.warn('Failed to mark reading paid:', id, err);
         }
@@ -8670,32 +8509,7 @@ paymentsClearBtn?.addEventListener('click', async () => {
   if (statusEl) statusEl.textContent = 'מוחק...';
   try {
     await clearAllPayments();
-    const remaining = (await getAllPayments()).length;
-    if (statusEl) {
-      statusEl.textContent = remaining === 0
-        ? 'כל התשלומים נמחקו ✓'
-        : `נשארו ${remaining} תשלומים שלא נמחקו`; 
-    }
-  } catch (e) {
-    if (statusEl) statusEl.textContent = `שגיאה: ${e.message}`;
-  }
-  await renderPayments();
-  await renderBalance();
-});
-
-const paymentsDeleteDuplicatesBtn = document.getElementById('payments-delete-duplicates');
-paymentsDeleteDuplicatesBtn?.addEventListener('click', async () => {
-  const confirmed = await confirmDialog('להסיר תשלומים כפולים? רשומות זהות יוסרו השאר ישמרו.');
-  if (!confirmed) return;
-  const statusEl = document.getElementById('payments-csv-status');
-  if (statusEl) statusEl.textContent = 'מוחק כפילויות...';
-  try {
-    const removed = await deleteDuplicatePayments();
-    if (statusEl) {
-      statusEl.textContent = removed > 0
-        ? `נמחקו ${removed} רשומות כפולות ✓`
-        : 'לא נמצאו תשלומים כפולים';
-    }
+    if (statusEl) statusEl.textContent = 'כל התשלומים נמחקו ✓';
   } catch (e) {
     if (statusEl) statusEl.textContent = `שגיאה: ${e.message}`;
   }
@@ -9467,8 +9281,6 @@ document.getElementById('readings-list')?.addEventListener('click', async e => {
 document.getElementById('readings-list')?.addEventListener('change', async e => {
   const paidToggle = e.target.closest('.reading-paid-toggle');
   if (paidToggle) {
-    // If the checkbox has an explicit per-element handler, let that handler manage the action.
-    if (String(paidToggle.dataset.handled || '') === '1') return;
     const readingId = Number(paidToggle.dataset.readingId);
     await updateReading(readingId, { paid: paidToggle.checked });
     await renderReadings();
@@ -9858,23 +9670,6 @@ document.getElementById('payments-list')?.addEventListener('click', async e => {
     const id = Number(delBtn.dataset.id);
     if (await confirmDialog('להסיר הפקדה זו?')) {
       try {
-        const allPayments = await getAllPayments();
-        const rec = allPayments.find(p => p.id === id);
-        if (rec && isAutoPaidReadingPayment(rec)) {
-          const readingIds = normalizePaymentReadingIdsFromPayment(rec);
-          for (const readingId of readingIds) {
-            if (Number.isFinite(readingId)) {
-              try {
-                const reading = isRemoteApp()
-                  ? await getReadingByIdRemote(readingId)
-                  : await getReadingByIdLocal(readingId);
-                await updateReading(readingId, { notes: withReadingSkipFlagInNotes(reading?.notes, true) });
-              } catch (err) {
-                console.warn('Failed to flag reading to skip auto-payment:', readingId, err);
-              }
-            }
-          }
-        }
         await deletePayment(id);
         await renderPayments();
         await renderBalance();
@@ -10161,8 +9956,6 @@ function normalizeDateString(dateStr) {
 
 // Dashboard
 async function renderDashboard() {
-  await ensurePaidReadingsHavePayments();
-
   const container = document.getElementById('dashboard-view');
   if (!container) return;
 
@@ -10562,13 +10355,53 @@ async function addSampleTenants() {
 async function renderIncomeSummary() {
   const payments = await getAllPayments();
   const expenses = await getAllExpenses();
+  const readings = await getAllReadings();
+  const waterPrice = Number(await getSetting('waterPrice') ?? 0);
+  const kvaCon = Number(await getSetting('kvaCon') ?? 0);
   const container = document.getElementById('income-summary');
   if (!container) return;
+
+  const readingsByTenantMeter = new Map();
+  readings.forEach(r => {
+    if (!r?.tenantId || !r?.meterType) return;
+    const key = `${r.tenantId}|${r.meterType}`;
+    if (!readingsByTenantMeter.has(key)) readingsByTenantMeter.set(key, []);
+    readingsByTenantMeter.get(key).push(r);
+  });
+  readingsByTenantMeter.forEach(arr => {
+    arr.sort((a, b) => dateValueFromAny(a.date) - dateValueFromAny(b.date));
+  });
+
+  let paidReadingsIncome = 0;
+  readings
+    .filter(r => !!r.paid)
+    .forEach(r => {
+      const keyByTenant = `${r.tenantId}|${r.meterType}`;
+      const chain = readingsByTenantMeter.get(keyByTenant) || [];
+      const currentDateValue = dateValueFromAny(r.date);
+      if (Number.isNaN(currentDateValue)) return;
+
+      const previous = chain
+        .filter(item => item.id !== r.id && dateValueFromAny(item.date) < currentDateValue)
+        .sort((a, b) => dateValueFromAny(b.date) - dateValueFromAny(a.date))[0];
+
+      if (!previous) return;
+
+      const consumption = Number(r.value || 0) - Number(previous.value || 0);
+      let amount = 0;
+      if (r.meterType === 'electricity') {
+        amount = (kvaCon / 4) + (Math.max(0, consumption) * 0.65);
+      } else if (r.meterType === 'water') {
+        amount = Math.max(0, consumption) * waterPrice;
+      }
+      if (!amount) return;
+      paidReadingsIncome += amount;
+    });
 
   const myIncomeFromPayments = payments
     .filter(p => accountValueFromCsv(p.account) === 'my')
     .reduce((sum, p) => sum + Number(p.amount || 0), 0);
-  const myIncome = myIncomeFromPayments;
+  const myIncome = myIncomeFromPayments + paidReadingsIncome;
   const grandmaIncome = payments
     .filter(p => accountValueFromCsv(p.account) === 'grandma')
     .reduce((sum, p) => sum + Number(p.amount || 0), 0);
