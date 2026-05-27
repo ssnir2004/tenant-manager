@@ -1733,6 +1733,69 @@ textarea {
   color: var(--text);
 }
 
+/* Dashboard sections, summary cards, timeline */
+[data-theme="dark"] .dashboard-section {
+  background: var(--card) !important;
+  border-color: var(--border);
+}
+
+[data-theme="dark"] .dashboard-section h3 {
+  color: #8ab4e0;
+  border-bottom-color: var(--accent-light);
+}
+
+[data-theme="dark"] .income-card {
+  background: #1c2233 !important;
+  border-color: var(--border);
+  box-shadow: none;
+}
+
+[data-theme="dark"] .income-card h4 {
+  color: #8ab4e0;
+}
+
+[data-theme="dark"] .timeline-container {
+  background: var(--card) !important;
+  border-color: var(--border);
+}
+
+[data-theme="dark"] .timeline-year-label {
+  background: linear-gradient(to bottom, rgba(43, 108, 176, 0.2), rgba(90, 143, 214, 0.08)) !important;
+  color: #8ab4e0;
+}
+
+[data-theme="dark"] .month-label {
+  color: var(--text-light) !important;
+}
+
+[data-theme="dark"] .month-line {
+  background: linear-gradient(to bottom, #3a4254, transparent) !important;
+}
+
+[data-theme="dark"] .timeline-row {
+  background: #1c2233 !important;
+}
+
+[data-theme="dark"] .timeline-apt-label {
+  background: #232a3d !important;
+  color: #8ab4e0;
+  border-color: var(--border);
+  box-shadow: none;
+}
+
+[data-theme="dark"] .timeline-bars {
+  background: #1c2233 !important;
+  border-color: var(--border);
+}
+
+[data-theme="dark"] .timeline-axis-spacer {
+  border-right-color: var(--border);
+}
+
+[data-theme="dark"] .timeline-years {
+  border-bottom-color: var(--border);
+}
+
 /* Readings/balance lists nested tables */
 [data-theme="dark"] .payments-table tbody tr:hover,
 [data-theme="dark"] .readings-table tbody tr:hover,
