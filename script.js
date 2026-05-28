@@ -886,7 +886,7 @@ async function getReadingsByTenant(tenantId) {
   return new Promise((res, rej) => {
     const r = tx.objectStore('readings').index('tenantId').getAll(tenantId);
     r.onsuccess = () => {
-      const arr = (r.result || []).sort((a, b) => new Date(a.date) - new Date(b.date));
+      const arr = (r.result || []).sort((a, b) => ((dateValueFromAny(a.date) || 0) - (dateValueFromAny(b.date) || 0)));
       res(arr);
     };
     r.onerror = () => rej(r.error);
@@ -1351,7 +1351,13 @@ function comparePayments(a, b, tenantMap, key) {
   const tB = tenantMap.get(b.tenantId) || {};
   switch (key) {
     case 'date':
-      return new Date(a.date) - new Date(b.date);
+      {
+        const aDate = dateValueFromAny(a.date);
+        const bDate = dateValueFromAny(b.date);
+        const safeA = Number.isNaN(aDate) ? Number.MAX_SAFE_INTEGER : aDate;
+        const safeB = Number.isNaN(bDate) ? Number.MAX_SAFE_INTEGER : bDate;
+        return safeA - safeB;
+      }
     case 'apartment':
       return Number(tA.apartmentNumber || a.apartmentNumber || 0) - Number(tB.apartmentNumber || b.apartmentNumber || 0);
     case 'tenant':
@@ -3399,7 +3405,7 @@ async function generateBills(asOfDate) {
   for (const t of tenants) {
     for (const meterType of ['electricity', 'water']) {
       const readings = await getReadingsByTenant(t.id);
-      const relevant = readings.filter(r => r.meterType === meterType && new Date(r.date) <= new Date(asOfDate)).slice(-2);
+      const relevant = readings.filter(r => r.meterType === meterType && (dateValueFromAny(r.date) || 0) <= (dateValueFromAny(asOfDate) || 0)).slice(-2);
       if (relevant.length < 2) continue;
       const [prev, curr] = relevant;
       const consumption = Number(curr.value) - Number(prev.value);
@@ -3922,7 +3928,7 @@ function isInMonth(dateStr, year, month) {
 
 function getMonthFirstReading(readings, year, month) {
   const monthReadings = readings.filter(r => isInMonth(r.date, year, month))
-    .sort((a, b) => new Date(a.date) - new Date(b.date));
+    .sort((a, b) => ((dateValueFromAny(a.date) || 0) - (dateValueFromAny(b.date) || 0)));
   return monthReadings[0] || null;
 }
 
@@ -6066,7 +6072,7 @@ async function renderPayments() {
     const dir = paymentsSort.dir === 'asc' ? 1 : -1;
     sorted.sort((a, b) => comparePayments(a, b, tenantMap, paymentsSort.key) * dir);
   } else {
-    sorted.sort((a, b) => new Date(b.date) - new Date(a.date));
+    sorted.sort((a, b) => ((dateValueFromAny(b.date) || 0) - (dateValueFromAny(a.date) || 0)));
   }
 
   if (sorted.length === 0) {
@@ -7980,7 +7986,7 @@ async function getAllExpenses() {
   const tx = await getTx('expenses', 'readonly');
   return new Promise((res, rej) => {
     const r = tx.objectStore('expenses').getAll();
-    r.onsuccess = () => res((r.result || []).sort((a, b) => new Date(b.date) - new Date(a.date)));
+    r.onsuccess = () => res((r.result || []).sort((a, b) => ((dateValueFromAny(b.date) || 0) - (dateValueFromAny(a.date) || 0))));
     r.onerror = () => rej(r.error);
   });
 }
@@ -10156,7 +10162,7 @@ async function exportReadingsCsv() {
     ['date', 'apartment', 'tenant', 'meter_type', 'meter_number', 'value', 'paid']
   ];
 
-  readings.slice().sort((a, b) => new Date(a.date) - new Date(b.date)).forEach(r => {
+  readings.slice().sort((a, b) => ((dateValueFromAny(a.date) || 0) - (dateValueFromAny(b.date) || 0))).forEach(r => {
     const t = tenantMap.get(r.tenantId) || {};
     const name = t.id ? `${t.firstName || ''} ${t.lastName || ''}`.trim() : (r.tenantName || '');
     const apartment = t.id ? (t.apartmentNumber || '') : (r.apartmentNumber || '');
@@ -10255,7 +10261,7 @@ async function exportPaymentsCsvEnglish() {
     ['date', 'apartment', 'first_name', 'last_name', 'amount', 'account', 'method', 'notes']
   ];
 
-  payments.slice().sort((a, b) => new Date(a.date) - new Date(b.date)).forEach(p => {
+  payments.slice().sort((a, b) => ((dateValueFromAny(a.date) || 0) - (dateValueFromAny(b.date) || 0))).forEach(p => {
     const t = tenantMap.get(p.tenantId) || {};
     const name = t.id ? `${t.firstName || ''} ${t.lastName || ''}`.trim() : (p.tenantName || '');
     const nameParts = splitName(name);
