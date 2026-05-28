@@ -1792,6 +1792,48 @@ textarea {
   border-color: var(--border) !important;
 }
 
+/* Refresh tenant balances button (sidebar) */
+.btn-refresh-balances {
+  padding: 6px 14px;
+  font-size: 12px;
+  font-weight: 600;
+  background: linear-gradient(135deg, #5a8fd6 0%, #2b6cb0 100%);
+  color: white;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: transform 0.15s ease, filter 0.15s ease, box-shadow 0.15s ease;
+  box-shadow: 0 2px 6px rgba(43, 108, 176, 0.25);
+}
+
+.btn-refresh-balances:hover {
+  filter: brightness(1.08);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 10px rgba(43, 108, 176, 0.35);
+}
+
+.btn-refresh-balances:disabled {
+  cursor: wait;
+  opacity: 0.7;
+  transform: none;
+  filter: none;
+}
+
+[data-theme="dark"] .btn-refresh-balances {
+  background: linear-gradient(135deg, #2a334b 0%, #1f2638 100%);
+  color: var(--text);
+  border: 1px solid var(--accent-light);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.45);
+}
+
+[data-theme="dark"] .btn-refresh-balances:hover {
+  background: linear-gradient(135deg, var(--accent-light) 0%, var(--accent) 100%);
+  color: white;
+  border-color: var(--accent);
+  filter: none;
+  box-shadow: 0 4px 12px rgba(90, 143, 214, 0.4);
+}
+
 /* Sidebar tenant balance breakdown */
 .tenant-balance-breakdown {
   background: transparent;
