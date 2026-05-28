@@ -6732,6 +6732,15 @@ function renderBalanceTenantTables() {
             const breakdown = computeTenantMonthBreakdown(tenant, monthKey, ctx);
             lastTotal = breakdown.total;
             const totalColorClass = breakdown.total > 0 ? ' btt-total-debt' : (breakdown.total < 0 ? ' btt-total-credit' : '');
+            const adjustNet = Number(breakdown.manualDebt || 0) - Number(breakdown.manualCredit || 0);
+            let adjustCell;
+            if (adjustNet === 0) {
+              adjustCell = `<td class="btt-cell btt-cell-empty">—</td>`;
+            } else if (adjustNet > 0) {
+              adjustCell = `<td class="btt-cell btt-cell-debt">+₪${formatCurrency(adjustNet)}</td>`;
+            } else {
+              adjustCell = `<td class="btt-cell btt-cell-credit">-₪${formatCurrency(Math.abs(adjustNet))}</td>`;
+            }
             return `
               <tr>
                 <td class="btt-cell btt-cell-month">${formatMonthKeyShort(monthKey)}</td>
@@ -6739,7 +6748,8 @@ function renderBalanceTenantTables() {
                 ${balanceCellHtml(breakdown.arnona)}
                 ${balanceCellHtml(breakdown.electricity)}
                 ${balanceCellHtml(breakdown.water)}
-                ${balanceCellHtml(breakdown.income, { colorize: false })}
+                ${balanceCellHtml(breakdown.incomePayments, { colorize: false })}
+                ${adjustCell}
                 <td class="btt-cell btt-total${totalColorClass}" style="font-weight:700;">${breakdown.total === 0 ? '₪0' : (breakdown.total > 0 ? '₪' + formatCurrency(breakdown.total) : '-₪' + formatCurrency(Math.abs(breakdown.total)))}</td>
               </tr>
             `;
@@ -6775,6 +6785,7 @@ function renderBalanceTenantTables() {
                     <th>חשמל</th>
                     <th>מים</th>
                     <th>הכנסה</th>
+                    <th title="חיובים וזיכויים ידניים מהמסך 'זיכוי/חיוב'. + = חיוב נוסף, − = זיכוי">זיכוי/חיוב</th>
                     <th>יתרה מצטברת</th>
                   </tr>
                 </thead>
