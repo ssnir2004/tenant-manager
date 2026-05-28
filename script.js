@@ -5805,55 +5805,23 @@ function buildPaymentsIncomeRootState(monthKeys, monthTotals, monthToPayments, t
   };
 }
 
-function buildPaymentsIncomeAccountState(monthKey, monthPayments, tenantMap) {
-  const accountKeys = ['my', 'grandma'];
-  const labels = accountKeys.map(getPaymentsIncomeBucketLabel);
-  const data = accountKeys.map(accountKey => monthPayments
-    .filter(payment => normalizePaymentsIncomeAccountKey(payment?.account) === accountKey)
-    .reduce((sum, payment) => sum + Number(payment?.amount || 0), 0));
-
-  return {
-    type: 'accountBreakdown',
-    title: `הכנסות לחודש ${getMonthlyChargesMonthLabel(monthKey)}`,
-    subtitle: 'לחץ על קטגוריה כדי לראות פירוט דיירים',
-    monthKey,
-    accountKeys,
-    labels,
-    datasets: [
-      {
-        label: 'סה"כ הכנסות (₪)',
-        data,
-        backgroundColor: '#4f8ef7',
-        borderColor: '#4f8ef7',
-        borderWidth: 1,
-        borderRadius: 4
-      }
-    ],
-    monthPayments,
-    tenantMap
-  };
-}
-
-function buildPaymentsIncomeTenantState(monthKey, accountKey, monthPayments, tenantMap) {
+function buildPaymentsIncomeTenantState(monthKey, monthPayments, tenantMap) {
   const buckets = new Map();
-  monthPayments
-    .filter(payment => normalizePaymentsIncomeAccountKey(payment?.account) === accountKey)
-    .forEach(payment => {
-      const label = getPaymentsIncomeTenantLabel(payment, tenantMap);
-      const bucket = buckets.get(label) || { label, total: 0, payments: [] };
-      bucket.total += Number(payment?.amount || 0);
-      bucket.payments.push(payment);
-      buckets.set(label, bucket);
-    });
+  (monthPayments || []).forEach(payment => {
+    const label = getPaymentsIncomeTenantLabel(payment, tenantMap);
+    const bucket = buckets.get(label) || { label, total: 0, payments: [] };
+    bucket.total += Number(payment?.amount || 0);
+    bucket.payments.push(payment);
+    buckets.set(label, bucket);
+  });
 
   const rows = Array.from(buckets.values()).sort((a, b) => b.total - a.total);
 
   return {
     type: 'tenantDetail',
-    title: `${getPaymentsIncomeBucketLabel(accountKey)} לחודש ${getMonthlyChargesMonthLabel(monthKey)}`,
+    title: `הכנסות לחודש ${getMonthlyChargesMonthLabel(monthKey)}`,
     subtitle: 'לחץ על דייר כדי לראות ממה מורכבות ההכנסות',
     monthKey,
-    accountKey,
     labels: rows.map(row => row.label),
     datasets: [
       {
@@ -5884,14 +5852,15 @@ function shortPaymentNotes(payment) {
   return notes.length > 40 ? `${notes.slice(0, 37)}...` : notes;
 }
 
-function buildPaymentsIncomePaymentBreakdownState(monthKey, accountKey, tenantLabel, tenantPayments) {
+function buildPaymentsIncomePaymentBreakdownState(monthKey, tenantLabel, tenantPayments) {
   const sorted = (tenantPayments || []).slice().sort((a, b) => (dateValueFromAny(a.date) || 0) - (dateValueFromAny(b.date) || 0));
   const labels = sorted.map(payment => {
     const dateText = formatDateEu(payment?.date || '') || '-';
     const sourceText = describePaymentSource(payment);
     const methodText = methodLabel(payment?.method || '') || 'ללא אמצעי';
+    const accountText = getPaymentsIncomeBucketLabel(normalizePaymentsIncomeAccountKey(payment?.account));
     const notesText = shortPaymentNotes(payment);
-    const parts = [dateText, sourceText, methodText];
+    const parts = [dateText, accountText, sourceText, methodText];
     if (notesText) parts.push(notesText);
     return parts.join(' · ');
   });
@@ -5900,10 +5869,9 @@ function buildPaymentsIncomePaymentBreakdownState(monthKey, accountKey, tenantLa
 
   return {
     type: 'paymentBreakdown',
-    title: `${tenantLabel} · ${getPaymentsIncomeBucketLabel(accountKey)} · ${getMonthlyChargesMonthLabel(monthKey)}`,
-    subtitle: 'כל עמודה היא תשלום בודד. כתום = תשלום מקושר לקריאה, ירוק = תשלום כללי. ריחוף = הערה מלאה.',
+    title: `${tenantLabel} · ${getMonthlyChargesMonthLabel(monthKey)}`,
+    subtitle: 'כל עמודה היא תשלום בודד. החשבון (ניר וליאור / אסתר ומיכאל) מופיע בתווית. כתום = מקושר לקריאה, ירוק = תשלום כללי.',
     monthKey,
-    accountKey,
     tenantLabel,
     labels,
     datasets: [
@@ -5971,18 +5939,7 @@ function renderPaymentsIncomeChartView(state) {
           if (!points.length) return;
           const monthKey = state.monthKeys[points[0].index];
           const monthPayments = state.monthToPayments.get(monthKey) || [];
-          const nextState = buildPaymentsIncomeAccountState(monthKey, monthPayments, state.tenantMap);
-          window.__paymentsIncomeHistory = window.__paymentsIncomeHistory || [];
-          window.__paymentsIncomeHistory.push(state);
-          renderPaymentsIncomeChartView(nextState);
-          return;
-        }
-
-        if (state.type === 'accountBreakdown') {
-          const points = window.__paymentsIncomeChartInstance.getElementsAtEventForMode(event, 'nearest', { intersect: true }, true);
-          if (!points.length) return;
-          const accountKey = state.accountKeys[points[0].index];
-          const nextState = buildPaymentsIncomeTenantState(state.monthKey, accountKey, state.monthPayments || [], state.tenantMap);
+          const nextState = buildPaymentsIncomeTenantState(monthKey, monthPayments, state.tenantMap);
           window.__paymentsIncomeHistory = window.__paymentsIncomeHistory || [];
           window.__paymentsIncomeHistory.push(state);
           renderPaymentsIncomeChartView(nextState);
@@ -5994,7 +5951,7 @@ function renderPaymentsIncomeChartView(state) {
           if (!points.length) return;
           const row = (state.rows || [])[points[0].index];
           if (!row || !Array.isArray(row.payments) || row.payments.length === 0) return;
-          const nextState = buildPaymentsIncomePaymentBreakdownState(state.monthKey, state.accountKey, row.label, row.payments);
+          const nextState = buildPaymentsIncomePaymentBreakdownState(state.monthKey, row.label, row.payments);
           window.__paymentsIncomeHistory = window.__paymentsIncomeHistory || [];
           window.__paymentsIncomeHistory.push(state);
           renderPaymentsIncomeChartView(nextState);
