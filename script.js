@@ -6418,201 +6418,11 @@ function computeTenantMonthBreakdown(tenant, monthKey, ctx) {
 }
 
 let balanceTenantChartState = {
-  monthKey: currentMonthKey(),
-  drillTenantId: null,
   ctx: null,
-  tenants: [],
-  chartInstance: null
+  tenants: []
 };
 
-function destroyBalanceTenantChart() {
-  if (balanceTenantChartState.chartInstance) {
-    balanceTenantChartState.chartInstance.destroy();
-    balanceTenantChartState.chartInstance = null;
-  }
-}
-
-function buildBalanceTenantBarColors(values) {
-  return values.map(v => Number(v || 0) > 0 ? '#e74c3c' : '#27ae60');
-}
-
-function renderBalanceTenantChartRoot() {
-  const canvas = document.getElementById('balance-tenant-chart');
-  if (!canvas || !balanceTenantChartState.ctx) return;
-
-  const monthKey = balanceTenantChartState.monthKey;
-  const ctx = balanceTenantChartState.ctx;
-  const activeTenants = (balanceTenantChartState.tenants || []).filter(t => !t.archived && t.active !== false);
-
-  const rows = activeTenants
-    .map(tenant => computeTenantMonthBreakdown(tenant, monthKey, ctx))
-    .sort((a, b) => b.total - a.total);
-
-  const labels = rows.map(r => `דירה ${r.apartment || '-'} · ${r.tenantName}`);
-  const data = rows.map(r => parseFloat(Number(r.total || 0).toFixed(2)));
-
-  const title = document.getElementById('balance-tenant-chart-title');
-  const subtitle = document.getElementById('balance-tenant-chart-subtitle');
-  const backBtn = document.getElementById('balance-tenant-chart-back');
-  if (title) title.textContent = `מאזן דיירים פעילים · ${formatMonthKeyHe(monthKey)}`;
-  if (subtitle) subtitle.textContent = 'אדום = חוב, ירוק = יתרת זכות. לחץ על עמודה לפירוט.';
-  if (backBtn) backBtn.style.display = 'none';
-
-  destroyBalanceTenantChart();
-  if (rows.length === 0) {
-    const wrap = canvas.parentElement;
-    if (wrap) wrap.innerHTML = '<canvas id="balance-tenant-chart"></canvas><div style="text-align:center;color:#666;margin-top:-300px;">אין דיירים פעילים</div>';
-    return;
-  }
-
-  balanceTenantChartState.chartInstance = new Chart(canvas.getContext('2d'), {
-    type: 'bar',
-    data: {
-      labels,
-      datasets: [{
-        label: 'יתרה (₪)',
-        data,
-        backgroundColor: buildBalanceTenantBarColors(data),
-        borderColor: buildBalanceTenantBarColors(data),
-        borderWidth: 1,
-        borderRadius: 4
-      }]
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      onClick: (event) => {
-        const points = balanceTenantChartState.chartInstance.getElementsAtEventForMode(event, 'nearest', { intersect: true }, true);
-        if (!points.length) return;
-        const tenantId = rows[points[0].index]?.tenantId;
-        if (!tenantId) return;
-        balanceTenantChartState.drillTenantId = tenantId;
-        renderBalanceTenantChartDrill();
-      },
-      plugins: {
-        legend: { display: false },
-        tooltip: {
-          callbacks: {
-            label: ctx => `₪${formatCurrency(ctx.parsed.y)}`
-          }
-        }
-      },
-      scales: {
-        y: {
-          beginAtZero: true,
-          ticks: {
-            callback: value => '₪' + parseFloat(value).toFixed(0)
-          }
-        }
-      }
-    }
-  });
-}
-
-function renderBalanceTenantChartDrill() {
-  const canvas = document.getElementById('balance-tenant-chart');
-  if (!canvas || !balanceTenantChartState.ctx) return;
-
-  const tenantId = balanceTenantChartState.drillTenantId;
-  const tenant = (balanceTenantChartState.tenants || []).find(t => Number(t.id) === Number(tenantId));
-  if (!tenant) {
-    balanceTenantChartState.drillTenantId = null;
-    renderBalanceTenantChartRoot();
-    return;
-  }
-
-  const monthKey = balanceTenantChartState.monthKey;
-  const breakdown = computeTenantMonthBreakdown(tenant, monthKey, balanceTenantChartState.ctx);
-
-  const categories = [
-    { label: 'חוב/זכות מחודש קודם', value: breakdown.carryover, isObligation: breakdown.carryover >= 0 },
-    { label: 'שכירות', value: breakdown.rent, isObligation: true },
-    { label: 'ארנונה', value: breakdown.arnona, isObligation: true },
-    { label: 'חשמל', value: breakdown.electricity, isObligation: true },
-    { label: 'מים', value: breakdown.water, isObligation: true },
-    { label: 'הכנסות', value: breakdown.income, isObligation: false }
-  ];
-
-  if (breakdown.manualDebt > 0) {
-    categories.splice(5, 0, { label: 'חיוב ידני', value: breakdown.manualDebt, isObligation: true });
-  }
-
-  const labels = categories.map(c => c.label);
-  const data = categories.map(c => parseFloat(Number(Math.abs(c.value) || 0).toFixed(2)));
-  const colors = categories.map(c => c.isObligation ? '#e74c3c' : '#27ae60');
-
-  const title = document.getElementById('balance-tenant-chart-title');
-  const subtitle = document.getElementById('balance-tenant-chart-subtitle');
-  const backBtn = document.getElementById('balance-tenant-chart-back');
-  if (title) title.textContent = `דירה ${breakdown.apartment || '-'} · ${breakdown.tenantName} · ${formatMonthKeyHe(monthKey)}`;
-  if (subtitle) {
-    const carryoverText = breakdown.carryover === 0
-      ? 'אין יתרה מחודש קודם'
-      : (breakdown.carryover > 0
-        ? `חוב מהחודש הקודם: ₪${formatCurrency(breakdown.carryover)}`
-        : `יתרת זכות מהחודש הקודם: ₪${formatCurrency(Math.abs(breakdown.carryover))}`);
-    const totalText = breakdown.total >= 0
-      ? `סה"כ יתרה לחודש: חוב ₪${formatCurrency(breakdown.total)}`
-      : `סה"כ יתרה לחודש: זכות ₪${formatCurrency(Math.abs(breakdown.total))}`;
-    subtitle.textContent = `${carryoverText} · ${totalText}`;
-  }
-  if (backBtn) backBtn.style.display = '';
-
-  destroyBalanceTenantChart();
-  balanceTenantChartState.chartInstance = new Chart(canvas.getContext('2d'), {
-    type: 'bar',
-    data: {
-      labels,
-      datasets: [{
-        label: '₪',
-        data,
-        backgroundColor: colors,
-        borderColor: colors,
-        borderWidth: 1,
-        borderRadius: 4
-      }]
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      plugins: {
-        legend: { display: false },
-        tooltip: {
-          callbacks: {
-            label: ctx => `₪${formatCurrency(ctx.parsed.y)}`
-          }
-        }
-      },
-      scales: {
-        y: {
-          beginAtZero: true,
-          ticks: { callback: value => '₪' + parseFloat(value).toFixed(0) }
-        }
-      }
-    }
-  });
-}
-
-function refreshBalanceTenantChartNav() {
-  const monthKey = balanceTenantChartState.monthKey;
-  const currentLabel = document.getElementById('balance-tenant-chart-current-label');
-  const prevLabel = document.getElementById('balance-tenant-chart-prev-label');
-  const nextLabel = document.getElementById('balance-tenant-chart-next-label');
-  if (currentLabel) currentLabel.textContent = formatMonthKeyHe(monthKey);
-  if (prevLabel) prevLabel.textContent = formatMonthKeyHe(shiftMonthKey(monthKey, -1));
-  if (nextLabel) nextLabel.textContent = formatMonthKeyHe(shiftMonthKey(monthKey, 1));
-}
-
-function renderBalanceTenantChartCurrent() {
-  refreshBalanceTenantChartNav();
-  if (balanceTenantChartState.drillTenantId) {
-    renderBalanceTenantChartDrill();
-  } else {
-    renderBalanceTenantChartRoot();
-  }
-}
-
-async function renderBalanceTenantChart() {
+async function loadBalanceTenantContext() {
   const [payments, readings, tenants, tenantCreditsMap, waterPriceRaw, kvaConRaw] = await Promise.all([
     getAllPayments(),
     getAllReadings(),
@@ -6630,40 +6440,7 @@ async function renderBalanceTenantChart() {
     waterPrice: Number(waterPriceRaw ?? 0),
     kvaCon: Number(kvaConRaw ?? 0)
   };
-  if (!balanceTenantChartState.monthKey) balanceTenantChartState.monthKey = currentMonthKey();
-  renderBalanceTenantChartCurrent();
 }
-
-function bindBalanceTenantChartControls() {
-  const prevBtn = document.getElementById('balance-tenant-chart-prev');
-  const nextBtn = document.getElementById('balance-tenant-chart-next');
-  const backBtn = document.getElementById('balance-tenant-chart-back');
-  if (prevBtn && !prevBtn.__bound) {
-    prevBtn.__bound = true;
-    prevBtn.addEventListener('click', () => {
-      balanceTenantChartState.monthKey = shiftMonthKey(balanceTenantChartState.monthKey, -1);
-      balanceTenantChartState.drillTenantId = null;
-      renderBalanceTenantChartCurrent();
-    });
-  }
-  if (nextBtn && !nextBtn.__bound) {
-    nextBtn.__bound = true;
-    nextBtn.addEventListener('click', () => {
-      balanceTenantChartState.monthKey = shiftMonthKey(balanceTenantChartState.monthKey, 1);
-      balanceTenantChartState.drillTenantId = null;
-      renderBalanceTenantChartCurrent();
-    });
-  }
-  if (backBtn && !backBtn.__bound) {
-    backBtn.__bound = true;
-    backBtn.addEventListener('click', () => {
-      balanceTenantChartState.drillTenantId = null;
-      renderBalanceTenantChartCurrent();
-    });
-  }
-}
-
-bindBalanceTenantChartControls();
 
 const balanceTenantTablesState = {
   expandedTenantIds: new Set()
@@ -6820,9 +6597,9 @@ document.getElementById('balance-tenant-tables-section')?.addEventListener('clic
 async function renderBalance() {
   await ensurePaidReadingsHavePayments();
 
-  renderBalanceTenantChart()
+  loadBalanceTenantContext()
     .then(() => renderBalanceTenantTables())
-    .catch(err => console.error('Balance tenant chart error:', err));
+    .catch(err => console.error('Balance tenant tables error:', err));
 
   const payments = await getAllPayments();
   const readings = await getAllReadings();
