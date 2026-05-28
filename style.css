@@ -1641,6 +1641,17 @@ textarea {
   border-color: rgba(231, 76, 60, 0.4) !important;
 }
 
+[data-theme="dark"] .tenant-item {
+  background: var(--card) !important;
+  border-color: var(--border);
+}
+
+[data-theme="dark"] .tenant-item:hover {
+  background: #2a3148 !important;
+  border-color: var(--accent);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+}
+
 [data-theme="dark"] .btn-open-tenant-balance {
   background: #1c2233 !important;
   color: var(--text) !important;
