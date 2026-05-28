@@ -1864,6 +1864,33 @@ textarea {
   color: #f5b18a !important;
 }
 
+/* Sidebar tenant balance breakdown — label / credit / debt colours */
+[data-theme="dark"] [style*="color:#3a5270"],
+[data-theme="dark"] [style*="color: #3a5270"],
+[data-theme="dark"] [style*="color:#1f3f5f"],
+[data-theme="dark"] [style*="color: #1f3f5f"],
+[data-theme="dark"] [style*="color:#555"],
+[data-theme="dark"] [style*="color: #555"] {
+  color: var(--text-light) !important;
+}
+
+[data-theme="dark"] [style*="color:#1b5e20"],
+[data-theme="dark"] [style*="color: #1b5e20"] {
+  color: #7ee2a8 !important;
+}
+
+[data-theme="dark"] [style*="color:#b71c1c"],
+[data-theme="dark"] [style*="color: #b71c1c"] {
+  color: #ff8a80 !important;
+}
+
+[data-theme="dark"] [style*="border-top:1px solid #c5d8ef"],
+[data-theme="dark"] [style*="border-top: 1px solid #c5d8ef"],
+[data-theme="dark"] [style*="border-top:2px solid rgba(43,108,176"],
+[data-theme="dark"] [style*="border-top: 2px solid rgba(43,108,176"] {
+  border-color: var(--border) !important;
+}
+
 [data-theme="dark"] [style*="border:1px solid #e5e9ef"],
 [data-theme="dark"] [style*="border: 1px solid #e5e9ef"],
 [data-theme="dark"] [style*="border-bottom:1px solid #e9edf3"],
