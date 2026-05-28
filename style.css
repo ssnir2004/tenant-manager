@@ -1781,17 +1781,43 @@ textarea {
   border-color: var(--border) !important;
 }
 
-/* Force every inline-styled child inside the mom screen to drop light backgrounds */
-[data-theme="dark"] #mom-view div[style] {
-  border-color: var(--border) !important;
+/* Mom screen reusable panel */
+.mom-panel {
+  padding: 12px;
+  border: 1px solid #e4e8ef;
+  border-radius: 8px;
+  background: #f9fbff;
 }
 
-[data-theme="dark"] #mom-view div[style*="background:#f9fbff"],
-[data-theme="dark"] #mom-view div[style*="background: #f9fbff"],
-[data-theme="dark"] #mom-view div[style*="background-color:#f5f5f5"],
-[data-theme="dark"] #mom-view div[style*="background-color: #f5f5f5"] {
-  background: #1c2233 !important;
-  color: var(--text) !important;
+.mom-panel-label {
+  font-size: 12px;
+  color: #666;
+  margin-bottom: 4px;
+}
+
+.mom-panel-value {
+  font-size: 20px;
+  font-weight: 700;
+  direction: ltr;
+  text-align: left;
+}
+
+.mom-panel-value-accent {
+  color: var(--accent);
+}
+
+[data-theme="dark"] .mom-panel {
+  background: #1c2233;
+  border-color: var(--border);
+  color: var(--text);
+}
+
+[data-theme="dark"] .mom-panel-label {
+  color: var(--text-light);
+}
+
+[data-theme="dark"] .mom-panel-value-accent {
+  color: #8ab4e0;
 }
 
 [data-theme="dark"] [style*="border-top: 1px solid #eee"],

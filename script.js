@@ -7485,18 +7485,18 @@ async function renderMom() {
   }).join('');
 
   momList.innerHTML = `
-    <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; margin-bottom: 12px;">
-      <div style="padding: 12px; border: 1px solid #e4e8ef; border-radius: 8px; background: #f9fbff;">
-        <div style="font-size: 12px; color:#666; margin-bottom:4px;">עודף חודש אחרון בטבלה (${lastRow?.label || '-'})</div>
-        <div style="font-size: 20px; font-weight: 700; color:${lastMonthBalanceColor}; direction:ltr; text-align:left;">₪${formatCurrency(lastMonthBalance)}</div>
+    <div class="mom-panel-row" style="display:grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; margin-bottom: 12px;">
+      <div class="mom-panel">
+        <div class="mom-panel-label">עודף חודש אחרון בטבלה (${lastRow?.label || '-'})</div>
+        <div class="mom-panel-value" style="color:${lastMonthBalanceColor};">₪${formatCurrency(lastMonthBalance)}</div>
       </div>
-      <div style="padding: 12px; border: 1px solid #e4e8ef; border-radius: 8px; background: #f9fbff;">
-        <div style="font-size: 12px; color:#666; margin-bottom:4px;">סך הכנסות אסתר ומיכאל</div>
-        <div style="font-size: 20px; font-weight: 700; color:#2b6cb0; direction:ltr; text-align:left;">₪${formatCurrency(totalGrandmaIncome)}</div>
+      <div class="mom-panel">
+        <div class="mom-panel-label">סך הכנסות אסתר ומיכאל</div>
+        <div class="mom-panel-value mom-panel-value-accent">₪${formatCurrency(totalGrandmaIncome)}</div>
       </div>
     </div>
 
-    <div style="margin-bottom: 14px; padding: 12px; border: 1px solid #e4e8ef; border-radius: 8px; background: #f9fbff;">
+    <div class="mom-panel" style="margin-bottom: 14px;">
       <div style="font-weight: 700; margin-bottom: 8px;">📊 גרף הכנסות שנתי</div>
       <div style="display:grid; gap:8px;">
         ${yearlyIncomeChart || '<div style="color:#999;">אין נתוני הכנסות להצגה</div>'}
