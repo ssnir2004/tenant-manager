@@ -6665,10 +6665,153 @@ function bindBalanceTenantChartControls() {
 
 bindBalanceTenantChartControls();
 
+const balanceTenantTablesState = {
+  expandedTenantIds: new Set()
+};
+
+function getTenancyMonthRange(tenant) {
+  const startIso = parseDateToIso(tenant?.startDate || '');
+  if (!startIso) return [];
+  const tenancyEndIso = parseDateToIso(tenant?.moveOutDate || tenant?.endDate || '');
+  const todayIso = currentIsoDate();
+  const effectiveEndIso = tenancyEndIso && tenancyEndIso < todayIso ? tenancyEndIso : todayIso;
+  if (effectiveEndIso < startIso) return [];
+  return enumerateMonthsInclusive(startIso, effectiveEndIso);
+}
+
+function formatMonthKeyShort(monthKey) {
+  if (!/^\d{4}-\d{2}$/.test(String(monthKey || ''))) return '';
+  return `${monthKey.slice(5)}/${monthKey.slice(0, 4)}`;
+}
+
+function balanceCellHtml(value, options = {}) {
+  const num = Number(value || 0);
+  if (!Number.isFinite(num) || num === 0) {
+    return `<td class="btt-cell btt-cell-empty">—</td>`;
+  }
+  const colorClass = options.colorize
+    ? (num > 0 ? ' btt-cell-debt' : ' btt-cell-credit')
+    : '';
+  return `<td class="btt-cell${colorClass}">₪${formatCurrency(Math.abs(num))}</td>`;
+}
+
+function renderBalanceTenantTables() {
+  const container = document.getElementById('balance-tenant-tables-section');
+  if (!container) return;
+
+  const ctx = balanceTenantChartState.ctx;
+  const tenants = balanceTenantChartState.tenants || [];
+  if (!ctx) {
+    container.innerHTML = '';
+    return;
+  }
+
+  const activeTenants = tenants.filter(t => !t.archived && t.active !== false);
+  if (activeTenants.length === 0) {
+    container.innerHTML = '<div style="padding: 12px; color: var(--text-light);">אין דיירים פעילים</div>';
+    return;
+  }
+
+  const cards = activeTenants
+    .slice()
+    .sort((a, b) => Number(a.apartmentNumber || 0) - Number(b.apartmentNumber || 0))
+    .map(tenant => {
+      const tenantId = Number(tenant.id);
+      const months = getTenancyMonthRange(tenant);
+      const tenantName = `${tenant.firstName || ''} ${tenant.lastName || ''}`.trim() || 'ללא שם';
+      const apartment = tenant.apartmentNumber || '-';
+      const isExpanded = balanceTenantTablesState.expandedTenantIds.has(tenantId);
+
+      let cumulativeRows = '';
+      let lastTotal = 0;
+      if (isExpanded && months.length > 0) {
+        cumulativeRows = months
+          .slice()
+          .reverse()
+          .map(monthKey => {
+            const breakdown = computeTenantMonthBreakdown(tenant, monthKey, ctx);
+            lastTotal = breakdown.total;
+            const totalColorClass = breakdown.total > 0 ? ' btt-total-debt' : (breakdown.total < 0 ? ' btt-total-credit' : '');
+            return `
+              <tr>
+                <td class="btt-cell btt-cell-month">${formatMonthKeyShort(monthKey)}</td>
+                ${balanceCellHtml(breakdown.rent)}
+                ${balanceCellHtml(breakdown.arnona)}
+                ${balanceCellHtml(breakdown.electricity)}
+                ${balanceCellHtml(breakdown.water)}
+                ${balanceCellHtml(breakdown.income, { colorize: false })}
+                <td class="btt-cell btt-total${totalColorClass}" style="font-weight:700;">${breakdown.total === 0 ? '₪0' : (breakdown.total > 0 ? '₪' + formatCurrency(breakdown.total) : '-₪' + formatCurrency(Math.abs(breakdown.total)))}</td>
+              </tr>
+            `;
+          }).join('');
+      }
+
+      let headerSummary = '';
+      if (months.length > 0) {
+        const latestBreakdown = computeTenantMonthBreakdown(tenant, months[months.length - 1], ctx);
+        const total = latestBreakdown.total;
+        const totalLabel = total > 0 ? `חוב: ₪${formatCurrency(total)}` : (total < 0 ? `זכות: ₪${formatCurrency(Math.abs(total))}` : 'מאוזן');
+        const totalClass = total > 0 ? 'btt-summary-debt' : (total < 0 ? 'btt-summary-credit' : '');
+        headerSummary = `<span class="btt-summary ${totalClass}">${totalLabel}</span> · <span class="btt-summary-months">${months.length} חודשים</span>`;
+      } else {
+        headerSummary = '<span class="btt-summary">אין נתוני שכירות</span>';
+      }
+
+      return `
+        <div class="btt-card" data-tenant-id="${tenantId}">
+          <button type="button" class="btt-header" data-tenant-id="${tenantId}">
+            <span class="btt-header-arrow">${isExpanded ? '▼' : '◀'}</span>
+            <span class="btt-header-title">דירה ${escapeHtml(String(apartment))} · ${escapeHtml(tenantName)}</span>
+            <span class="btt-header-summary">${headerSummary}</span>
+          </button>
+          ${isExpanded && months.length > 0 ? `
+            <div class="btt-table-wrap">
+              <table class="btt-table">
+                <thead>
+                  <tr>
+                    <th>חודש</th>
+                    <th>שכ"ד</th>
+                    <th>ארנונה</th>
+                    <th>חשמל</th>
+                    <th>מים</th>
+                    <th>הכנסה</th>
+                    <th>יתרה מצטברת</th>
+                  </tr>
+                </thead>
+                <tbody>${cumulativeRows}</tbody>
+              </table>
+            </div>
+          ` : ''}
+        </div>
+      `;
+    }).join('');
+
+  container.innerHTML = `
+    <div class="btt-section-title">פירוט חודשי לכל דייר פעיל</div>
+    <div class="btt-section-hint">לחץ על שם דייר כדי להציג/להסתיר את הטבלה החודשית שלו.</div>
+    <div class="btt-cards">${cards}</div>
+  `;
+}
+
+document.getElementById('balance-tenant-tables-section')?.addEventListener('click', e => {
+  const header = e.target.closest('.btt-header');
+  if (!header) return;
+  const tenantId = Number(header.dataset.tenantId);
+  if (!Number.isFinite(tenantId)) return;
+  if (balanceTenantTablesState.expandedTenantIds.has(tenantId)) {
+    balanceTenantTablesState.expandedTenantIds.delete(tenantId);
+  } else {
+    balanceTenantTablesState.expandedTenantIds.add(tenantId);
+  }
+  renderBalanceTenantTables();
+});
+
 async function renderBalance() {
   await ensurePaidReadingsHavePayments();
 
-  renderBalanceTenantChart().catch(err => console.error('Balance tenant chart error:', err));
+  renderBalanceTenantChart()
+    .then(() => renderBalanceTenantTables())
+    .catch(err => console.error('Balance tenant chart error:', err));
 
   const payments = await getAllPayments();
   const readings = await getAllReadings();

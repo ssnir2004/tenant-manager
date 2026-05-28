@@ -1834,6 +1834,199 @@ textarea {
   box-shadow: 0 4px 12px rgba(90, 143, 214, 0.4);
 }
 
+/* Per-tenant monthly tables on balance screen */
+.btt-section-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--accent);
+  margin-bottom: 4px;
+}
+
+.btt-section-hint {
+  font-size: 12px;
+  color: var(--text-light);
+  margin-bottom: 12px;
+}
+
+.btt-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.btt-card {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fff;
+  overflow: hidden;
+}
+
+.btt-header {
+  all: unset;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 12px 14px;
+  cursor: pointer;
+  background: linear-gradient(135deg, #f7fbff 0%, #eef4fa 100%);
+  border-bottom: 1px solid var(--border);
+  transition: background 0.15s ease;
+}
+
+.btt-header:hover {
+  background: linear-gradient(135deg, #eef4fa 0%, #e1edf9 100%);
+}
+
+.btt-header-arrow {
+  font-size: 11px;
+  color: var(--accent);
+  width: 14px;
+  text-align: center;
+}
+
+.btt-header-title {
+  font-weight: 700;
+  color: var(--accent-dark);
+  flex: 1;
+}
+
+.btt-header-summary {
+  font-size: 12px;
+  color: var(--text-light);
+  direction: ltr;
+}
+
+.btt-summary {
+  font-weight: 700;
+  color: var(--text);
+}
+
+.btt-summary-debt { color: #b71c1c; }
+.btt-summary-credit { color: #1b5e20; }
+
+.btt-summary-months {
+  color: var(--text-light);
+  font-weight: 500;
+}
+
+.btt-table-wrap {
+  overflow-x: auto;
+}
+
+.btt-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.btt-table th,
+.btt-table td {
+  padding: 6px 10px;
+  text-align: center;
+  border-bottom: 1px solid #eef2f5;
+}
+
+.btt-table th {
+  background: #f3f6fa;
+  color: var(--accent);
+  font-weight: 700;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.btt-table tbody tr:hover {
+  background: rgba(43, 108, 176, 0.05);
+}
+
+.btt-cell {
+  direction: ltr;
+}
+
+.btt-cell-month {
+  font-weight: 600;
+  color: var(--text);
+  background: #fafbfc;
+}
+
+.btt-cell-empty {
+  color: var(--text-light);
+}
+
+.btt-cell-debt { color: #b71c1c; font-weight: 500; }
+.btt-cell-credit { color: #1b5e20; font-weight: 500; }
+
+.btt-total-debt { color: #b71c1c; }
+.btt-total-credit { color: #1b5e20; }
+
+/* Dark mode for per-tenant monthly tables */
+[data-theme="dark"] .btt-section-title {
+  color: #8ab4e0;
+}
+
+[data-theme="dark"] .btt-card {
+  background: var(--card);
+  border-color: var(--border);
+}
+
+[data-theme="dark"] .btt-header {
+  background: linear-gradient(135deg, #2a334b 0%, #1f2638 100%);
+  border-bottom-color: var(--border);
+}
+
+[data-theme="dark"] .btt-header:hover {
+  background: linear-gradient(135deg, #34405d 0%, #28304a 100%);
+}
+
+[data-theme="dark"] .btt-header-arrow {
+  color: #8ab4e0;
+}
+
+[data-theme="dark"] .btt-header-title {
+  color: var(--text);
+}
+
+[data-theme="dark"] .btt-header-summary,
+[data-theme="dark"] .btt-summary-months {
+  color: var(--text-light);
+}
+
+[data-theme="dark"] .btt-summary {
+  color: var(--text);
+}
+
+[data-theme="dark"] .btt-summary-debt,
+[data-theme="dark"] .btt-cell-debt,
+[data-theme="dark"] .btt-total-debt { color: #ff8a80 !important; }
+
+[data-theme="dark"] .btt-summary-credit,
+[data-theme="dark"] .btt-cell-credit,
+[data-theme="dark"] .btt-total-credit { color: #7ee2a8 !important; }
+
+[data-theme="dark"] .btt-table th {
+  background: #1f2638;
+  color: #8ab4e0;
+}
+
+[data-theme="dark"] .btt-table th,
+[data-theme="dark"] .btt-table td {
+  border-bottom-color: var(--border);
+}
+
+[data-theme="dark"] .btt-cell-month {
+  background: #1c2233;
+  color: var(--text);
+}
+
+[data-theme="dark"] .btt-cell-empty {
+  color: var(--text-light);
+}
+
+[data-theme="dark"] .btt-table tbody tr:hover {
+  background: rgba(90, 143, 214, 0.1);
+}
+
 /* Sidebar tenant balance breakdown */
 .tenant-balance-breakdown {
   background: transparent;
