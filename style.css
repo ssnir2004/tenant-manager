@@ -2348,3 +2348,14 @@ textarea {
 [data-theme="dark"] .report-table tbody tr:hover {
   background: rgba(90, 143, 214, 0.08);
 }
+
+[data-theme="dark"] .reading-row.selected td,
+[data-theme="dark"] .balance-month-row.selected td {
+  background: rgba(90, 143, 214, 0.22) !important;
+  color: var(--text) !important;
+}
+
+[data-theme="dark"] .balance-month-row.selected:hover td,
+[data-theme="dark"] .reading-row.selected:hover td {
+  background: rgba(90, 143, 214, 0.3) !important;
+}
