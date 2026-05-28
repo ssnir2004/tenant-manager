@@ -8534,6 +8534,23 @@ showMomBtn?.addEventListener('click', async () => {
   show(document.getElementById('mom-view'));
 });
 
+document.getElementById('refresh-tenant-balances')?.addEventListener('click', async (e) => {
+  const button = e.currentTarget;
+  if (!button) return;
+  const originalText = button.textContent;
+  button.disabled = true;
+  button.textContent = '⏳ מרענן...';
+  try {
+    await renderTenants();
+  } catch (err) {
+    console.error(err);
+    alert('שגיאה ברענון המאזנים: ' + (err?.message || err));
+  } finally {
+    button.disabled = false;
+    button.textContent = originalText;
+  }
+});
+
 showReadingsBtn?.addEventListener('click', async () => {
   setActiveButton('show-readings');
   applyMonthlyChargesChartVisibility();
