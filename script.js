@@ -5840,18 +5840,18 @@ function buildPaymentsIncomeTenantState(monthKey, accountKey, monthPayments, ten
     .filter(payment => normalizePaymentsIncomeAccountKey(payment?.account) === accountKey)
     .forEach(payment => {
       const label = getPaymentsIncomeTenantLabel(payment, tenantMap);
-      const nextAmount = Number(payment?.amount || 0);
-      buckets.set(label, (buckets.get(label) || 0) + nextAmount);
+      const bucket = buckets.get(label) || { label, total: 0, payments: [] };
+      bucket.total += Number(payment?.amount || 0);
+      bucket.payments.push(payment);
+      buckets.set(label, bucket);
     });
 
-  const rows = Array.from(buckets.entries())
-    .map(([label, total]) => ({ label, total }))
-    .sort((a, b) => b.total - a.total);
+  const rows = Array.from(buckets.values()).sort((a, b) => b.total - a.total);
 
   return {
     type: 'tenantDetail',
     title: `${getPaymentsIncomeBucketLabel(accountKey)} לחודש ${getMonthlyChargesMonthLabel(monthKey)}`,
-    subtitle: 'לחץ לחזור לגרף הקודם',
+    subtitle: 'לחץ על דייר כדי לראות ממה מורכבות ההכנסות',
     monthKey,
     accountKey,
     labels: rows.map(row => row.label),
@@ -5867,6 +5867,56 @@ function buildPaymentsIncomeTenantState(monthKey, accountKey, monthPayments, ten
     ],
     rows,
     tenantMap
+  };
+}
+
+function describePaymentSource(payment) {
+  const readingIds = normalizePaymentReadingIdsFromPayment(payment);
+  if (readingIds.length > 0) {
+    return readingIds.length > 1 ? `קריאות (${readingIds.length})` : 'קריאה';
+  }
+  return 'כללי';
+}
+
+function shortPaymentNotes(payment) {
+  const notes = displayPaymentNotes(payment?.notes || '').trim();
+  if (!notes) return '';
+  return notes.length > 40 ? `${notes.slice(0, 37)}...` : notes;
+}
+
+function buildPaymentsIncomePaymentBreakdownState(monthKey, accountKey, tenantLabel, tenantPayments) {
+  const sorted = (tenantPayments || []).slice().sort((a, b) => (dateValueFromAny(a.date) || 0) - (dateValueFromAny(b.date) || 0));
+  const labels = sorted.map(payment => {
+    const dateText = formatDateEu(payment?.date || '') || '-';
+    const sourceText = describePaymentSource(payment);
+    const methodText = methodLabel(payment?.method || '') || 'ללא אמצעי';
+    const notesText = shortPaymentNotes(payment);
+    const parts = [dateText, sourceText, methodText];
+    if (notesText) parts.push(notesText);
+    return parts.join(' · ');
+  });
+  const data = sorted.map(payment => Number(payment?.amount || 0));
+  const colors = sorted.map(payment => normalizePaymentReadingIdsFromPayment(payment).length > 0 ? '#f59e0b' : '#10b981');
+
+  return {
+    type: 'paymentBreakdown',
+    title: `${tenantLabel} · ${getPaymentsIncomeBucketLabel(accountKey)} · ${getMonthlyChargesMonthLabel(monthKey)}`,
+    subtitle: 'כל עמודה היא תשלום בודד. כתום = תשלום מקושר לקריאה, ירוק = תשלום כללי. ריחוף = הערה מלאה.',
+    monthKey,
+    accountKey,
+    tenantLabel,
+    labels,
+    datasets: [
+      {
+        label: 'סכום תשלום (₪)',
+        data,
+        backgroundColor: colors,
+        borderColor: colors,
+        borderWidth: 1,
+        borderRadius: 4
+      }
+    ],
+    payments: sorted
   };
 }
 
@@ -5936,12 +5986,36 @@ function renderPaymentsIncomeChartView(state) {
           window.__paymentsIncomeHistory = window.__paymentsIncomeHistory || [];
           window.__paymentsIncomeHistory.push(state);
           renderPaymentsIncomeChartView(nextState);
+          return;
+        }
+
+        if (state.type === 'tenantDetail') {
+          const points = window.__paymentsIncomeChartInstance.getElementsAtEventForMode(event, 'nearest', { intersect: true }, true);
+          if (!points.length) return;
+          const row = (state.rows || [])[points[0].index];
+          if (!row || !Array.isArray(row.payments) || row.payments.length === 0) return;
+          const nextState = buildPaymentsIncomePaymentBreakdownState(state.monthKey, state.accountKey, row.label, row.payments);
+          window.__paymentsIncomeHistory = window.__paymentsIncomeHistory || [];
+          window.__paymentsIncomeHistory.push(state);
+          renderPaymentsIncomeChartView(nextState);
         }
       },
       plugins: {
         legend: {
           display: true,
           position: 'top'
+        },
+        tooltip: {
+          callbacks: {
+            label: (item) => `₪${formatCurrency(item.parsed.y || 0)}`,
+            afterLabel: (item) => {
+              if (state.type !== 'paymentBreakdown') return '';
+              const payment = (state.payments || [])[item.dataIndex];
+              if (!payment) return '';
+              const notes = displayPaymentNotes(payment.notes || '').trim();
+              return notes ? `הערה: ${notes}` : '';
+            }
+          }
         }
       },
       scales: {
