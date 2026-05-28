@@ -5069,19 +5069,19 @@ async function renderTenants() {
           </div>`;
       }
       sidebarBalanceSection = `
-        <div style="margin-top:8px; padding:10px 12px; border-top:2px solid rgba(43,108,176,0.2);">
-          <div style="font-size:12px; font-weight:700; color:#2b6cb0; margin-bottom:6px;">מאזן</div>
-          <table style="width:100%; border-collapse:collapse; font-size:12px;">
+        <div class="tenant-balance-breakdown" style="margin-top:8px; padding:10px 12px; border-top:2px solid rgba(43,108,176,0.2);">
+          <div class="tenant-balance-breakdown-title">מאזן</div>
+          <table class="tenant-balance-breakdown-table">
             <tbody>
-              <tr><td style="padding:3px 0; color:#3a5270;">שכירות חודשית</td><td style="padding:3px 0; direction:ltr; text-align:left; font-weight:600;">₪${formatCurrency(rentDetails.rentAmount || 0)}</td></tr>
-              <tr><td style="padding:3px 0; color:#3a5270;">יתרת שכירות</td><td style="padding:3px 0; direction:ltr; text-align:left; font-weight:600;">₪${formatCurrency(balance.rent)}</td></tr>
-              <tr><td style="padding:3px 0; color:#3a5270;">ארנונה</td><td style="padding:3px 0; direction:ltr; text-align:left; font-weight:600;">₪${formatCurrency(balance.arnona)}</td></tr>
-              <tr><td style="padding:3px 0; color:#3a5270;">חשמל</td><td style="padding:3px 0; direction:ltr; text-align:left; font-weight:600;">₪${formatCurrency(balance.electricity)}</td></tr>
-              <tr><td style="padding:3px 0; color:#3a5270;">מים</td><td style="padding:3px 0; direction:ltr; text-align:left; font-weight:600;">₪${formatCurrency(balance.water)}</td></tr>
-              ${adjustments.debtTotal > 0 ? `<tr><td style="padding:3px 0; color:#b71c1c;">חיוב ידני</td><td style="padding:3px 0; direction:ltr; text-align:left; font-weight:600; color:#b71c1c;">₪${formatCurrency(adjustments.debtTotal)}</td></tr>` : ''}
-              ${adjustments.creditTotal > 0 ? `<tr><td style="padding:3px 0; color:#1b5e20;">זיכוי ידני</td><td style="padding:3px 0; direction:ltr; text-align:left; font-weight:600; color:#1b5e20;">-₪${formatCurrency(adjustments.creditTotal)}</td></tr>` : ''}
-              ${rentDetails.overpaymentCredit > 0 ? `<tr><td style="padding:3px 0; color:#1b5e20;">תשלום עודף</td><td style="padding:3px 0; direction:ltr; text-align:left; font-weight:600; color:#1b5e20;">-₪${formatCurrency(rentDetails.overpaymentCredit)}</td></tr>` : ''}
-              <tr><td style="padding-top:5px; border-top:1px solid #c5d8ef; font-weight:700; color:#2b6cb0;">סה"כ (${totalLabel})</td><td style="padding-top:5px; border-top:1px solid #c5d8ef; direction:ltr; text-align:left; font-weight:700; color:${totalColor};">${totalAmountText}</td></tr>
+              <tr><td class="tbb-label">שכירות חודשית</td><td class="tbb-value">₪${formatCurrency(rentDetails.rentAmount || 0)}</td></tr>
+              <tr><td class="tbb-label">יתרת שכירות</td><td class="tbb-value">₪${formatCurrency(balance.rent)}</td></tr>
+              <tr><td class="tbb-label">ארנונה</td><td class="tbb-value">₪${formatCurrency(balance.arnona)}</td></tr>
+              <tr><td class="tbb-label">חשמל</td><td class="tbb-value">₪${formatCurrency(balance.electricity)}</td></tr>
+              <tr><td class="tbb-label">מים</td><td class="tbb-value">₪${formatCurrency(balance.water)}</td></tr>
+              ${adjustments.debtTotal > 0 ? `<tr><td class="tbb-label tbb-debt">חיוב ידני</td><td class="tbb-value tbb-debt">₪${formatCurrency(adjustments.debtTotal)}</td></tr>` : ''}
+              ${adjustments.creditTotal > 0 ? `<tr><td class="tbb-label tbb-credit">זיכוי ידני</td><td class="tbb-value tbb-credit">-₪${formatCurrency(adjustments.creditTotal)}</td></tr>` : ''}
+              ${rentDetails.overpaymentCredit > 0 ? `<tr><td class="tbb-label tbb-credit">תשלום עודף</td><td class="tbb-value tbb-credit">-₪${formatCurrency(rentDetails.overpaymentCredit)}</td></tr>` : ''}
+              <tr><td class="tbb-total-label">סה"כ (${totalLabel})</td><td class="tbb-total-value" style="color:${totalColor};">${totalAmountText}</td></tr>
             </tbody>
           </table>
           <div style="margin-top:8px;">

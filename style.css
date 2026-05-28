@@ -1781,6 +1781,101 @@ textarea {
   border-color: var(--border) !important;
 }
 
+/* Sidebar tenant balance breakdown */
+.tenant-balance-breakdown {
+  background: transparent;
+}
+
+.tenant-balance-breakdown-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--accent);
+  margin-bottom: 6px;
+}
+
+.tenant-balance-breakdown-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  background: transparent;
+}
+
+.tenant-balance-breakdown-table td {
+  background: transparent;
+}
+
+.tenant-balance-breakdown-table .tbb-label {
+  padding: 3px 0;
+  color: #3a5270;
+}
+
+.tenant-balance-breakdown-table .tbb-value {
+  padding: 3px 0;
+  direction: ltr;
+  text-align: left;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.tenant-balance-breakdown-table .tbb-debt {
+  color: #b71c1c;
+}
+
+.tenant-balance-breakdown-table .tbb-credit {
+  color: #1b5e20;
+}
+
+.tenant-balance-breakdown-table .tbb-total-label {
+  padding-top: 5px;
+  border-top: 1px solid #c5d8ef;
+  font-weight: 700;
+  color: var(--accent);
+}
+
+.tenant-balance-breakdown-table .tbb-total-value {
+  padding-top: 5px;
+  border-top: 1px solid #c5d8ef;
+  direction: ltr;
+  text-align: left;
+  font-weight: 700;
+}
+
+[data-theme="dark"] .tenant-balance-breakdown,
+[data-theme="dark"] .tenant-balance-breakdown-table,
+[data-theme="dark"] .tenant-balance-breakdown-table tr,
+[data-theme="dark"] .tenant-balance-breakdown-table td {
+  background: transparent !important;
+}
+
+[data-theme="dark"] .tenant-balance-breakdown-title {
+  color: #8ab4e0;
+}
+
+[data-theme="dark"] .tenant-balance-breakdown-table .tbb-label {
+  color: var(--text-light);
+}
+
+[data-theme="dark"] .tenant-balance-breakdown-table .tbb-value {
+  color: var(--text);
+}
+
+[data-theme="dark"] .tenant-balance-breakdown-table .tbb-debt {
+  color: #ff8a80 !important;
+}
+
+[data-theme="dark"] .tenant-balance-breakdown-table .tbb-credit {
+  color: #7ee2a8 !important;
+}
+
+[data-theme="dark"] .tenant-balance-breakdown-table .tbb-total-label {
+  color: #8ab4e0;
+  border-top-color: var(--border);
+}
+
+[data-theme="dark"] .tenant-balance-breakdown-table .tbb-total-value {
+  border-top-color: var(--border);
+}
+
 /* Mom screen reusable panel */
 .mom-panel {
   padding: 12px;
