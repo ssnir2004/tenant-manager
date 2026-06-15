@@ -2488,7 +2488,6 @@ async function renderReminders() {
     const dueParts = (item.dueDate || '').split('-');
     const todayParts = todayIso.split('-');
     const monthsRemaining = (parseInt(dueParts[0]) - parseInt(todayParts[0])) * 12 + (parseInt(dueParts[1]) - parseInt(todayParts[1]));
-    const monthsLabel = monthsRemaining <= 0 ? 'החודש' : monthsRemaining === 1 ? 'חודש אחד' : `${monthsRemaining} חודשים`;
     const isExpanded = tenantId > 0 && remindersExpandedContractTenantId === tenantId;
     const showCalcDetails = tenantId > 0 && remindersExpandedContractCalcTenantId === tenantId;
     const balance = contractBalanceByTenantId.get(tenantId) || { rent: 0, arnona: 0, electricity: 0, water: 0, total: 0 };
@@ -2645,13 +2644,21 @@ async function renderReminders() {
       `
       : '';
 
+    const badgeNum = monthsRemaining <= 0 ? '0' : String(monthsRemaining);
+    const badgeUnit = monthsRemaining <= 0 ? 'החודש' : monthsRemaining === 1 ? 'חודש' : 'חודשים';
     return `
-    <div style="padding:10px 12px; border:1px solid #ffe0cc; border-radius:10px; background:linear-gradient(135deg,#fffaf5 0%,#fff2e8 100%);">
-      <div style="font-size:12px; color:#b35c1e; margin-bottom:4px;">📅 ${formatDateEu(item.dueDate)} · <span style="font-weight:700;">${monthsLabel} נותרו</span></div>
-      <button type="button" class="btn-toggle-contract-balance" data-tenant-id="${tenantId}" style="all:unset; cursor:pointer; font-weight:700; color:#7a3d14; margin-bottom:2px; display:block;">${escapeHtml(item.title)}</button>
-      <div style="font-size:12px; color:#8a5a39;">${escapeHtml(item.details)}</div>
-      <div style="font-size:12px; margin-top:4px; font-weight:700; color:${totalColor};">סה"כ מאזן: <span style="direction:ltr; display:inline-block;">${totalSummaryText}</span></div>
-      ${balanceSection}
+    <div style="padding:10px 12px; border:1px solid #ffe0cc; border-radius:10px; background:linear-gradient(135deg,#fffaf5 0%,#fff2e8 100%); display:flex; gap:10px; align-items:flex-start;">
+      <div style="flex:1; min-width:0;">
+        <div style="font-size:12px; color:#b35c1e; margin-bottom:4px;">📅 ${formatDateEu(item.dueDate)}</div>
+        <button type="button" class="btn-toggle-contract-balance" data-tenant-id="${tenantId}" style="all:unset; cursor:pointer; font-weight:700; color:#7a3d14; margin-bottom:2px; display:block;">${escapeHtml(item.title)}</button>
+        <div style="font-size:12px; color:#8a5a39;">${escapeHtml(item.details)}</div>
+        <div style="font-size:12px; margin-top:4px; font-weight:700; color:${totalColor};">סה"כ מאזן: <span style="direction:ltr; display:inline-block;">${totalSummaryText}</span></div>
+        ${balanceSection}
+      </div>
+      <div style="display:flex; flex-direction:column; align-items:center; justify-content:center; min-width:52px; border:2px solid #e8855a; border-radius:8px; padding:6px 8px; flex-shrink:0; background:#fff6f0; text-align:center;">
+        <span style="font-size:22px; font-weight:700; color:#7a3d14; line-height:1;">${badgeNum}</span>
+        <span style="font-size:10px; color:#b35c1e; margin-top:3px;">${badgeUnit}</span>
+      </div>
     </div>
   `;
   }).join('');
