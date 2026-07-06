@@ -7061,8 +7061,10 @@ async function renderBalance() {
     }
     
     const lastMonthForRange = `${lastYear}-${String(lastMonthNum).padStart(2, '0')}`;
-    const firstMonthForRange = keys[0] || allMonths[0];
-    
+    const BALANCE_MIN_MONTH = '2022-10';
+    const dataFirst = keys[0] || allMonths[0];
+    const firstMonthForRange = dataFirst < BALANCE_MIN_MONTH ? dataFirst : BALANCE_MIN_MONTH;
+
     const fullMonthRange = [];
     let [rangeYear, rangeMonth] = firstMonthForRange.split('-').map(Number);
     const [endRangeYear, endRangeMonth] = lastMonthForRange.split('-').map(Number);
