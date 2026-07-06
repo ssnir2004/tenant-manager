@@ -9604,7 +9604,11 @@ function loadTenantRates(tenant) {
   const waterBody  = document.getElementById('rates-water-body');
   const elecBody   = document.getElementById('rates-electricity-body');
 
-  const arnonaEntries = normalizeArnonaHistoryEntries(tenant.arnonaHistory);
+  let arnonaEntries = normalizeArnonaHistoryEntries(tenant.arnonaHistory);
+  if (!arnonaEntries.length && Number(tenant.arnonaAmount) > 0) {
+    const startIso = parseDateToIso(tenant.startDate || '') || '2022-10-01';
+    arnonaEntries = [{ startIso, endIso: '', arnonaAmount: Number(tenant.arnonaAmount) }];
+  }
   const waterEntries  = normalizeWaterPriceHistory(tenant.waterPriceHistory);
   const elecEntries   = normalizeElectricityHistory(tenant.electricityHistory);
 
