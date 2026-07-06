@@ -6824,7 +6824,7 @@ async function renderBalance() {
   });
 
   readings
-    .filter(r => !!r.paid)
+    .filter(r => !!r.paid && !extractReadingSkipFlagFromNotes(r.notes))
     .forEach(r => {
       const iso = parseDateToIso(r.date);
       if (!iso) return;
