@@ -9706,6 +9706,40 @@ document.getElementById('rates-save')?.addEventListener('click', async () => {
   }
 });
 
+document.getElementById('rates-seed-from-global')?.addEventListener('click', async () => {
+  if (!confirm('פעולה זו תאתחל תעריפי מים וחשמל לכל דייר שאין לו היסטוריה, לפי התעריפים הגלובליים הנוכחיים. להמשיך?')) return;
+
+  const globalWaterPrice = Number(await getSetting('waterPrice') ?? 0);
+  const globalKvaCon     = Number(await getSetting('kvaCon')     ?? 0);
+  const globalElecPrice  = 0.65;
+
+  const tenants = await getAllTenants(true);
+  let count = 0;
+
+  for (const tenant of tenants) {
+    const patch = {};
+    const startIso = parseDateToIso(tenant.startDate || '') || '2022-10-01';
+
+    const hasWater = normalizeWaterPriceHistory(tenant.waterPriceHistory).length > 0;
+    if (!hasWater && globalWaterPrice > 0) {
+      patch.waterPriceHistory = JSON.stringify([{ startIso, endIso: '', pricePerM3: globalWaterPrice }]);
+    }
+
+    const hasElec = normalizeElectricityHistory(tenant.electricityHistory).length > 0;
+    if (!hasElec) {
+      patch.electricityHistory = JSON.stringify([{ startIso, endIso: '', pricePerKwh: globalElecPrice, kvaConAmount: globalKvaCon }]);
+    }
+
+    if (Object.keys(patch).length > 0) {
+      await saveTenantPatch(Number(tenant.id), patch);
+      count++;
+    }
+  }
+
+  alert(`אותחלו תעריפים ל-${count} דיירים.`);
+  await renderRatesSection();
+});
+
 // Manual tenant sync
 const syncPushBtn = document.getElementById('sync-tenants-push');
 const syncPullBtn = document.getElementById('sync-tenants-pull');
