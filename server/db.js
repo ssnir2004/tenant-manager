@@ -50,6 +50,8 @@ const POSTGRES_CAMEL_CASE_IDENTIFIERS = [
   'apartmentNumber',
   'electricityMeter',
   'waterMeter',
+  'waterPriceHistory',
+  'electricityHistory',
   'createdAt',
   'tenantId',
   'meterType',
@@ -167,6 +169,12 @@ async function initDb() {
 }
 
 async function migrateSchema(db) {
+  if (db.isPostgres) {
+    // Rename columns that were previously created without quoting (PostgreSQL lowercased them)
+    try { await db.exec('ALTER TABLE tenants RENAME COLUMN waterprichistory TO "waterPriceHistory"'); } catch (e) {}
+    try { await db.exec('ALTER TABLE tenants RENAME COLUMN electricityhistory TO "electricityHistory"'); } catch (e) {}
+  }
+
   const tenantsColumns = await getTableColumns(db, 'tenants');
   await ensureColumn(db, 'tenants', 'depositDay', 'TEXT', tenantsColumns);
   await ensureColumn(db, 'tenants', 'rentHistory', 'TEXT', tenantsColumns);
