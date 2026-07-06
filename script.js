@@ -1250,8 +1250,8 @@ function getPaymentsFilters() {
   const tenantId = tenantIdRaw ? Number(tenantIdRaw) : null;
   const account = document.getElementById('payments-filter-account')?.value || '';
   const method = document.getElementById('payments-filter-method')?.value || '';
-  const from = document.getElementById('payments-filter-from')?.value || '';
-  const to = document.getElementById('payments-filter-to')?.value || '';
+  const from = parseDateToIso(document.getElementById('payments-filter-from')?.value || '') || '';
+  const to = parseDateToIso(document.getElementById('payments-filter-to')?.value || '') || '';
   return { text, tenantId, account, method, from, to };
 }
 
@@ -1261,8 +1261,8 @@ function getReadingsFilters() {
   const tenantId = tenantIdRaw ? Number(tenantIdRaw) : null;
   const meterType = document.getElementById('readings-filter-type')?.value || '';
   const paid = document.getElementById('readings-filter-paid')?.value || '';
-  const from = document.getElementById('readings-filter-from')?.value || '';
-  const to = document.getElementById('readings-filter-to')?.value || '';
+  const from = parseDateToIso(document.getElementById('readings-filter-from')?.value || '') || '';
+  const to = parseDateToIso(document.getElementById('readings-filter-to')?.value || '') || '';
   return { text, tenantId, meterType, paid, from, to };
 }
 
