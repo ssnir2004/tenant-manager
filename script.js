@@ -9642,17 +9642,20 @@ async function renderRatesSection() {
   const sel = document.getElementById('rates-tenant-select');
   if (!sel) return;
   const tenants = await getAllTenants(true);
-  const active = tenants.filter(t => t.active !== false && !t.archived);
-  active.sort((a, b) => {
+  const sortFn = (a, b) => {
     const apt = String(a.apartmentNumber || '').localeCompare(String(b.apartmentNumber || ''), 'he', { numeric: true });
     return apt || `${a.firstName} ${a.lastName}`.localeCompare(`${b.firstName} ${b.lastName}`, 'he');
-  });
+  };
+  const active   = tenants.filter(t => t.active !== false && !t.archived).sort(sortFn);
+  const archived = tenants.filter(t => t.archived || t.active === false).sort(sortFn);
+  const makeOption = t => {
+    const name = `${t.firstName || ''} ${t.lastName || ''}`.trim();
+    const apt  = t.apartmentNumber ? ` (דירה ${t.apartmentNumber})` : '';
+    return `<option value="${t.id}">${name}${apt}</option>`;
+  };
   sel.innerHTML = '<option value="">— בחר דייר —</option>' +
-    active.map(t => {
-      const name = `${t.firstName || ''} ${t.lastName || ''}`.trim();
-      const apt  = t.apartmentNumber ? ` (דירה ${t.apartmentNumber})` : '';
-      return `<option value="${t.id}">${name}${apt}</option>`;
-    }).join('');
+    (active.length   ? `<optgroup label="פעילים">${active.map(makeOption).join('')}</optgroup>` : '') +
+    (archived.length ? `<optgroup label="ארכיון">${archived.map(makeOption).join('')}</optgroup>` : '');
   loadTenantRates(null);
 }
 
@@ -9713,7 +9716,7 @@ document.getElementById('rates-seed-from-global')?.addEventListener('click', asy
   const globalKvaCon     = Number(await getSetting('kvaCon')     ?? 0);
   const globalElecPrice  = 0.65;
 
-  const tenants = await getAllTenants(true);
+  const tenants = await getAllTenants(true); // כולל דיירים מהארכיון
   let count = 0;
 
   for (const tenant of tenants) {
