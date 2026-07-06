@@ -6604,7 +6604,8 @@ async function loadBalanceTenantContext() {
 }
 
 const balanceTenantTablesState = {
-  expandedTenantIds: new Set()
+  expandedTenantIds: new Set(),
+  showInactive: false
 };
 
 function getTenancyMonthRange(tenant) {
@@ -6644,13 +6645,16 @@ function renderBalanceTenantTables() {
     return;
   }
 
-  const activeTenants = tenants.filter(t => !t.archived && t.active !== false);
-  if (activeTenants.length === 0) {
-    container.innerHTML = '<div style="padding: 12px; color: var(--text-light);">אין דיירים פעילים</div>';
+  const showInactive = balanceTenantTablesState.showInactive;
+  const visibleTenants = showInactive
+    ? tenants
+    : tenants.filter(t => !t.archived && t.active !== false);
+  if (visibleTenants.length === 0) {
+    container.innerHTML = '<div style="padding: 12px; color: var(--text-light);">אין דיירים</div>';
     return;
   }
 
-  const cards = activeTenants
+  const cards = visibleTenants
     .slice()
     .sort((a, b) => Number(a.apartmentNumber || 0) - Number(b.apartmentNumber || 0))
     .map(tenant => {
@@ -6659,6 +6663,8 @@ function renderBalanceTenantTables() {
       const tenantName = `${tenant.firstName || ''} ${tenant.lastName || ''}`.trim() || 'ללא שם';
       const apartment = tenant.apartmentNumber || '-';
       const isExpanded = balanceTenantTablesState.expandedTenantIds.has(tenantId);
+      const isInactive = tenant.archived || tenant.active === false;
+      const inactiveBadge = isInactive ? `<span style="font-size:11px; color:#888; background:#eee; border-radius:3px; padding:1px 5px; margin-right:4px;">לא פעיל</span>` : '';
 
       let cumulativeRows = '';
       let lastTotal = 0;
@@ -6709,7 +6715,7 @@ function renderBalanceTenantTables() {
         <div class="btt-card" data-tenant-id="${tenantId}">
           <button type="button" class="btt-header" data-tenant-id="${tenantId}">
             <span class="btt-header-arrow">${isExpanded ? '▼' : '◀'}</span>
-            <span class="btt-header-title">דירה ${escapeHtml(String(apartment))} · ${escapeHtml(tenantName)}</span>
+            <span class="btt-header-title">דירה ${escapeHtml(String(apartment))} · ${escapeHtml(tenantName)}${inactiveBadge}</span>
             <span class="btt-header-summary">${headerSummary}</span>
           </button>
           ${isExpanded && months.length > 0 ? `
@@ -6735,8 +6741,15 @@ function renderBalanceTenantTables() {
       `;
     }).join('');
 
+  const inactiveCount = tenants.filter(t => t.archived || t.active === false).length;
   container.innerHTML = `
-    <div class="btt-section-title">פירוט חודשי לכל דייר פעיל</div>
+    <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom:4px;">
+      <div class="btt-section-title" style="margin-bottom:0;">פירוט חודשי לכל דייר${showInactive ? '' : ' פעיל'}</div>
+      ${inactiveCount > 0 ? `<label style="font-size:13px; color:var(--text-light); cursor:pointer; display:flex; align-items:center; gap:5px; user-select:none;">
+        <input type="checkbox" id="btt-show-inactive" ${showInactive ? 'checked' : ''}>
+        הצג דיירים לא פעילים (${inactiveCount})
+      </label>` : ''}
+    </div>
     <div class="btt-section-hint">לחץ על שם דייר כדי להציג/להסתיר את הטבלה החודשית שלו.</div>
     <div class="btt-cards">${cards}</div>
   `;
@@ -6753,6 +6766,13 @@ document.getElementById('balance-tenant-tables-section')?.addEventListener('clic
     balanceTenantTablesState.expandedTenantIds.add(tenantId);
   }
   renderBalanceTenantTables();
+});
+
+document.getElementById('balance-tenant-tables-section')?.addEventListener('change', e => {
+  if (e.target.id === 'btt-show-inactive') {
+    balanceTenantTablesState.showInactive = e.target.checked;
+    renderBalanceTenantTables();
+  }
 });
 
 async function renderBalance() {
