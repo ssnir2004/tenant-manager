@@ -370,18 +370,18 @@ function normalizeElectricityHistory(value) {
   }).filter(Boolean).sort((a, b) => a.startIso.localeCompare(b.startIso));
 }
 
-function getTenantWaterPriceForDate(tenant, dateIso, fallback) {
+function getTenantWaterPriceForDate(tenant, dateIso) {
   const history = normalizeWaterPriceHistory(tenant?.waterPriceHistory);
   const entry = history.find(e => e.startIso <= dateIso && (!e.endIso || e.endIso >= dateIso));
-  return entry ? entry.pricePerM3 : fallback;
+  return entry ? entry.pricePerM3 : 0;
 }
 
-function getTenantElectricityForDate(tenant, dateIso, fallbackKvaCon, fallbackPricePerKwh) {
+function getTenantElectricityForDate(tenant, dateIso) {
   const history = normalizeElectricityHistory(tenant?.electricityHistory);
   const entry = history.find(e => e.startIso <= dateIso && (!e.endIso || e.endIso >= dateIso));
   return {
-    pricePerKwh: entry ? entry.pricePerKwh : fallbackPricePerKwh,
-    kvaConAmount: entry ? entry.kvaConAmount : fallbackKvaCon
+    pricePerKwh: entry ? entry.pricePerKwh : 0,
+    kvaConAmount: entry ? entry.kvaConAmount : 0
   };
 }
 
@@ -1766,7 +1766,7 @@ function isAutoPaidReadingPayment(payment) {
   return String(payment?.notes || '').includes('אוטומטי מהסימון שולם');
 }
 
-function calculateTenantBalanceBreakdown(tenant, payments, readings, waterPrice, kvaCon, todayIso = currentIsoDate(), tenantCreditsMap = null) {
+function calculateTenantBalanceBreakdown(tenant, payments, readings, todayIso = currentIsoDate(), tenantCreditsMap = null) {
   const tenantId = Number(tenant?.id);
   const calcEndIso = tenantBalanceCalcEndIso(tenant, todayIso);
   const tenantCreditEntries = getTenantCreditEntriesFromMap(tenantCreditsMap, tenantId);
@@ -1965,10 +1965,10 @@ function calculateTenantBalanceBreakdown(tenant, payments, readings, waterPrice,
       const currentDateIso = parseDateToIso(current?.date || '') || '';
       let amount = 0;
       if (type === 'electricity') {
-        const elecRate = getTenantElectricityForDate(tenant, currentDateIso, Number(kvaCon || 0), 0.65);
+        const elecRate = getTenantElectricityForDate(tenant, currentDateIso);
         amount = (elecRate.kvaConAmount / 4) + (Math.max(0, consumption) * elecRate.pricePerKwh);
       } else {
-        amount = Math.max(0, consumption) * getTenantWaterPriceForDate(tenant, currentDateIso, Number(waterPrice || 0));
+        amount = Math.max(0, consumption) * getTenantWaterPriceForDate(tenant, currentDateIso);
       }
       const debt = Math.max(0, amount || 0);
       const currentId = Number(current?.id);
@@ -2311,7 +2311,7 @@ async function renderReminders() {
   if (contractDaysInput) contractDaysInput.disabled = !canWrite;
   if (checkDaysInput) checkDaysInput.disabled = !canWrite;
 
-  const [config, autoReminders, manualReminders, releasedAutoIds, upcoming, payments, tenants, readings, waterPriceRaw, kvaConRaw, tenantCreditsMap] = await Promise.all([
+  const [config, autoReminders, manualReminders, releasedAutoIds, upcoming, payments, tenants, readings, tenantCreditsMap] = await Promise.all([
     getRemindersConfig(),
     buildAutomaticReminders(),
     getManualReminders(),
@@ -2320,12 +2320,8 @@ async function renderReminders() {
     getAllPayments(),
     getAllTenants(true),
     getAllReadings(),
-    getSetting('waterPrice'),
-    getSetting('kvaCon'),
     getTenantBalanceCreditsMap()
   ]);
-  const waterPrice = Number(waterPriceRaw ?? 0);
-  const kvaCon = Number(kvaConRaw ?? 0);
 
   if (contractDaysInput && !contractDaysInput.value) {
     contractDaysInput.value = String(config.contractDays);
@@ -2526,7 +2522,7 @@ async function renderReminders() {
     if (!tenant) return;
     contractBalanceByTenantId.set(
       tenantId,
-      calculateTenantBalanceBreakdown(tenant, payments || [], readings || [], waterPrice, kvaCon, currentIsoDate(), tenantCreditsMap)
+      calculateTenantBalanceBreakdown(tenant, payments || [], readings || [], currentIsoDate(), tenantCreditsMap)
     );
   });
   let upcomingContractsTotalBalance = 0;
@@ -3465,9 +3461,6 @@ async function importDepositsFromCsv(csvText, accountValue) {
 
 // Bills (legacy)
 async function generateBills(asOfDate) {
-  const elecPrice = await getSetting('electricityPrice') ?? 1.5;
-  const waterPrice = await getSetting('waterPrice') ?? 6;
-  const kvaCon = await getSetting('kvaCon') ?? 0;
   const tenants = await getAllTenants(false);
   const created = [];
   const useRemote = isRemoteApp();
@@ -3482,10 +3475,10 @@ async function generateBills(asOfDate) {
       const consumption = Number(curr.value) - Number(prev.value);
       let amount = 0;
       if (meterType === 'electricity') {
-        const elecRate = getTenantElectricityForDate(t, parseDateToIso(curr.date || '') || '', kvaCon, 0.65);
+        const elecRate = getTenantElectricityForDate(t, parseDateToIso(curr.date || '') || '');
         amount = (elecRate.kvaConAmount / 4) + (Math.max(0, consumption) * elecRate.pricePerKwh);
       } else {
-        amount = Math.max(0, consumption) * getTenantWaterPriceForDate(t, parseDateToIso(curr.date || '') || '', waterPrice);
+        amount = Math.max(0, consumption) * getTenantWaterPriceForDate(t, parseDateToIso(curr.date || '') || '');
       }
       const bill = { tenantId: t.id, apartmentNumber: t.apartmentNumber, meterType, prevReading: prev.value, prevDate: prev.date, currReading: curr.value, currDate: curr.date, consumption, amount, date: asOfDate, paid: false, createdAt: new Date().toISOString() };
       if (useRemote) {
@@ -4022,7 +4015,7 @@ function calculateMeterReportFromPair(prevReading, currentReading, unitPrice) {
   };
 }
 
-function calculateElectricityReportFromPair(prevReading, currentReading, kvaCon, pricePerKwh = 0.65) {
+function calculateElectricityReportFromPair(prevReading, currentReading, kvaCon, pricePerKwh) {
   if (!prevReading || !currentReading) return null;
   const consumption = Number(currentReading.value) - Number(prevReading.value);
   const kvaCost = kvaCon / 4;
@@ -4049,7 +4042,7 @@ function resolveReadingDisplayInfo(tenant, waterCurrent, elecCurrent) {
   };
 }
 
-function buildMonthlyReportSync(monthValue, { waterPrice, kvaCon, tenants, allReadings }) {
+function buildMonthlyReportSync(monthValue, { tenants, allReadings }) {
   const parsed = parseMonthValue(monthValue);
   if (!parsed) throw new Error('בחר חודש תקין (MM/YYYY)');
   const { year, month, normalized } = parsed;
@@ -4064,8 +4057,10 @@ function buildMonthlyReportSync(monthValue, { waterPrice, kvaCon, tenants, allRe
     const elecCurrent = getMonthFirstReading(elecAll, year, month);
     const elecPrev = elecCurrent ? getClosestBefore(elecAll, elecCurrent.date) : null;
 
-    const waterReport = calculateMeterReportFromPair(waterPrev, waterCurrent, waterPrice);
-    const elecReport = calculateElectricityReportFromPair(elecPrev, elecCurrent, kvaCon);
+    const waterUnitPrice = waterCurrent ? getTenantWaterPriceForDate(t, parseDateToIso(waterCurrent.date) || '') : 0;
+    const elecRate = elecCurrent ? getTenantElectricityForDate(t, parseDateToIso(elecCurrent.date) || '') : { pricePerKwh: 0, kvaConAmount: 0 };
+    const waterReport = calculateMeterReportFromPair(waterPrev, waterCurrent, waterUnitPrice);
+    const elecReport = calculateElectricityReportFromPair(elecPrev, elecCurrent, elecRate.kvaConAmount, elecRate.pricePerKwh);
     const hasMonthReading = !!(waterCurrent || elecCurrent);
 
     const total = (waterReport?.cost || 0) + (elecReport?.cost || 0);
@@ -4087,18 +4082,11 @@ function buildMonthlyReportSync(monthValue, { waterPrice, kvaCon, tenants, allRe
 }
 
 async function buildMonthlyReport(monthValue) {
-  const [waterPriceRaw, kvaConRaw, tenants, allReadings] = await Promise.all([
-    getSetting('waterPrice'),
-    getSetting('kvaCon'),
+  const [tenants, allReadings] = await Promise.all([
     getAllTenants(true),
     getAllReadings()
   ]);
-  return buildMonthlyReportSync(monthValue, {
-    waterPrice: Number(waterPriceRaw ?? 0),
-    kvaCon: Number(kvaConRaw ?? 0),
-    tenants,
-    allReadings
-  });
+  return buildMonthlyReportSync(monthValue, { tenants, allReadings });
 }
 
 function renderBillsReport(report) {
@@ -4566,12 +4554,15 @@ function findPreviousReadingForTenantMeter(readings, currentReading) {
     .pop() || null;
 }
 
-function calculateReadingChargeAmount(reading, previousReading, waterPrice, kvaCon, pricePerKwh = 0.65) {
+function calculateReadingChargeAmount(reading, previousReading, tenant) {
   if (!reading || !previousReading) return 0;
+  const dateIso = parseDateToIso(reading.date || '') || '';
   if (reading.meterType === 'electricity') {
-    return calculateElectricityReportFromPair(previousReading, reading, kvaCon, pricePerKwh)?.cost || 0;
+    const elecRate = getTenantElectricityForDate(tenant, dateIso);
+    return calculateElectricityReportFromPair(previousReading, reading, elecRate.kvaConAmount, elecRate.pricePerKwh)?.cost || 0;
   }
   if (reading.meterType === 'water') {
+    const waterPrice = getTenantWaterPriceForDate(tenant, dateIso);
     return calculateMeterReportFromPair(previousReading, reading, waterPrice)?.cost || 0;
   }
   return 0;
@@ -4580,22 +4571,18 @@ function calculateReadingChargeAmount(reading, previousReading, waterPrice, kvaC
 async function buildReadingPaidActionContext(readingId) {
   const allReadings = await getAllReadings();
   const tenants = await getAllTenants(true);
-  const waterPrice = Number(await getSetting('waterPrice') ?? 0);
-  const kvaCon = Number(await getSetting('kvaCon') ?? 0);
   const reading = allReadings.find(r => Number(r.id) === Number(readingId));
   if (!reading) return null;
 
   const previousReading = findPreviousReadingForTenantMeter(allReadings, reading);
   const tenant = tenants.find(t => Number(t.id) === Number(reading.tenantId));
-  const amount = calculateReadingChargeAmount(reading, previousReading, waterPrice, kvaCon);
+  const amount = calculateReadingChargeAmount(reading, previousReading, tenant);
 
   return {
     reading,
     tenant,
     previousReading,
-    amount,
-    waterPrice,
-    kvaCon
+    amount
   };
 }
 
@@ -4628,9 +4615,6 @@ async function ensurePaidReadingsHavePayments() {
   const readings = await getAllReadings();
   const payments = await getAllPayments();
   const tenants = await getAllTenants(true);
-  const waterPrice = Number(await getSetting('waterPrice') ?? 0);
-  const kvaCon = Number(await getSetting('kvaCon') ?? 0);
-
   const coveredReadingIds = new Set();
   payments.forEach(payment => {
     normalizePaymentReadingIdsFromPayment(payment).forEach(id => {
@@ -4646,13 +4630,13 @@ async function ensurePaidReadingsHavePayments() {
       continue;
     }
 
+    const tenant = tenantMap.get(Number(reading.tenantId));
     const previousReading = findPreviousReadingForTenantMeter(readings, reading);
-    const amount = calculateReadingChargeAmount(reading, previousReading, waterPrice, kvaCon);
+    const amount = calculateReadingChargeAmount(reading, previousReading, tenant);
     if (!Number.isFinite(amount) || amount <= 0) {
       continue;
     }
 
-    const tenant = tenantMap.get(Number(reading.tenantId));
     const tenantName = tenant
       ? `${tenant.firstName || ''} ${tenant.lastName || ''}`.trim()
       : (reading.tenantName || '');
@@ -5052,16 +5036,12 @@ async function saveBulkReadings(meterType, dateInputId, listId, statusId) {
 async function renderTenants() {
   await ensurePaidReadingsHavePayments();
 
-  const [tenants, payments, readings, waterPriceRaw, kvaConRaw, tenantCreditsMap] = await Promise.all([
+  const [tenants, payments, readings, tenantCreditsMap] = await Promise.all([
     getAllTenants(false),
     getAllPayments(),
     getAllReadings(),
-    getSetting('waterPrice'),
-    getSetting('kvaCon'),
     getTenantBalanceCreditsMap()
   ]);
-  const waterPrice = Number(waterPriceRaw ?? 0);
-  const kvaCon = Number(kvaConRaw ?? 0);
   tenantList.innerHTML = tenants.length === 0 ? '<p>אין דיירים</p>' : '';
   tenants.slice().sort((a, b) => Number(a.apartmentNumber || 0) - Number(b.apartmentNumber || 0)).forEach(t => {
     const el = document.createElement('div');
@@ -5074,7 +5054,7 @@ async function renderTenants() {
     const movedOut = hasTenantMovedOut(t, currentIsoDate());
     const nextDepositIso = (!movedOut && depositDay) ? nextDepositDateIsoForDay(depositDay, currentIsoDate()) : '';
     const nextDepositText = nextDepositIso ? formatDateEu(nextDepositIso) : '';
-    const balance = calculateTenantBalanceBreakdown(t, payments, readings, waterPrice, kvaCon, currentIsoDate(), tenantCreditsMap);
+    const balance = calculateTenantBalanceBreakdown(t, payments, readings, currentIsoDate(), tenantCreditsMap);
     const totalBalance = Number(balance?.total || 0);
     const balanceAbs = Math.abs(totalBalance);
     const balanceStateClass = totalBalance > 0 ? 'state-debt' : (totalBalance < 0 ? 'state-credit' : 'state-neutral');
@@ -5375,8 +5355,6 @@ async function renderReadings() {
   try {
     const all = await getAllReadings();
     const tenants = await getAllTenants(true);
-    const waterPrice = Number(await getSetting('waterPrice') ?? 0);
-    const kvaCon = Number(await getSetting('kvaCon') ?? 0);
     const allowWrite = canWriteCurrentUser();
     const showStatus = isRemoteApp();
 
@@ -5473,9 +5451,7 @@ async function renderReadings() {
     window.__readingsDetailCache = {
       prevById,
       readingById,
-      tenantMap,
-      waterPrice,
-      kvaCon
+      tenantMap
     };
 
     const rows = sorted.map(r => {
@@ -5831,18 +5807,11 @@ async function renderMonthlyChargesChart() {
   if (!container) return;
 
   try {
-    const [waterPriceRaw, kvaConRaw, tenants, allReadings] = await Promise.all([
-      getSetting('waterPrice'),
-      getSetting('kvaCon'),
+    const [tenants, allReadings] = await Promise.all([
       getAllTenants(true),
       getAllReadings()
     ]);
-    const reportCtx = {
-      waterPrice: Number(waterPriceRaw ?? 0),
-      kvaCon: Number(kvaConRaw ?? 0),
-      tenants,
-      allReadings
-    };
+    const reportCtx = { tenants, allReadings };
     window.__monthlyChargesReportCtx = reportCtx;
 
     const monthKeys = Array.from(new Set(
@@ -6465,14 +6434,14 @@ function currentMonthKey() {
 }
 
 function computeTenantMonthBreakdown(tenant, monthKey, ctx) {
-  const { payments, readings, waterPrice, kvaCon, tenantCreditsMap } = ctx;
+  const { payments, readings, tenantCreditsMap } = ctx;
   const tenantId = Number(tenant?.id);
   const monthStart = monthKeyStartIso(monthKey);
   const monthEnd = monthKeyEndIso(monthKey);
   const prevMonthEnd = monthKeyEndIso(shiftMonthKey(monthKey, -1));
 
   const carryoverBreakdown = calculateTenantBalanceBreakdown(
-    tenant, payments, readings, waterPrice, kvaCon, prevMonthEnd, tenantCreditsMap
+    tenant, payments, readings, prevMonthEnd, tenantCreditsMap
   );
   const carryover = Number(carryoverBreakdown?.total || 0);
 
@@ -6527,10 +6496,10 @@ function computeTenantMonthBreakdown(tenant, monthKey, ctx) {
     if (!prev) return;
     const consumption = Number(r.value || 0) - Number(prev.value || 0);
     if (r.meterType === 'electricity') {
-      const elecRate = getTenantElectricityForDate(tenant, iso, Number(kvaCon || 0), 0.65);
+      const elecRate = getTenantElectricityForDate(tenant, iso);
       electricity += Math.max(0, (elecRate.kvaConAmount / 4) + Math.max(0, consumption) * elecRate.pricePerKwh);
     } else if (r.meterType === 'water') {
-      water += Math.max(0, consumption) * getTenantWaterPriceForDate(tenant, iso, Number(waterPrice || 0));
+      water += Math.max(0, consumption) * getTenantWaterPriceForDate(tenant, iso);
     }
   });
 
@@ -6584,22 +6553,18 @@ let balanceTenantChartState = {
 };
 
 async function loadBalanceTenantContext() {
-  const [payments, readings, tenants, tenantCreditsMap, waterPriceRaw, kvaConRaw] = await Promise.all([
+  const [payments, readings, tenants, tenantCreditsMap] = await Promise.all([
     getAllPayments(),
     getAllReadings(),
     getAllTenants(true),
-    getTenantBalanceCreditsMap(),
-    getSetting('waterPrice'),
-    getSetting('kvaCon')
+    getTenantBalanceCreditsMap()
   ]);
 
   balanceTenantChartState.tenants = tenants;
   balanceTenantChartState.ctx = {
     payments,
     readings,
-    tenantCreditsMap,
-    waterPrice: Number(waterPriceRaw ?? 0),
-    kvaCon: Number(kvaConRaw ?? 0)
+    tenantCreditsMap
   };
 }
 
@@ -6787,8 +6752,6 @@ async function renderBalance() {
   const tenants = await getAllTenants(true);
   const expenses = await getAllExpenses();
   const tenantCreditsMap = await getTenantBalanceCreditsMap();
-  const waterPrice = Number(await getSetting('waterPrice') ?? 0);
-  const kvaCon = Number(await getSetting('kvaCon') ?? 0);
   const includeSolarCheckbox = document.getElementById('balance-include-solar');
   const includeSolar = includeSolarCheckbox
     ? includeSolarCheckbox.checked
@@ -6977,10 +6940,10 @@ async function renderBalance() {
       const tenant = tenantMap.get(r.tenantId);
       let amount = 0;
       if (r.meterType === 'electricity') {
-        const elecRate = getTenantElectricityForDate(tenant, iso, kvaCon, 0.65);
+        const elecRate = getTenantElectricityForDate(tenant, iso);
         amount = (elecRate.kvaConAmount / 4) + (Math.max(0, consumption) * elecRate.pricePerKwh);
       } else if (r.meterType === 'water') {
-        amount = Math.max(0, consumption) * getTenantWaterPriceForDate(tenant, iso, waterPrice);
+        amount = Math.max(0, consumption) * getTenantWaterPriceForDate(tenant, iso);
       }
       if (!amount) return;
 
@@ -8579,14 +8542,8 @@ showAddBtn?.addEventListener('click', async () => { setActiveButton('show-add');
 showArchiveBtn?.addEventListener('click', async () => { setActiveButton('show-archive'); await renderArchive(); show(archiveView); });
 showSettingsBtn?.addEventListener('click', async () => {
   setActiveButton('show-settings');
-  const e = await getSetting('electricityPrice');
-  const w = await getSetting('waterPrice');
-  const kva = await getSetting('kvaCon');
   const t = await getSetting('appTitle');
   const serverUrl = await getSetting('serverUrl');
-  document.getElementById('electricity-price').value = e ?? '';
-  document.getElementById('water-price').value = w ?? '';
-  document.getElementById('kva-con').value = kva ?? '';
   document.getElementById('app-title').value = t ?? '';
   document.getElementById('server-url').value = serverUrl ?? '';
   const themeToggle = document.getElementById('theme-dark-toggle');
@@ -9550,17 +9507,9 @@ creditsImportBtn?.addEventListener('click', async () => {
 // Settings
 const saveSettingsBtn = document.getElementById('save-settings');
 saveSettingsBtn?.addEventListener('click', async () => {
-  const e = Number(document.getElementById('electricity-price').value);
-  const w = Number(document.getElementById('water-price').value);
-  const kva = Number(document.getElementById('kva-con').value);
   const t = document.getElementById('app-title').value || '';
   const serverUrl = document.getElementById('server-url').value.trim();
-  
-  if (isNaN(e) || isNaN(w) || isNaN(kva)) { alert('הזן מספרים'); return; }
-  
-  await setSetting('electricityPrice', e);
-  await setSetting('waterPrice', w);
-  await setSetting('kvaCon', kva);
+
   await setSetting('appTitle', t);
   await setSetting('serverUrl', serverUrl);
   
@@ -9731,50 +9680,6 @@ document.getElementById('rates-save')?.addEventListener('click', async () => {
     console.error(err);
     alert(err.message || 'שגיאה בשמירת תעריפים');
   }
-});
-
-document.getElementById('rates-seed-from-global')?.addEventListener('click', async () => {
-  if (!confirm('פעולה זו תאתחל תעריפי מים וחשמל לכל דייר שאין לו היסטוריה, לפי התעריפים הגלובליים הנוכחיים. להמשיך?')) return;
-
-  const globalWaterPrice = Number((await getSetting('waterPrice')) || 0);
-  const globalKvaCon     = Number((await getSetting('kvaCon'))     || 0);
-  const globalElecPrice  = Number((await getSetting('electricityPrice')) || 0.65);
-
-  const tenants = await getAllTenants(true);
-  let count = 0;
-  const errors = [];
-
-  for (const tenant of tenants) {
-    const patch = {};
-    const startIso = parseDateToIso(tenant.startDate || '') || '2022-10-01';
-
-    const hasWater = normalizeWaterPriceHistory(tenant.waterPriceHistory).length > 0;
-    if (!hasWater) {
-      patch.waterPriceHistory = JSON.stringify([{ startIso, endIso: '', pricePerM3: globalWaterPrice || 1 }]);
-    }
-
-    const hasElec = normalizeElectricityHistory(tenant.electricityHistory).length > 0;
-    if (!hasElec) {
-      patch.electricityHistory = JSON.stringify([{ startIso, endIso: '', pricePerKwh: globalElecPrice, kvaConAmount: globalKvaCon }]);
-    }
-
-    if (Object.keys(patch).length > 0) {
-      try {
-        await saveTenantPatch(Number(tenant.id), patch);
-        count++;
-      } catch (err) {
-        const name = `${tenant.firstName || ''} ${tenant.lastName || ''}`.trim();
-        errors.push(`${name}: ${err.message}`);
-      }
-    }
-  }
-
-  if (errors.length) {
-    alert(`אותחלו ${count} דיירים.\n\nשגיאות (${errors.length}):\n${errors.slice(0, 5).join('\n')}`);
-  } else {
-    alert(`אותחלו תעריפים ל-${count} דיירים בהצלחה.\nמחיר מים: ${globalWaterPrice || 1} | ₪/קוט"ש: ${globalElecPrice} | KVA+CON: ${globalKvaCon}`);
-  }
-  await renderRatesSection();
 });
 
 // Manual tenant sync
@@ -10433,8 +10338,6 @@ document.getElementById('readings-list')?.addEventListener('click', async e => {
     const cache = window.__readingsDetailCache || {};
     const prev = cache.prevById ? cache.prevById.get(id) : null;
     const reading = cache.readingById ? cache.readingById.get(id) : null;
-    const waterPrice = Number(cache.waterPrice || 0);
-    const kvaCon = Number(cache.kvaCon || 0);
 
     if (!reading) return;
 
@@ -10455,10 +10358,10 @@ document.getElementById('readings-list')?.addEventListener('click', async e => {
     if (prev) {
       consumption = currentValue - Number(prev.value || 0);
       if (meterLabel === 'חשמל') {
-        const elecRate = getTenantElectricityForDate(readingTenant, readingDateIso, kvaCon, 0.65);
+        const elecRate = getTenantElectricityForDate(readingTenant, readingDateIso);
         amount = (elecRate.kvaConAmount / 4) + (Math.max(0, consumption) * elecRate.pricePerKwh);
       } else if (meterLabel === 'מים') {
-        amount = Math.max(0, consumption) * getTenantWaterPriceForDate(readingTenant, readingDateIso, waterPrice);
+        amount = Math.max(0, consumption) * getTenantWaterPriceForDate(readingTenant, readingDateIso);
       }
     }
 
