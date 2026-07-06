@@ -222,6 +222,7 @@
         </div>
         <div class="actions" style="margin-top: 8px;">
           <button id="readings-mark-paid-selected" type="button" style="background-color: #27ae60; color: white;" disabled>✓ סמן נבחרים כשולמו (<span id="readings-selected-count">0</span>)</button>
+          <button id="readings-edit-date-selected" type="button" disabled>📅 ערוך תאריך לנבחרים (<span id="readings-edit-date-selected-count">0</span>)</button>
         </div>
         <div id="readings-list" class="section-container" style="margin-top: 12px;"></div>
         <div id="readings-approvals" class="section-container" style="margin-top: 12px;"></div>
@@ -864,6 +865,22 @@
         <button id="reading-paid-choice-mark-only" type="button">סמן כ"שולם" בלבד</button>
         <button id="reading-paid-choice-create-payment" type="button">צור תשלום/הכנסה</button>
         <button id="reading-paid-choice-cancel" type="button">בטל</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Bulk Date Edit Modal -->
+  <div id="readings-bulk-date-modal" class="modal hidden">
+    <div class="modal-content">
+      <h2>עריכת תאריך לקריאות נבחרות</h2>
+      <div class="row">
+        <label>תאריך חדש
+          <input id="readings-bulk-date-input" type="text" placeholder="DD/MM/YYYY">
+        </label>
+      </div>
+      <div class="modal-actions">
+        <button id="readings-bulk-date-confirm" type="button">עדכן</button>
+        <button id="readings-bulk-date-cancel" type="button">בטל</button>
       </div>
     </div>
   </div>

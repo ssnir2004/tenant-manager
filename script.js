@@ -4703,6 +4703,11 @@ function updateReadingsSelectedCount() {
   if (countEl) countEl.textContent = String(ids.length);
   if (button) button.disabled = ids.length === 0;
 
+  const editDateButton = document.getElementById('readings-edit-date-selected');
+  const editDateCountEl = document.getElementById('readings-edit-date-selected-count');
+  if (editDateCountEl) editDateCountEl.textContent = String(ids.length);
+  if (editDateButton) editDateButton.disabled = ids.length === 0;
+
   const selectAll = document.getElementById('readings-select-all');
   if (selectAll) {
     const selectable = document.querySelectorAll('.reading-select-row:not([disabled])');
@@ -4808,6 +4813,57 @@ async function handleReadingsBulkMarkPaid() {
   } catch (err) {
     console.error(err);
     alert(err.message || 'שגיאה בסימון קריאות');
+  }
+}
+
+function showBulkDateModal() {
+  return new Promise(resolve => {
+    const modal = document.getElementById('readings-bulk-date-modal');
+    if (!modal) return resolve(null);
+    const input = document.getElementById('readings-bulk-date-input');
+    if (input) input.value = '';
+    modal.classList.remove('hidden');
+    if (input) input.focus();
+
+    const onConfirm = () => {
+      const iso = parseDateToIso(input ? input.value.trim() : '');
+      if (!iso) { alert('תאריך לא תקין'); return; }
+      cleanup();
+      resolve(iso);
+    };
+    const onCancel = () => { cleanup(); resolve(null); };
+
+    const confirmBtn = document.getElementById('readings-bulk-date-confirm');
+    const cancelBtn = document.getElementById('readings-bulk-date-cancel');
+    confirmBtn?.addEventListener('click', onConfirm, { once: true });
+    cancelBtn?.addEventListener('click', onCancel, { once: true });
+
+    function cleanup() {
+      modal.classList.add('hidden');
+      confirmBtn?.removeEventListener('click', onConfirm);
+      cancelBtn?.removeEventListener('click', onCancel);
+    }
+  });
+}
+
+async function handleReadingsBulkEditDate() {
+  if (!canWriteCurrentUser()) return;
+  const ids = getSelectedReadingIds();
+  if (!ids.length) return;
+
+  const newDate = await showBulkDateModal();
+  if (!newDate) return;
+
+  try {
+    for (const id of ids) {
+      await updateReading(id, { date: newDate });
+    }
+    await renderReadings();
+    await renderBalance();
+    await renderMom();
+  } catch (err) {
+    console.error(err);
+    alert(err.message || 'שגיאה בעדכון תאריך');
   }
 }
 
@@ -5383,7 +5439,7 @@ async function renderReadings() {
           <button class="btn-delete-reading" data-id="${r.id}">🗑️</button>
       ` : '—';
       const selectCell = allowWrite
-        ? `<td><input type="checkbox" class="reading-select-row" data-id="${r.id}" ${r.paid ? 'disabled' : ''} aria-label="בחר קריאה"></td>`
+        ? `<td><input type="checkbox" class="reading-select-row" data-id="${r.id}" aria-label="בחר קריאה"></td>`
         : '';
       return `
         <tr class="${missing ? 'row-missing' : ''} reading-row" data-reading-id="${r.id}">
@@ -10180,6 +10236,10 @@ document.getElementById('readings-list')?.addEventListener('change', async e => 
 
 document.getElementById('readings-mark-paid-selected')?.addEventListener('click', async () => {
   await handleReadingsBulkMarkPaid();
+});
+
+document.getElementById('readings-edit-date-selected')?.addEventListener('click', async () => {
+  await handleReadingsBulkEditDate();
 });
 
 // Payments header double-click sort
