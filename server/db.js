@@ -171,6 +171,8 @@ async function migrateSchema(db) {
   await ensureColumn(db, 'tenants', 'depositDay', 'TEXT', tenantsColumns);
   await ensureColumn(db, 'tenants', 'rentHistory', 'TEXT', tenantsColumns);
   await ensureColumn(db, 'tenants', 'arnonaHistory', 'TEXT', tenantsColumns);
+  await ensureColumn(db, 'tenants', 'waterPriceHistory', 'TEXT', tenantsColumns);
+  await ensureColumn(db, 'tenants', 'electricityHistory', 'TEXT', tenantsColumns);
 
   const readingsColumns = await getTableColumns(db, 'readings');
   await ensureColumn(db, 'readings', 'status', "TEXT DEFAULT 'approved'", readingsColumns);

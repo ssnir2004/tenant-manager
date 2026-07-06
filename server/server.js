@@ -762,8 +762,8 @@ function respondDbError(res, err) {
       `INSERT INTO tenants (
         firstName, lastName, nationalId, phone, startDate, endDate, moveOutDate,
         rentAmount, rentHistory, arnonaAmount, arnonaHistory, depositDay, apartmentNumber, electricityMeter, waterMeter,
-        notes, createdAt, archived, active
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)` ,
+        waterPriceHistory, electricityHistory, notes, createdAt, archived, active
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)` ,
       [
         t.firstName || '',
         t.lastName || '',
@@ -780,6 +780,8 @@ function respondDbError(res, err) {
         t.apartmentNumber || '',
         t.electricityMeter || '',
         t.waterMeter || '',
+        t.waterPriceHistory || '',
+        t.electricityHistory || '',
         t.notes || '',
         now,
         toBooleanInt(t.archived) ?? 0,
@@ -797,7 +799,7 @@ function respondDbError(res, err) {
       `UPDATE tenants SET
         firstName = ?, lastName = ?, nationalId = ?, phone = ?, startDate = ?, endDate = ?, moveOutDate = ?,
         rentAmount = ?, rentHistory = ?, arnonaAmount = ?, arnonaHistory = ?, depositDay = ?, apartmentNumber = ?, electricityMeter = ?, waterMeter = ?,
-        notes = ?, archived = ?, active = ?
+        waterPriceHistory = ?, electricityHistory = ?, notes = ?, archived = ?, active = ?
       WHERE id = ?`,
       [
         t.firstName || '',
@@ -815,6 +817,8 @@ function respondDbError(res, err) {
         t.apartmentNumber || '',
         t.electricityMeter || '',
         t.waterMeter || '',
+        t.waterPriceHistory || '',
+        t.electricityHistory || '',
         t.notes || '',
         toBooleanInt(t.archived) ?? 0,
         toBooleanInt(t.active) ?? 1,
