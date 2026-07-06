@@ -290,6 +290,68 @@
           </small>
         </div>
         <hr style="margin: 20px 0; border: none; border-top: 1px solid #ddd;">
+        <h3>תעריפי שירותים לפי דירה</h3>
+        <div class="row">
+          <label>בחר דייר/דירה
+            <select id="rates-tenant-select" style="min-width: 200px;"></select>
+          </label>
+        </div>
+        <div id="rates-section" style="display:none; margin-top: 16px;">
+          <!-- ארנונה -->
+          <div class="rates-card" style="margin-bottom: 18px; padding: 12px; border: 1px solid #ddd; border-radius: 6px;">
+            <strong>ארנונה (₪/חודש)</strong>
+            <table id="rates-arnona-table" style="width:100%; margin-top: 8px; border-collapse: collapse;">
+              <thead>
+                <tr style="background:#f5f5f5;">
+                  <th style="padding:4px 8px; text-align:right;">מתאריך</th>
+                  <th style="padding:4px 8px; text-align:right;">עד תאריך</th>
+                  <th style="padding:4px 8px; text-align:right;">₪/חודש</th>
+                  <th style="padding:4px 8px;"></th>
+                </tr>
+              </thead>
+              <tbody id="rates-arnona-body"></tbody>
+            </table>
+            <button type="button" id="rates-arnona-add" style="margin-top:6px;">+ הוסף תקופה</button>
+          </div>
+          <!-- מים -->
+          <div class="rates-card" style="margin-bottom: 18px; padding: 12px; border: 1px solid #ddd; border-radius: 6px;">
+            <strong>מים (₪/מ"ק)</strong>
+            <table id="rates-water-table" style="width:100%; margin-top: 8px; border-collapse: collapse;">
+              <thead>
+                <tr style="background:#f5f5f5;">
+                  <th style="padding:4px 8px; text-align:right;">מתאריך</th>
+                  <th style="padding:4px 8px; text-align:right;">עד תאריך</th>
+                  <th style="padding:4px 8px; text-align:right;">₪/מ"ק</th>
+                  <th style="padding:4px 8px;"></th>
+                </tr>
+              </thead>
+              <tbody id="rates-water-body"></tbody>
+            </table>
+            <button type="button" id="rates-water-add" style="margin-top:6px;">+ הוסף תקופה</button>
+          </div>
+          <!-- חשמל -->
+          <div class="rates-card" style="margin-bottom: 18px; padding: 12px; border: 1px solid #ddd; border-radius: 6px;">
+            <strong>חשמל</strong>
+            <table id="rates-electricity-table" style="width:100%; margin-top: 8px; border-collapse: collapse;">
+              <thead>
+                <tr style="background:#f5f5f5;">
+                  <th style="padding:4px 8px; text-align:right;">מתאריך</th>
+                  <th style="padding:4px 8px; text-align:right;">עד תאריך</th>
+                  <th style="padding:4px 8px; text-align:right;">₪/קוט"ש</th>
+                  <th style="padding:4px 8px; text-align:right;">KVA+CON/חודש</th>
+                  <th style="padding:4px 8px;"></th>
+                </tr>
+              </thead>
+              <tbody id="rates-electricity-body"></tbody>
+            </table>
+            <button type="button" id="rates-electricity-add" style="margin-top:6px;">+ הוסף תקופה</button>
+          </div>
+          <div class="actions">
+            <button type="button" id="rates-save" style="background:#2980b9; color:white;">שמור תעריפים</button>
+          </div>
+        </div>
+
+        <hr style="margin: 20px 0; border: none; border-top: 1px solid #ddd;">
         <h3>סנכרון דיירים</h3>
         <div class="actions">
           <button id="sync-tenants-push" type="button">סנכרון לשרת</button>

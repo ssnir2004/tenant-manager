@@ -331,6 +331,60 @@ function formatRentHistoryForText(entries) {
     .join('\n');
 }
 
+function normalizeWaterPriceHistory(value) {
+  let raw = value;
+  if (!raw) return [];
+  if (typeof raw === 'string') {
+    const trimmed = raw.trim();
+    if (!trimmed) return [];
+    try { raw = JSON.parse(trimmed); } catch { return []; }
+  }
+  if (!Array.isArray(raw)) return [];
+  return raw.map(item => {
+    const startIso = parseDateToIso(item?.startIso || item?.startDate || '');
+    const endIso = parseDateToIso(item?.endIso || item?.endDate || '');
+    const pricePerM3 = Number(item?.pricePerM3 ?? item?.amount ?? 0);
+    if (!startIso || !Number.isFinite(pricePerM3) || pricePerM3 <= 0) return null;
+    if (endIso && endIso < startIso) return null;
+    return { startIso, endIso: endIso || '', pricePerM3: Number(pricePerM3.toFixed(4)) };
+  }).filter(Boolean).sort((a, b) => a.startIso.localeCompare(b.startIso));
+}
+
+function normalizeElectricityHistory(value) {
+  let raw = value;
+  if (!raw) return [];
+  if (typeof raw === 'string') {
+    const trimmed = raw.trim();
+    if (!trimmed) return [];
+    try { raw = JSON.parse(trimmed); } catch { return []; }
+  }
+  if (!Array.isArray(raw)) return [];
+  return raw.map(item => {
+    const startIso = parseDateToIso(item?.startIso || item?.startDate || '');
+    const endIso = parseDateToIso(item?.endIso || item?.endDate || '');
+    const pricePerKwh = Number(item?.pricePerKwh ?? 0);
+    const kvaConAmount = Number(item?.kvaConAmount ?? item?.kvaCon ?? 0);
+    if (!startIso || !Number.isFinite(pricePerKwh) || pricePerKwh <= 0) return null;
+    if (endIso && endIso < startIso) return null;
+    return { startIso, endIso: endIso || '', pricePerKwh: Number(pricePerKwh.toFixed(4)), kvaConAmount: Number(kvaConAmount.toFixed(2)) };
+  }).filter(Boolean).sort((a, b) => a.startIso.localeCompare(b.startIso));
+}
+
+function getTenantWaterPriceForDate(tenant, dateIso, fallback) {
+  const history = normalizeWaterPriceHistory(tenant?.waterPriceHistory);
+  const entry = history.find(e => e.startIso <= dateIso && (!e.endIso || e.endIso >= dateIso));
+  return entry ? entry.pricePerM3 : fallback;
+}
+
+function getTenantElectricityForDate(tenant, dateIso, fallbackKvaCon, fallbackPricePerKwh) {
+  const history = normalizeElectricityHistory(tenant?.electricityHistory);
+  const entry = history.find(e => e.startIso <= dateIso && (!e.endIso || e.endIso >= dateIso));
+  return {
+    pricePerKwh: entry ? entry.pricePerKwh : fallbackPricePerKwh,
+    kvaConAmount: entry ? entry.kvaConAmount : fallbackKvaCon
+  };
+}
+
 function normalizeArnonaHistoryEntries(value) {
   let raw = value;
   if (!raw) return [];
@@ -736,6 +790,8 @@ async function clearAllTenants() {
 function extractTenantFields(t) {
   const normalizedRentHistory = normalizeRentHistoryEntries(t.rentHistory);
   const normalizedArnonaHistory = normalizeArnonaHistoryEntries(t.arnonaHistory);
+  const normalizedWaterHistory = normalizeWaterPriceHistory(t.waterPriceHistory);
+  const normalizedElecHistory = normalizeElectricityHistory(t.electricityHistory);
   return {
     firstName: t.firstName || '',
     lastName: t.lastName || '',
@@ -752,6 +808,8 @@ function extractTenantFields(t) {
     waterMeter: t.waterMeter || '',
     rentHistory: normalizedRentHistory.length ? JSON.stringify(normalizedRentHistory) : '',
     arnonaHistory: normalizedArnonaHistory.length ? JSON.stringify(normalizedArnonaHistory) : '',
+    waterPriceHistory: normalizedWaterHistory.length ? JSON.stringify(normalizedWaterHistory) : '',
+    electricityHistory: normalizedElecHistory.length ? JSON.stringify(normalizedElecHistory) : '',
     notes: t.notes || '',
     archived: t.archived ?? false,
     active: t.active ?? true
@@ -1904,11 +1962,13 @@ function calculateTenantBalanceBreakdown(tenant, payments, readings, waterPrice,
       const prev = chain[i - 1];
       const current = chain[i];
       const consumption = Number(current?.value || 0) - Number(prev?.value || 0);
+      const currentDateIso = parseDateToIso(current?.date || '') || '';
       let amount = 0;
       if (type === 'electricity') {
-        amount = (Number(kvaCon || 0) / 4) + (Math.max(0, consumption) * 0.65);
+        const elecRate = getTenantElectricityForDate(tenant, currentDateIso, Number(kvaCon || 0), 0.65);
+        amount = (elecRate.kvaConAmount / 4) + (Math.max(0, consumption) * elecRate.pricePerKwh);
       } else {
-        amount = Math.max(0, consumption) * Number(waterPrice || 0);
+        amount = Math.max(0, consumption) * getTenantWaterPriceForDate(tenant, currentDateIso, Number(waterPrice || 0));
       }
       const debt = Math.max(0, amount || 0);
       const currentId = Number(current?.id);
@@ -3422,13 +3482,10 @@ async function generateBills(asOfDate) {
       const consumption = Number(curr.value) - Number(prev.value);
       let amount = 0;
       if (meterType === 'electricity') {
-        // עלות חשמל = (KVA+CON / 4) + (0.65 * הפרש מונים)
-        const kvaCost = kvaCon / 4;
-        const consumptionCost = Math.max(0, consumption) * 0.65;
-        amount = kvaCost + consumptionCost;
+        const elecRate = getTenantElectricityForDate(t, parseDateToIso(curr.date || '') || '', kvaCon, 0.65);
+        amount = (elecRate.kvaConAmount / 4) + (Math.max(0, consumption) * elecRate.pricePerKwh);
       } else {
-        // עלות מים = תעריף * הפרש מונים
-        amount = Math.max(0, consumption) * waterPrice;
+        amount = Math.max(0, consumption) * getTenantWaterPriceForDate(t, parseDateToIso(curr.date || '') || '', waterPrice);
       }
       const bill = { tenantId: t.id, apartmentNumber: t.apartmentNumber, meterType, prevReading: prev.value, prevDate: prev.date, currReading: curr.value, currDate: curr.date, consumption, amount, date: asOfDate, paid: false, createdAt: new Date().toISOString() };
       if (useRemote) {
@@ -3965,12 +4022,11 @@ function calculateMeterReportFromPair(prevReading, currentReading, unitPrice) {
   };
 }
 
-function calculateElectricityReportFromPair(prevReading, currentReading, kvaCon) {
+function calculateElectricityReportFromPair(prevReading, currentReading, kvaCon, pricePerKwh = 0.65) {
   if (!prevReading || !currentReading) return null;
   const consumption = Number(currentReading.value) - Number(prevReading.value);
-  // עלות חשמל = (KVA+CON / 4) + (0.65 * הפרש מונים)
   const kvaCost = kvaCon / 4;
-  const consumptionCost = Math.max(0, consumption) * 0.65;
+  const consumptionCost = Math.max(0, consumption) * pricePerKwh;
   const cost = kvaCost + consumptionCost;
   return {
     startValue: Number(prevReading.value),
@@ -4510,10 +4566,10 @@ function findPreviousReadingForTenantMeter(readings, currentReading) {
     .pop() || null;
 }
 
-function calculateReadingChargeAmount(reading, previousReading, waterPrice, kvaCon) {
+function calculateReadingChargeAmount(reading, previousReading, waterPrice, kvaCon, pricePerKwh = 0.65) {
   if (!reading || !previousReading) return 0;
   if (reading.meterType === 'electricity') {
-    return calculateElectricityReportFromPair(previousReading, reading, kvaCon)?.cost || 0;
+    return calculateElectricityReportFromPair(previousReading, reading, kvaCon, pricePerKwh)?.cost || 0;
   }
   if (reading.meterType === 'water') {
     return calculateMeterReportFromPair(previousReading, reading, waterPrice)?.cost || 0;
@@ -6471,9 +6527,10 @@ function computeTenantMonthBreakdown(tenant, monthKey, ctx) {
     if (!prev) return;
     const consumption = Number(r.value || 0) - Number(prev.value || 0);
     if (r.meterType === 'electricity') {
-      electricity += Math.max(0, (Number(kvaCon || 0) / 4) + Math.max(0, consumption) * 0.65);
+      const elecRate = getTenantElectricityForDate(tenant, iso, Number(kvaCon || 0), 0.65);
+      electricity += Math.max(0, (elecRate.kvaConAmount / 4) + Math.max(0, consumption) * elecRate.pricePerKwh);
     } else if (r.meterType === 'water') {
-      water += Math.max(0, Math.max(0, consumption) * Number(waterPrice || 0));
+      water += Math.max(0, consumption) * getTenantWaterPriceForDate(tenant, iso, Number(waterPrice || 0));
     }
   });
 
@@ -6897,19 +6954,19 @@ async function renderBalance() {
       if (!previous) return;
 
       const consumption = Number(r.value || 0) - Number(previous.value || 0);
+      const tenant = tenantMap.get(r.tenantId);
       let amount = 0;
       if (r.meterType === 'electricity') {
-        amount = (kvaCon / 4) + (Math.max(0, consumption) * 0.65);
+        const elecRate = getTenantElectricityForDate(tenant, iso, kvaCon, 0.65);
+        amount = (elecRate.kvaConAmount / 4) + (Math.max(0, consumption) * elecRate.pricePerKwh);
       } else if (r.meterType === 'water') {
-        amount = Math.max(0, consumption) * waterPrice;
+        amount = Math.max(0, consumption) * getTenantWaterPriceForDate(tenant, iso, waterPrice);
       }
       if (!amount) return;
 
       const monthKey = iso.slice(0, 7);
       const rec = ensureMonth(monthKey);
       rec.income += amount;
-
-      const tenant = tenantMap.get(r.tenantId);
       const tenantName = tenant
         ? `${tenant.firstName || ''} ${tenant.lastName || ''}`.trim()
         : (r.tenantName || '');
@@ -8515,6 +8572,7 @@ showSettingsBtn?.addEventListener('click', async () => {
   const themeToggle = document.getElementById('theme-dark-toggle');
   if (themeToggle) themeToggle.checked = localStorage.getItem(THEME_STORAGE_KEY) === 'dark';
   show(settingsView);
+  await renderRatesSection();
 });
 showPaymentsBtn?.addEventListener('click', async () => {
   setActiveButton('show-payments');
@@ -9498,6 +9556,156 @@ saveSettingsBtn?.addEventListener('click', async () => {
   show(tenantForm);
 });
 
+// ─── Rates section (per-apartment tariff history) ────────────────────────────
+
+function makeRatesDateInput(value = '') {
+  return `<input type="text" placeholder="DD/MM/YYYY" style="width:100px;" value="${value}">`;
+}
+
+function makeRatesRow(type, entry = {}) {
+  const start = entry.startIso ? formatDateEu(entry.startIso) : '';
+  const end   = entry.endIso   ? formatDateEu(entry.endIso)   : '';
+  const td = (content) => `<td style="padding:3px 6px;">${content}</td>`;
+  if (type === 'arnona') {
+    return `<tr data-type="arnona">
+      ${td(makeRatesDateInput(start))}
+      ${td(makeRatesDateInput(end))}
+      ${td(`<input type="number" step="0.01" style="width:80px;" value="${entry.arnonaAmount || ''}">`)}
+      ${td(`<button type="button" class="rates-delete-row">✕</button>`)}
+    </tr>`;
+  }
+  if (type === 'water') {
+    return `<tr data-type="water">
+      ${td(makeRatesDateInput(start))}
+      ${td(makeRatesDateInput(end))}
+      ${td(`<input type="number" step="0.0001" style="width:80px;" value="${entry.pricePerM3 || ''}">`)}
+      ${td(`<button type="button" class="rates-delete-row">✕</button>`)}
+    </tr>`;
+  }
+  if (type === 'electricity') {
+    return `<tr data-type="electricity">
+      ${td(makeRatesDateInput(start))}
+      ${td(makeRatesDateInput(end))}
+      ${td(`<input type="number" step="0.0001" style="width:80px;" value="${entry.pricePerKwh || ''}">`)}
+      ${td(`<input type="number" step="0.01" style="width:80px;" value="${entry.kvaConAmount || ''}">`)}
+      ${td(`<button type="button" class="rates-delete-row">✕</button>`)}
+    </tr>`;
+  }
+  return '';
+}
+
+function loadTenantRates(tenant) {
+  const section = document.getElementById('rates-section');
+  if (!section) return;
+  section.style.display = tenant ? '' : 'none';
+  if (!tenant) return;
+
+  const arnonaBody = document.getElementById('rates-arnona-body');
+  const waterBody  = document.getElementById('rates-water-body');
+  const elecBody   = document.getElementById('rates-electricity-body');
+
+  const arnonaEntries = normalizeArnonaHistoryEntries(tenant.arnonaHistory);
+  const waterEntries  = normalizeWaterPriceHistory(tenant.waterPriceHistory);
+  const elecEntries   = normalizeElectricityHistory(tenant.electricityHistory);
+
+  if (arnonaBody) arnonaBody.innerHTML = arnonaEntries.map(e => makeRatesRow('arnona', e)).join('') || makeRatesRow('arnona');
+  if (waterBody)  waterBody.innerHTML  = waterEntries.map(e  => makeRatesRow('water',  e)).join('') || makeRatesRow('water');
+  if (elecBody)   elecBody.innerHTML   = elecEntries.map(e   => makeRatesRow('electricity', e)).join('') || makeRatesRow('electricity');
+}
+
+function readRatesRows(tbody, type) {
+  const entries = [];
+  tbody.querySelectorAll('tr').forEach(row => {
+    const inputs = row.querySelectorAll('input');
+    const startIso = parseDateToIso(inputs[0]?.value.trim() || '') || '';
+    const endIso   = parseDateToIso(inputs[1]?.value.trim() || '') || '';
+    if (!startIso) return;
+    if (type === 'arnona') {
+      const v = Number(inputs[2]?.value);
+      if (!Number.isFinite(v) || v <= 0) return;
+      entries.push({ startIso, endIso, arnonaAmount: v });
+    } else if (type === 'water') {
+      const v = Number(inputs[2]?.value);
+      if (!Number.isFinite(v) || v <= 0) return;
+      entries.push({ startIso, endIso, pricePerM3: v });
+    } else if (type === 'electricity') {
+      const pricePerKwh   = Number(inputs[2]?.value);
+      const kvaConAmount  = Number(inputs[3]?.value) || 0;
+      if (!Number.isFinite(pricePerKwh) || pricePerKwh <= 0) return;
+      entries.push({ startIso, endIso, pricePerKwh, kvaConAmount });
+    }
+  });
+  return entries;
+}
+
+async function renderRatesSection() {
+  const sel = document.getElementById('rates-tenant-select');
+  if (!sel) return;
+  const tenants = await getAllTenants(true);
+  const active = tenants.filter(t => t.active !== false && !t.archived);
+  active.sort((a, b) => {
+    const apt = String(a.apartmentNumber || '').localeCompare(String(b.apartmentNumber || ''), 'he', { numeric: true });
+    return apt || `${a.firstName} ${a.lastName}`.localeCompare(`${b.firstName} ${b.lastName}`, 'he');
+  });
+  sel.innerHTML = '<option value="">— בחר דייר —</option>' +
+    active.map(t => {
+      const name = `${t.firstName || ''} ${t.lastName || ''}`.trim();
+      const apt  = t.apartmentNumber ? ` (דירה ${t.apartmentNumber})` : '';
+      return `<option value="${t.id}">${name}${apt}</option>`;
+    }).join('');
+  loadTenantRates(null);
+}
+
+document.getElementById('rates-tenant-select')?.addEventListener('change', async function () {
+  const id = Number(this.value);
+  if (!id) { loadTenantRates(null); return; }
+  const tenants = await getAllTenants(true);
+  const tenant = tenants.find(t => Number(t.id) === id);
+  loadTenantRates(tenant || null);
+});
+
+document.getElementById('rates-arnona-add')?.addEventListener('click', () => {
+  const body = document.getElementById('rates-arnona-body');
+  if (body) body.insertAdjacentHTML('beforeend', makeRatesRow('arnona'));
+});
+document.getElementById('rates-water-add')?.addEventListener('click', () => {
+  const body = document.getElementById('rates-water-body');
+  if (body) body.insertAdjacentHTML('beforeend', makeRatesRow('water'));
+});
+document.getElementById('rates-electricity-add')?.addEventListener('click', () => {
+  const body = document.getElementById('rates-electricity-body');
+  if (body) body.insertAdjacentHTML('beforeend', makeRatesRow('electricity'));
+});
+
+document.getElementById('rates-section')?.addEventListener('click', e => {
+  const btn = e.target.closest('.rates-delete-row');
+  if (btn) btn.closest('tr').remove();
+});
+
+document.getElementById('rates-save')?.addEventListener('click', async () => {
+  const sel = document.getElementById('rates-tenant-select');
+  const tenantId = Number(sel?.value);
+  if (!tenantId) { alert('בחר דייר תחילה'); return; }
+
+  const arnonaEntries = readRatesRows(document.getElementById('rates-arnona-body'), 'arnona');
+  const waterEntries  = readRatesRows(document.getElementById('rates-water-body'),  'water');
+  const elecEntries   = readRatesRows(document.getElementById('rates-electricity-body'), 'electricity');
+
+  try {
+    await saveTenantPatch(tenantId, {
+      arnonaHistory:      arnonaEntries.length  ? JSON.stringify(arnonaEntries)  : '',
+      waterPriceHistory:  waterEntries.length   ? JSON.stringify(waterEntries)   : '',
+      electricityHistory: elecEntries.length    ? JSON.stringify(elecEntries)    : ''
+    });
+    alert('תעריפים נשמרו');
+    await renderReadings();
+    await renderBalance();
+  } catch (err) {
+    console.error(err);
+    alert(err.message || 'שגיאה בשמירת תעריפים');
+  }
+});
+
 // Manual tenant sync
 const syncPushBtn = document.getElementById('sync-tenants-push');
 const syncPullBtn = document.getElementById('sync-tenants-pull');
@@ -9507,7 +9715,7 @@ const syncStatusEl = document.getElementById('sync-status');
 const TENANT_SYNC_FIELDS = [
   'firstName', 'lastName', 'nationalId', 'phone', 'startDate', 'endDate', 'moveOutDate',
   'rentAmount', 'arnonaAmount', 'depositDay', 'apartmentNumber', 'electricityMeter', 'waterMeter',
-  'rentHistory', 'arnonaHistory', 'notes', 'archived', 'active'
+  'rentHistory', 'arnonaHistory', 'waterPriceHistory', 'electricityHistory', 'notes', 'archived', 'active'
 ];
 
 function setSyncStatus(message, isError = false) {
@@ -10169,14 +10377,17 @@ document.getElementById('readings-list')?.addEventListener('click', async e => {
       ? Math.round((currentDateValue - prevDateValue) / (1000 * 60 * 60 * 24))
       : null;
 
+    const readingTenant = cache.tenantMap ? cache.tenantMap.get(reading.tenantId) : null;
+    const readingDateIso = parseDateToIso(reading.date || '') || '';
     let consumption = null;
     let amount = null;
     if (prev) {
       consumption = currentValue - Number(prev.value || 0);
       if (meterLabel === 'חשמל') {
-        amount = (kvaCon / 4) + (Math.max(0, consumption) * 0.65);
+        const elecRate = getTenantElectricityForDate(readingTenant, readingDateIso, kvaCon, 0.65);
+        amount = (elecRate.kvaConAmount / 4) + (Math.max(0, consumption) * elecRate.pricePerKwh);
       } else if (meterLabel === 'מים') {
-        amount = Math.max(0, consumption) * waterPrice;
+        amount = Math.max(0, consumption) * getTenantWaterPriceForDate(readingTenant, readingDateIso, waterPrice);
       }
     }
 
