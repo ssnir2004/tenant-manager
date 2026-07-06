@@ -344,7 +344,7 @@ function normalizeWaterPriceHistory(value) {
     const startIso = parseDateToIso(item?.startIso || item?.startDate || '');
     const endIso = parseDateToIso(item?.endIso || item?.endDate || '');
     const pricePerM3 = Number(item?.pricePerM3 ?? item?.amount ?? 0);
-    if (!startIso || !Number.isFinite(pricePerM3) || pricePerM3 <= 0) return null;
+    if (!startIso || !Number.isFinite(pricePerM3) || pricePerM3 < 0) return null;
     if (endIso && endIso < startIso) return null;
     return { startIso, endIso: endIso || '', pricePerM3: Number(pricePerM3.toFixed(4)) };
   }).filter(Boolean).sort((a, b) => a.startIso.localeCompare(b.startIso));
@@ -9712,20 +9712,21 @@ document.getElementById('rates-save')?.addEventListener('click', async () => {
 document.getElementById('rates-seed-from-global')?.addEventListener('click', async () => {
   if (!confirm('פעולה זו תאתחל תעריפי מים וחשמל לכל דייר שאין לו היסטוריה, לפי התעריפים הגלובליים הנוכחיים. להמשיך?')) return;
 
-  const globalWaterPrice = Number(await getSetting('waterPrice') ?? 0);
-  const globalKvaCon     = Number(await getSetting('kvaCon')     ?? 0);
-  const globalElecPrice  = 0.65;
+  const globalWaterPrice = Number((await getSetting('waterPrice')) || 0);
+  const globalKvaCon     = Number((await getSetting('kvaCon'))     || 0);
+  const globalElecPrice  = Number((await getSetting('electricityPrice')) || 0.65);
 
-  const tenants = await getAllTenants(true); // כולל דיירים מהארכיון
+  const tenants = await getAllTenants(true);
   let count = 0;
+  const errors = [];
 
   for (const tenant of tenants) {
     const patch = {};
     const startIso = parseDateToIso(tenant.startDate || '') || '2022-10-01';
 
     const hasWater = normalizeWaterPriceHistory(tenant.waterPriceHistory).length > 0;
-    if (!hasWater && globalWaterPrice > 0) {
-      patch.waterPriceHistory = JSON.stringify([{ startIso, endIso: '', pricePerM3: globalWaterPrice }]);
+    if (!hasWater) {
+      patch.waterPriceHistory = JSON.stringify([{ startIso, endIso: '', pricePerM3: globalWaterPrice || 1 }]);
     }
 
     const hasElec = normalizeElectricityHistory(tenant.electricityHistory).length > 0;
@@ -9734,12 +9735,21 @@ document.getElementById('rates-seed-from-global')?.addEventListener('click', asy
     }
 
     if (Object.keys(patch).length > 0) {
-      await saveTenantPatch(Number(tenant.id), patch);
-      count++;
+      try {
+        await saveTenantPatch(Number(tenant.id), patch);
+        count++;
+      } catch (err) {
+        const name = `${tenant.firstName || ''} ${tenant.lastName || ''}`.trim();
+        errors.push(`${name}: ${err.message}`);
+      }
     }
   }
 
-  alert(`אותחלו תעריפים ל-${count} דיירים.`);
+  if (errors.length) {
+    alert(`אותחלו ${count} דיירים.\n\nשגיאות (${errors.length}):\n${errors.slice(0, 5).join('\n')}`);
+  } else {
+    alert(`אותחלו תעריפים ל-${count} דיירים בהצלחה.\nמחיר מים: ${globalWaterPrice || 1} | ₪/קוט"ש: ${globalElecPrice} | KVA+CON: ${globalKvaCon}`);
+  }
   await renderRatesSection();
 });
 
