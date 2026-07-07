@@ -2913,6 +2913,7 @@ function accountLabel(accountValue) {
 
 function paymentCategoryLabel(category) {
   if (category === 'electricity_water' || category === 'electricity' || category === 'water') return 'חשמל ומים';
+  if (category === 'rent_electricity_water') return 'שכירות+חשמל ומים';
   if (category === 'rent') return 'שכירות';
   if (category === 'general') return 'כללי';
   return category || '';
@@ -2920,6 +2921,7 @@ function paymentCategoryLabel(category) {
 
 function paymentCategoryValueFromCsv(value) {
   const raw = String(value || '').trim();
+  if (raw === 'שכירות+חשמל ומים' || raw.toLowerCase() === 'rent_electricity_water') return 'rent_electricity_water';
   if (raw === 'חשמל ומים' || raw === 'חשמל' || raw === 'מים' || raw.toLowerCase() === 'electricity_water' || raw.toLowerCase() === 'electricity' || raw.toLowerCase() === 'water') return 'electricity_water';
   if (raw === 'שכירות' || raw.toLowerCase() === 'rent') return 'rent';
   if (raw === 'כללי' || raw.toLowerCase() === 'general') return 'general';
