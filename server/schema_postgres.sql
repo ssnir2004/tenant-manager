@@ -73,6 +73,7 @@ CREATE TABLE IF NOT EXISTS payments (
   amount DOUBLE PRECISION,
   method TEXT,
   account TEXT,
+  category TEXT,
   date TEXT,
   notes TEXT,
   "readingId" JSONB,

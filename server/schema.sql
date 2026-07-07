@@ -75,6 +75,7 @@ CREATE TABLE IF NOT EXISTS payments (
   amount REAL,
   method TEXT,
   account TEXT,
+  category TEXT,
   date TEXT,
   notes TEXT,
   readingId TEXT,

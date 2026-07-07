@@ -1011,6 +1011,18 @@ function respondDbError(res, err) {
     res.json(rows);
   });
 
+  app.get('/api/payments/:id', authRequired, async (req, res) => {
+    const row = await db.get('SELECT * FROM payments WHERE id = ?', [req.params.id]);
+    if (!row) {
+      res.status(404).send('Not found');
+      return;
+    }
+    if (req.user.role === 'tenant' && Number(row.tenantId) !== Number(req.userTenantId)) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+    res.json(row);
+  });
+
   app.post('/api/payments', authRequired, async (req, res) => {
     if (!canWrite(req.user)) return res.status(403).json({ error: 'Forbidden' });
     const p = req.body || {};
@@ -1018,8 +1030,8 @@ function respondDbError(res, err) {
     try {
       const readingIdValue = p.readingId === undefined ? null : (typeof p.readingId === 'string' ? p.readingId : JSON.stringify(p.readingId));
       const result = await db.run(
-        'INSERT INTO payments (tenantId, amount, method, account, date, notes, readingId, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-        [p.tenantId ?? null, p.amount ?? null, p.method || '', p.account || '', p.date || '', p.notes || '', readingIdValue, now]
+        'INSERT INTO payments (tenantId, amount, method, account, category, date, notes, readingId, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        [p.tenantId ?? null, p.amount ?? null, p.method || '', p.account || '', p.category || '', p.date || '', p.notes || '', readingIdValue, now]
       );
       const row = await db.get('SELECT * FROM payments WHERE id = ?', [result.lastID]);
       res.json(row);
@@ -1034,8 +1046,8 @@ function respondDbError(res, err) {
     try {
       const readingIdValue = p.readingId === undefined ? null : (typeof p.readingId === 'string' ? p.readingId : JSON.stringify(p.readingId));
       await db.run(
-        'UPDATE payments SET tenantId = ?, amount = ?, method = ?, account = ?, date = ?, notes = ?, readingId = ? WHERE id = ?',
-        [p.tenantId ?? null, p.amount ?? null, p.method || '', p.account || '', p.date || '', p.notes || '', readingIdValue, req.params.id]
+        'UPDATE payments SET tenantId = ?, amount = ?, method = ?, account = ?, category = ?, date = ?, notes = ?, readingId = ? WHERE id = ?',
+        [p.tenantId ?? null, p.amount ?? null, p.method || '', p.account || '', p.category || '', p.date || '', p.notes || '', readingIdValue, req.params.id]
       );
       const row = await db.get('SELECT * FROM payments WHERE id = ?', [req.params.id]);
       res.json(row);

@@ -1233,6 +1233,7 @@ function getPaymentDuplicateKey(payment) {
     amount: Number(payment.amount || 0),
     method: String(payment.method || ''),
     account: String(payment.account || ''),
+    category: String(payment.category || ''),
     date: String(payment.date || ''),
     notes: String(payment.notes || ''),
     readingId: Array.isArray(payment.readingId)
@@ -1269,6 +1270,7 @@ async function addPaymentRemote(p) {
     amount: p.amount ?? null,
     method: p.method || '',
     account: p.account || '',
+    category: p.category || '',
     date: p.date || '',
     notes: p.notes || '',
     readingId: p.readingId ?? []
@@ -1279,10 +1281,22 @@ async function addPaymentRemote(p) {
   });
 }
 
+async function getPaymentByIdRemote(id) {
+  try {
+    return await apiRequest(`/api/payments/${id}`);
+  } catch (err) {
+    if (String(err.message || '').includes('404')) return null;
+    throw err;
+  }
+}
+
 async function updatePaymentRemote(id, patch) {
+  const existing = await getPaymentByIdRemote(id);
+  if (!existing) throw new Error('Not found');
+  const payload = { ...existing, ...patch };
   return await apiRequest(`/api/payments/${id}`, {
     method: 'PUT',
-    body: JSON.stringify(patch)
+    body: JSON.stringify(payload)
   });
 }
 
@@ -1308,9 +1322,10 @@ function getPaymentsFilters() {
   const tenantId = tenantIdRaw ? Number(tenantIdRaw) : null;
   const account = document.getElementById('payments-filter-account')?.value || '';
   const method = document.getElementById('payments-filter-method')?.value || '';
+  const category = document.getElementById('payments-filter-category')?.value || '';
   const from = parseDateToIso(document.getElementById('payments-filter-from')?.value || '') || '';
   const to = parseDateToIso(document.getElementById('payments-filter-to')?.value || '') || '';
-  return { text, tenantId, account, method, from, to };
+  return { text, tenantId, account, method, category, from, to };
 }
 
 function getReadingsFilters() {
@@ -1330,6 +1345,7 @@ function bindPaymentsFilters() {
     'payments-filter-tenant',
     'payments-filter-account',
     'payments-filter-method',
+    'payments-filter-category',
     'payments-filter-from',
     'payments-filter-to'
   ];
@@ -1424,6 +1440,8 @@ function comparePayments(a, b, tenantMap, key) {
       return Number(a.amount) - Number(b.amount);
     case 'account':
       return accountLabel(a.account).localeCompare(accountLabel(b.account));
+    case 'category':
+      return paymentCategoryLabel(a.category).localeCompare(paymentCategoryLabel(b.category));
     case 'method':
       return String(a.method || '').localeCompare(String(b.method || ''));
     case 'notes':
@@ -2891,6 +2909,23 @@ function accountLabel(accountValue) {
   if (accountValue === 'grandma') return 'חשבון אסתר ומיכאל';
   if (accountValue === 'my') return 'חשבון ניר וליאור';
   return accountValue || '';
+}
+
+function paymentCategoryLabel(category) {
+  if (category === 'electricity') return 'חשמל';
+  if (category === 'water') return 'מים';
+  if (category === 'rent') return 'שכירות';
+  if (category === 'general') return 'כללי';
+  return category || '';
+}
+
+function paymentCategoryValueFromCsv(value) {
+  const raw = String(value || '').trim();
+  if (raw === 'חשמל' || raw.toLowerCase() === 'electricity') return 'electricity';
+  if (raw === 'מים' || raw.toLowerCase() === 'water') return 'water';
+  if (raw === 'שכירות' || raw.toLowerCase() === 'rent') return 'rent';
+  if (raw === 'כללי' || raw.toLowerCase() === 'general') return 'general';
+  return '';
 }
 
 function meterTypeLabel(meterType) {
@@ -6178,6 +6213,7 @@ async function renderPayments() {
     if (filters.tenantId && Number(p.tenantId) !== Number(filters.tenantId)) return false;
     if (filters.account && String(p.account || '') !== filters.account) return false;
     if (filters.method && String(p.method || '') !== filters.method) return false;
+    if (filters.category && String(p.category || '') !== filters.category) return false;
 
     const iso = parseDateToIso(p.date);
     if (filters.from && (!iso || iso < filters.from)) return false;
@@ -6229,6 +6265,7 @@ async function renderPayments() {
         <td>${name || '-'}</td>
         <td style="direction: ltr; text-align: left;">₪${formatCurrency(p.amount)}</td>
         <td>${accountLabel(p.account)}</td>
+        <td>${paymentCategoryLabel(p.category) || '-'}</td>
         <td>${p.method || ''}</td>
         <td>${displayPaymentNotes(p.notes || '')}</td>
         <td>${linkCell}</td>
@@ -6250,6 +6287,7 @@ async function renderPayments() {
           <th data-key="tenant">דייר</th>
           <th data-key="amount">סכום</th>
           <th data-key="account">חשבון</th>
+          <th data-key="category">סוג הכנסה</th>
           <th data-key="method">אמצעי</th>
           <th data-key="notes">הערות</th>
           <th>קישור</th>
@@ -6277,6 +6315,11 @@ function updatePaymentsSelectedCount() {
   if (countEl) countEl.textContent = String(ids.length);
   if (button) button.disabled = ids.length === 0;
 
+  const editCategoryButton = document.getElementById('payments-edit-category-selected');
+  const editCategoryCountEl = document.getElementById('payments-edit-category-selected-count');
+  if (editCategoryCountEl) editCategoryCountEl.textContent = String(ids.length);
+  if (editCategoryButton) editCategoryButton.disabled = ids.length === 0;
+
   const selectAll = document.getElementById('payments-select-all');
   if (selectAll) {
     const allCheckboxes = document.querySelectorAll('.payment-select-row');
@@ -6294,6 +6337,54 @@ function updatePaymentsSelectedCount() {
       selectAll.checked = false;
       selectAll.indeterminate = true;
     }
+  }
+}
+
+function showBulkPaymentCategoryModal() {
+  return new Promise(resolve => {
+    const modal = document.getElementById('payments-bulk-category-modal');
+    if (!modal) return resolve(null);
+    const select = document.getElementById('payments-bulk-category-input');
+    if (select) select.value = 'general';
+    modal.classList.remove('hidden');
+
+    const onConfirm = () => {
+      const value = select ? select.value : '';
+      cleanup();
+      resolve(value);
+    };
+    const onCancel = () => { cleanup(); resolve(null); };
+
+    const confirmBtn = document.getElementById('payments-bulk-category-confirm');
+    const cancelBtn = document.getElementById('payments-bulk-category-cancel');
+    confirmBtn?.addEventListener('click', onConfirm, { once: true });
+    cancelBtn?.addEventListener('click', onCancel, { once: true });
+
+    function cleanup() {
+      modal.classList.add('hidden');
+      confirmBtn?.removeEventListener('click', onConfirm);
+      cancelBtn?.removeEventListener('click', onCancel);
+    }
+  });
+}
+
+async function handlePaymentsBulkEditCategory() {
+  if (!canWriteCurrentUser()) return;
+  const ids = getSelectedPaymentIds();
+  if (!ids.length) return;
+
+  const newCategory = await showBulkPaymentCategoryModal();
+  if (!newCategory) return;
+
+  try {
+    for (const id of ids) {
+      await updatePayment(id, { category: newCategory });
+    }
+    await renderPayments();
+    alert(`${ids.length} הפקדות עודכנו`);
+  } catch (err) {
+    console.error(err);
+    alert(err.message || 'שגיאה בעדכון סוג הכנסה');
   }
 }
 
@@ -9281,6 +9372,7 @@ paymentForm?.addEventListener('submit', async e => {
     amount: Number(f.elements['amount'].value),
     method: f.elements['method'].value,
     account: f.elements['account'].value,
+    category: f.elements['category'].value,
     date: f.elements['date'].value,
     notes: withPaymentReadingIdsInNotes(
       f.elements['notes'].value || '',
@@ -10547,7 +10639,7 @@ async function exportPaymentsCsvEnglish() {
   const tenants = await getAllTenants(true);
   const tenantMap = new Map(tenants.map(t => [t.id, t]));
   const rows = [
-    ['date', 'apartment', 'first_name', 'last_name', 'amount', 'account', 'method', 'notes']
+    ['date', 'apartment', 'first_name', 'last_name', 'amount', 'account', 'category', 'method', 'notes']
   ];
 
   payments.slice().sort((a, b) => ((dateValueFromAny(a.date) || 0) - (dateValueFromAny(b.date) || 0))).forEach(p => {
@@ -10562,6 +10654,7 @@ async function exportPaymentsCsvEnglish() {
       nameParts.lastName || '',
       Number(p.amount).toFixed(2),
       accountLabel(p.account),
+      paymentCategoryLabel(p.category),
       methodLabel(p.method),
       p.notes || ''
     ]);
@@ -10604,6 +10697,7 @@ async function importPaymentsCsvEnglish(text) {
     const tenantName = `${firstName || ''} ${lastName || ''}`.trim() || legacyName || '';
     const amount = Number(String(row[idx('amount', 4)] || '').replace(/,/g, ''));
     const account = accountValueFromCsv(row[idx('account', 5)]);
+    const category = paymentCategoryValueFromCsv(row[idx('category', -1)]);
     const method = methodValueFromCsv(row[idx('method', 6)]);
     const notes = row[idx('notes', 7)]?.trim() || '';
 
@@ -10633,6 +10727,7 @@ async function importPaymentsCsvEnglish(text) {
       amount,
       method,
       account,
+      category,
       date,
       notes
     });
@@ -10802,6 +10897,7 @@ document.getElementById('payments-list')?.addEventListener('click', async e => {
       paymentForm.elements['amount'].value = Number(rec.amount || 0);
       paymentForm.elements['method'].value = rec.method || 'cash';
       paymentForm.elements['account'].value = rec.account || 'my';
+      paymentForm.elements['category'].value = rec.category || 'general';
       paymentForm.elements['date'].value = formatDateEu(rec.date || '');
       paymentForm.elements['notes'].value = displayPaymentNotes(rec.notes || '');
     } catch (err) {
@@ -10838,6 +10934,10 @@ document.getElementById('payments-list')?.addEventListener('change', e => {
   if (selectAll || rowCheckbox) {
     updatePaymentsSelectedCount();
   }
+});
+
+document.getElementById('payments-edit-category-selected')?.addEventListener('click', async () => {
+  await handlePaymentsBulkEditCategory();
 });
 
 document.getElementById('payments-delete-selected')?.addEventListener('click', async () => {

@@ -382,6 +382,14 @@
               <option value="grandma">חשבון אסתר ומיכאל</option>
             </select>
           </div>
+          <div class="row">
+            <select name="category">
+              <option value="general">כללי</option>
+              <option value="electricity">חשמל</option>
+              <option value="water">מים</option>
+              <option value="rent">שכירות</option>
+            </select>
+          </div>
           <div class="row"><input id="payment-date" name="date" type="text" placeholder="DD/MM/YYYY" required></div>
           <div class="row"><textarea name="notes" placeholder="הערות"></textarea></div>
           <div class="actions">
@@ -397,6 +405,7 @@
           <button id="payments-export-csv" type="button">Export CSV (EN)</button>
           <button id="payments-import-csv" type="button">Import CSV (EN)</button>
           <button id="payments-delete-duplicates" type="button">מחק כפילויות תשלומים</button>
+          <button id="payments-edit-category-selected" type="button" disabled>🏷️ ערוך סוג לנבחרים (<span id="payments-edit-category-selected-count">0</span>)</button>
           <button id="payments-delete-selected" type="button" style="background-color: #e67e22; color: white;" disabled>🗑️ מחק נבחרים (<span id="payments-selected-count">0</span>)</button>
           <button id="payments-clear-all" type="button" style="background-color: #e74c3c; color: white;">מחק את כל התשלומים</button>
         </div>
@@ -425,6 +434,15 @@
               <option value="check">צ'ק</option>
               <option value="bit">ביט</option>
               <option value="transfer">העברה</option>
+            </select>
+          </label>
+          <label>סוג הכנסה
+            <select id="payments-filter-category">
+              <option value="">הכול</option>
+              <option value="general">כללי</option>
+              <option value="electricity">חשמל</option>
+              <option value="water">מים</option>
+              <option value="rent">שכירות</option>
             </select>
           </label>
           <label>מתאריך
@@ -925,6 +943,27 @@
       <div class="modal-actions">
         <button id="readings-bulk-date-confirm" type="button">עדכן</button>
         <button id="readings-bulk-date-cancel" type="button">בטל</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Bulk Payment Category Edit Modal -->
+  <div id="payments-bulk-category-modal" class="modal hidden">
+    <div class="modal-content">
+      <h2>עריכת סוג הכנסה להפקדות נבחרות</h2>
+      <div class="row">
+        <label>סוג הכנסה
+          <select id="payments-bulk-category-input">
+            <option value="general">כללי</option>
+            <option value="electricity">חשמל</option>
+            <option value="water">מים</option>
+            <option value="rent">שכירות</option>
+          </select>
+        </label>
+      </div>
+      <div class="modal-actions">
+        <button id="payments-bulk-category-confirm" type="button">עדכן</button>
+        <button id="payments-bulk-category-cancel" type="button">בטל</button>
       </div>
     </div>
   </div>
