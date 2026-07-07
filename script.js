@@ -2912,8 +2912,7 @@ function accountLabel(accountValue) {
 }
 
 function paymentCategoryLabel(category) {
-  if (category === 'electricity') return 'חשמל';
-  if (category === 'water') return 'מים';
+  if (category === 'electricity_water' || category === 'electricity' || category === 'water') return 'חשמל ומים';
   if (category === 'rent') return 'שכירות';
   if (category === 'general') return 'כללי';
   return category || '';
@@ -2921,8 +2920,7 @@ function paymentCategoryLabel(category) {
 
 function paymentCategoryValueFromCsv(value) {
   const raw = String(value || '').trim();
-  if (raw === 'חשמל' || raw.toLowerCase() === 'electricity') return 'electricity';
-  if (raw === 'מים' || raw.toLowerCase() === 'water') return 'water';
+  if (raw === 'חשמל ומים' || raw === 'חשמל' || raw === 'מים' || raw.toLowerCase() === 'electricity_water' || raw.toLowerCase() === 'electricity' || raw.toLowerCase() === 'water') return 'electricity_water';
   if (raw === 'שכירות' || raw.toLowerCase() === 'rent') return 'rent';
   if (raw === 'כללי' || raw.toLowerCase() === 'general') return 'general';
   return '';
@@ -6213,7 +6211,10 @@ async function renderPayments() {
     if (filters.tenantId && Number(p.tenantId) !== Number(filters.tenantId)) return false;
     if (filters.account && String(p.account || '') !== filters.account) return false;
     if (filters.method && String(p.method || '') !== filters.method) return false;
-    if (filters.category && String(p.category || '') !== filters.category) return false;
+    if (filters.category) {
+      const normalizedCategory = ['electricity', 'water'].includes(p.category) ? 'electricity_water' : String(p.category || '');
+      if (normalizedCategory !== filters.category) return false;
+    }
 
     const iso = parseDateToIso(p.date);
     if (filters.from && (!iso || iso < filters.from)) return false;
