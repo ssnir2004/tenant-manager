@@ -293,44 +293,6 @@ function normalizeRentHistoryEntries(value) {
     .sort((a, b) => a.startIso.localeCompare(b.startIso));
 }
 
-function parseRentHistoryText(text) {
-  const rows = String(text || '').split(/\r?\n/).map(line => line.trim()).filter(Boolean);
-  const parsed = [];
-  for (const row of rows) {
-    const parts = row.split(',').map(p => p.trim()).filter(Boolean);
-    if (parts.length !== 2 && parts.length !== 3) return { error: `שורת היסטוריית שכירות לא תקינה: ${row}`, entries: [] };
-    const startIso = parseDateToIso(parts[0]);
-    if (!startIso) return { error: `תאריך התחלה לא תקין: ${parts[0]}`, entries: [] };
-
-    let endIso = '';
-    let amountRaw = '';
-    if (parts.length === 3) {
-      endIso = parseDateToIso(parts[1]);
-      if (!endIso) return { error: `תאריך סיום לא תקין: ${parts[1]}`, entries: [] };
-      if (endIso < startIso) return { error: `תאריך סיום לפני התחלה: ${row}`, entries: [] };
-      amountRaw = parts[2];
-    } else {
-      amountRaw = parts[1];
-    }
-
-    const rentAmount = Number(amountRaw);
-    if (!Number.isFinite(rentAmount) || rentAmount <= 0) return { error: `שכירות לא תקינה: ${amountRaw}`, entries: [] };
-
-    parsed.push({ startIso, endIso: endIso || '', rentAmount: Number(rentAmount.toFixed(2)) });
-  }
-
-  return { error: '', entries: normalizeRentHistoryEntries(parsed) };
-}
-
-function formatRentHistoryForText(entries) {
-  const normalized = normalizeRentHistoryEntries(entries);
-  return normalized
-    .map(item => item.endIso
-      ? `${formatDateEu(item.startIso)},${formatDateEu(item.endIso)},${item.rentAmount}`
-      : `${formatDateEu(item.startIso)},${item.rentAmount}`)
-    .join('\n');
-}
-
 function normalizeWaterPriceHistory(value) {
   let raw = value;
   if (!raw) return [];
@@ -414,44 +376,6 @@ function normalizeArnonaHistoryEntries(value) {
     })
     .filter(Boolean)
     .sort((a, b) => a.startIso.localeCompare(b.startIso));
-}
-
-function parseArnonaHistoryText(text) {
-  const rows = String(text || '').split(/\r?\n/).map(line => line.trim()).filter(Boolean);
-  const parsed = [];
-  for (const row of rows) {
-    const parts = row.split(',').map(p => p.trim()).filter(Boolean);
-    if (parts.length !== 2 && parts.length !== 3) return { error: `שורת היסטוריית ארנונה לא תקינה: ${row}`, entries: [] };
-    const startIso = parseDateToIso(parts[0]);
-    if (!startIso) return { error: `תאריך התחלה לא תקין: ${parts[0]}`, entries: [] };
-
-    let endIso = '';
-    let amountRaw = '';
-    if (parts.length === 3) {
-      endIso = parseDateToIso(parts[1]);
-      if (!endIso) return { error: `תאריך סיום לא תקין: ${parts[1]}`, entries: [] };
-      if (endIso < startIso) return { error: `תאריך סיום לפני התחלה: ${row}`, entries: [] };
-      amountRaw = parts[2];
-    } else {
-      amountRaw = parts[1];
-    }
-
-    const arnonaAmount = Number(amountRaw);
-    if (!Number.isFinite(arnonaAmount) || arnonaAmount <= 0) return { error: `ארנונה לא תקינה: ${amountRaw}`, entries: [] };
-
-    parsed.push({ startIso, endIso: endIso || '', arnonaAmount: Number(arnonaAmount.toFixed(2)) });
-  }
-
-  return { error: '', entries: normalizeArnonaHistoryEntries(parsed) };
-}
-
-function formatArnonaHistoryForText(entries) {
-  const normalized = normalizeArnonaHistoryEntries(entries);
-  return normalized
-    .map(item => item.endIso
-      ? `${formatDateEu(item.startIso)},${formatDateEu(item.endIso)},${item.arnonaAmount}`
-      : `${formatDateEu(item.startIso)},${item.arnonaAmount}`)
-    .join('\n');
 }
 
 function showAuthModal() {
@@ -8632,7 +8556,7 @@ const showExpensesBtn = document.getElementById('show-expenses');
 const showSolarBtn = document.getElementById('show-solar');
 const showBalanceBtn = document.getElementById('show-balance');
 
-showAddBtn?.addEventListener('click', async () => { setActiveButton('show-add'); show(tenantForm); tenantForm.editId = null; document.getElementById('form-title').textContent = 'הוספת דייר'; tenantForm.reset(); const rentHistoryInput = document.getElementById('rent-history'); if (rentHistoryInput) rentHistoryInput.value = ''; const arnonaHistoryInput = document.getElementById('arnona-history'); if (arnonaHistoryInput) arnonaHistoryInput.value = ''; await renderTenantsTable(); });
+showAddBtn?.addEventListener('click', async () => { setActiveButton('show-add'); show(tenantForm); tenantForm.editId = null; document.getElementById('form-title').textContent = 'הוספת דייר'; tenantForm.reset(); clearTenantRatesForm(); await renderTenantsTable(); });
 showArchiveBtn?.addEventListener('click', async () => { setActiveButton('show-archive'); await renderArchive(); show(archiveView); });
 showSettingsBtn?.addEventListener('click', async () => {
   setActiveButton('show-settings');
@@ -8643,7 +8567,6 @@ showSettingsBtn?.addEventListener('click', async () => {
   const themeToggle = document.getElementById('theme-dark-toggle');
   if (themeToggle) themeToggle.checked = localStorage.getItem(THEME_STORAGE_KEY) === 'dark';
   show(settingsView);
-  await renderRatesSection();
 });
 showPaymentsBtn?.addEventListener('click', async () => {
   setActiveButton('show-payments');
@@ -8902,7 +8825,7 @@ document.getElementById('reminders-list')?.addEventListener('click', async e => 
 });
 
 // Close buttons
-document.getElementById('cancel')?.addEventListener('click', () => { tenantForm.editId = null; tenantForm?.reset(); const rentHistoryInput = document.getElementById('rent-history'); if (rentHistoryInput) rentHistoryInput.value = ''; const arnonaHistoryInput = document.getElementById('arnona-history'); if (arnonaHistoryInput) arnonaHistoryInput.value = ''; show(tenantForm); });
+document.getElementById('cancel')?.addEventListener('click', () => { tenantForm.editId = null; tenantForm?.reset(); clearTenantRatesForm(); show(tenantForm); });
 
 // Expenses form
 document.getElementById('save-expense')?.addEventListener('click', async () => {
@@ -9239,14 +9162,10 @@ tenantForm?.addEventListener('submit', async e => {
   const f = e.target;
   const data = {};
   for (const el of f.elements) if (el.name) data[el.name] = el.value;
-  const rentHistoryRaw = document.getElementById('rent-history')?.value || '';
-  const rentHistoryParsed = parseRentHistoryText(rentHistoryRaw);
-  if (rentHistoryParsed.error) { alert(rentHistoryParsed.error); return; }
-  data.rentHistory = rentHistoryParsed.entries;
-  const arnonaHistoryRaw = document.getElementById('arnona-history')?.value || '';
-  const arnonaHistoryParsed = parseArnonaHistoryText(arnonaHistoryRaw);
-  if (arnonaHistoryParsed.error) { alert(arnonaHistoryParsed.error); return; }
-  data.arnonaHistory = arnonaHistoryParsed.entries;
+  data.rentHistory        = readRatesRows(document.getElementById('rates-rent-body'), 'rent');
+  data.arnonaHistory      = readRatesRows(document.getElementById('rates-arnona-body'), 'arnona');
+  data.waterPriceHistory  = readRatesRows(document.getElementById('rates-water-body'), 'water');
+  data.electricityHistory = readRatesRows(document.getElementById('rates-electricity-body'), 'electricity');
   const isActive = f.elements['active'] ? f.elements['active'].checked : true;
   data.archived = !isActive;
   if (data.startDate) {
@@ -9280,10 +9199,7 @@ tenantForm?.addEventListener('submit', async e => {
   show(tenantForm);
   await renderTenants();
   f.reset();
-  const rentHistoryInput = document.getElementById('rent-history');
-  if (rentHistoryInput) rentHistoryInput.value = '';
-  const arnonaHistoryInput = document.getElementById('arnona-history');
-  if (arnonaHistoryInput) arnonaHistoryInput.value = '';
+  clearTenantRatesForm();
 });
 
 const tenantsExportBtn = document.getElementById('tenants-export-csv');
@@ -9620,16 +9536,30 @@ saveSettingsBtn?.addEventListener('click', async () => {
   show(tenantForm);
 });
 
-// ─── Rates section (per-apartment tariff history) ────────────────────────────
+// ─── Rates section (per-tenant rent/arnona/water/electricity history) ────────
 
 function makeRatesDateInput(value = '') {
   return `<input type="text" placeholder="DD/MM/YYYY" style="width:82px;" value="${value}">`;
+}
+
+function isoMinusOneDay(iso) {
+  const d = new Date(`${iso}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() - 1);
+  return d.toISOString().slice(0, 10);
 }
 
 function makeRatesRow(type, entry = {}) {
   const start = entry.startIso ? formatDateEu(entry.startIso) : '';
   const end   = entry.endIso   ? formatDateEu(entry.endIso)   : '';
   const td = (content) => `<td>${content}</td>`;
+  if (type === 'rent') {
+    return `<tr data-type="rent">
+      ${td(makeRatesDateInput(start))}
+      ${td(makeRatesDateInput(end))}
+      ${td(`<input type="number" step="0.01" style="width:64px;" value="${entry.rentAmount || ''}">`)}
+      ${td(`<button type="button" class="rates-delete-row">✕</button>`)}
+    </tr>`;
+  }
   if (type === 'arnona') {
     return `<tr data-type="arnona">
       ${td(makeRatesDateInput(start))}
@@ -9658,37 +9588,58 @@ function makeRatesRow(type, entry = {}) {
   return '';
 }
 
-function loadTenantRates(tenant) {
-  const section = document.getElementById('rates-section');
+function loadTenantRatesIntoForm(tenant) {
+  const section = document.getElementById('tenant-rates-section');
   if (!section) return;
   section.style.display = tenant ? '' : 'none';
   if (!tenant) return;
 
+  const rentBody   = document.getElementById('rates-rent-body');
   const arnonaBody = document.getElementById('rates-arnona-body');
   const waterBody  = document.getElementById('rates-water-body');
   const elecBody   = document.getElementById('rates-electricity-body');
 
+  let rentEntries = normalizeRentHistoryEntries(tenant.rentHistory);
+  if (!rentEntries.length && Number(tenant.rentAmount) > 0) {
+    const startIso = parseDateToIso(tenant.startDate || '') || currentIsoDate();
+    rentEntries = [{ startIso, endIso: '', rentAmount: Number(tenant.rentAmount) }];
+  }
   let arnonaEntries = normalizeArnonaHistoryEntries(tenant.arnonaHistory);
   if (!arnonaEntries.length && Number(tenant.arnonaAmount) > 0) {
-    const startIso = parseDateToIso(tenant.startDate || '') || '2022-10-01';
+    const startIso = parseDateToIso(tenant.startDate || '') || currentIsoDate();
     arnonaEntries = [{ startIso, endIso: '', arnonaAmount: Number(tenant.arnonaAmount) }];
   }
-  const waterEntries  = normalizeWaterPriceHistory(tenant.waterPriceHistory);
-  const elecEntries   = normalizeElectricityHistory(tenant.electricityHistory);
+  const waterEntries = normalizeWaterPriceHistory(tenant.waterPriceHistory);
+  const elecEntries  = normalizeElectricityHistory(tenant.electricityHistory);
 
+  if (rentBody)   rentBody.innerHTML   = rentEntries.map(e   => makeRatesRow('rent', e)).join('') || makeRatesRow('rent');
   if (arnonaBody) arnonaBody.innerHTML = arnonaEntries.map(e => makeRatesRow('arnona', e)).join('') || makeRatesRow('arnona');
   if (waterBody)  waterBody.innerHTML  = waterEntries.map(e  => makeRatesRow('water',  e)).join('') || makeRatesRow('water');
   if (elecBody)   elecBody.innerHTML   = elecEntries.map(e   => makeRatesRow('electricity', e)).join('') || makeRatesRow('electricity');
 }
 
+function clearTenantRatesForm() {
+  const section = document.getElementById('tenant-rates-section');
+  if (section) section.style.display = 'none';
+  ['rates-rent-body', 'rates-arnona-body', 'rates-water-body', 'rates-electricity-body'].forEach(id => {
+    const body = document.getElementById(id);
+    if (body) body.innerHTML = '';
+  });
+}
+
 function readRatesRows(tbody, type) {
   const entries = [];
+  if (!tbody) return entries;
   tbody.querySelectorAll('tr').forEach(row => {
     const inputs = row.querySelectorAll('input');
     const startIso = parseDateToIso(inputs[0]?.value.trim() || '') || '';
     const endIso   = parseDateToIso(inputs[1]?.value.trim() || '') || '';
     if (!startIso) return;
-    if (type === 'arnona') {
+    if (type === 'rent') {
+      const v = Number(inputs[2]?.value);
+      if (!Number.isFinite(v) || v <= 0) return;
+      entries.push({ startIso, endIso, rentAmount: v });
+    } else if (type === 'arnona') {
       const v = Number(inputs[2]?.value);
       if (!Number.isFinite(v) || v <= 0) return;
       entries.push({ startIso, endIso, arnonaAmount: v });
@@ -9706,35 +9657,10 @@ function readRatesRows(tbody, type) {
   return entries;
 }
 
-async function renderRatesSection() {
-  const sel = document.getElementById('rates-tenant-select');
-  if (!sel) return;
-  const tenants = await getAllTenants(true);
-  const sortFn = (a, b) => {
-    const apt = String(a.apartmentNumber || '').localeCompare(String(b.apartmentNumber || ''), 'he', { numeric: true });
-    return apt || `${a.firstName} ${a.lastName}`.localeCompare(`${b.firstName} ${b.lastName}`, 'he');
-  };
-  const active   = tenants.filter(t => t.active !== false && !t.archived).sort(sortFn);
-  const archived = tenants.filter(t => t.archived || t.active === false).sort(sortFn);
-  const makeOption = t => {
-    const name = `${t.firstName || ''} ${t.lastName || ''}`.trim();
-    const apt  = t.apartmentNumber ? ` (דירה ${t.apartmentNumber})` : '';
-    return `<option value="${t.id}">${name}${apt}</option>`;
-  };
-  sel.innerHTML = '<option value="">— בחר דייר —</option>' +
-    (active.length   ? `<optgroup label="פעילים">${active.map(makeOption).join('')}</optgroup>` : '') +
-    (archived.length ? `<optgroup label="ארכיון">${archived.map(makeOption).join('')}</optgroup>` : '');
-  loadTenantRates(null);
-}
-
-document.getElementById('rates-tenant-select')?.addEventListener('change', async function () {
-  const id = Number(this.value);
-  if (!id) { loadTenantRates(null); return; }
-  const tenants = await getAllTenants(true);
-  const tenant = tenants.find(t => Number(t.id) === id);
-  loadTenantRates(tenant || null);
+document.getElementById('rates-rent-add')?.addEventListener('click', () => {
+  const body = document.getElementById('rates-rent-body');
+  if (body) body.insertAdjacentHTML('beforeend', makeRatesRow('rent'));
 });
-
 document.getElementById('rates-arnona-add')?.addEventListener('click', () => {
   const body = document.getElementById('rates-arnona-body');
   if (body) body.insertAdjacentHTML('beforeend', makeRatesRow('arnona'));
@@ -9748,33 +9674,30 @@ document.getElementById('rates-electricity-add')?.addEventListener('click', () =
   if (body) body.insertAdjacentHTML('beforeend', makeRatesRow('electricity'));
 });
 
-document.getElementById('rates-section')?.addEventListener('click', e => {
+document.getElementById('tenant-rates-section')?.addEventListener('click', e => {
   const btn = e.target.closest('.rates-delete-row');
   if (btn) btn.closest('tr').remove();
 });
 
-document.getElementById('rates-save')?.addEventListener('click', async () => {
-  const sel = document.getElementById('rates-tenant-select');
-  const tenantId = Number(sel?.value);
-  if (!tenantId) { alert('בחר דייר תחילה'); return; }
-
-  const arnonaEntries = readRatesRows(document.getElementById('rates-arnona-body'), 'arnona');
-  const waterEntries  = readRatesRows(document.getElementById('rates-water-body'),  'water');
-  const elecEntries   = readRatesRows(document.getElementById('rates-electricity-body'), 'electricity');
-
-  try {
-    await saveTenantPatch(tenantId, {
-      arnonaHistory:      arnonaEntries.length  ? JSON.stringify(arnonaEntries)  : '',
-      waterPriceHistory:  waterEntries.length   ? JSON.stringify(waterEntries)   : '',
-      electricityHistory: elecEntries.length    ? JSON.stringify(elecEntries)    : ''
-    });
-    alert('תעריפים נשמרו');
-    await renderReadings();
-    await renderBalance();
-  } catch (err) {
-    console.error(err);
-    alert(err.message || 'שגיאה בשמירת תעריפים');
-  }
+// Renewing a period: once a new row's start date is filled in, auto-close the
+// previous open-ended row the day before it (still overridable by hand).
+document.getElementById('tenant-rates-section')?.addEventListener('change', e => {
+  const input = e.target;
+  if (input.tagName !== 'INPUT' || input.type !== 'text') return;
+  const row = input.closest('tr');
+  if (!row) return;
+  const rowInputs = row.querySelectorAll('input');
+  if (rowInputs[0] !== input) return;
+  const newStartIso = parseDateToIso(input.value.trim());
+  if (!newStartIso) return;
+  const prevRow = row.previousElementSibling;
+  if (!prevRow) return;
+  const prevInputs = prevRow.querySelectorAll('input');
+  const prevEndInput = prevInputs[1];
+  if (!prevEndInput || prevEndInput.value.trim()) return;
+  const prevStartIso = parseDateToIso(prevInputs[0]?.value.trim() || '');
+  if (!prevStartIso || prevStartIso >= newStartIso) return;
+  prevEndInput.value = formatDateEu(isoMinusOneDay(newStartIso));
 });
 
 // Manual tenant sync
@@ -11105,10 +11028,7 @@ document.getElementById('tenants-table')?.addEventListener('click', async e => {
     tenantForm.elements['startDate'].value = formatDateEu(tenant.startDate || '');
     tenantForm.elements['endDate'].value = formatDateEu(tenant.endDate || '');
     tenantForm.elements['moveOutDate'].value = formatDateEu(tenant.moveOutDate || '');
-    const rentHistoryInput = document.getElementById('rent-history');
-    if (rentHistoryInput) rentHistoryInput.value = formatRentHistoryForText(tenant.rentHistory || []);
-    const arnonaHistoryInput = document.getElementById('arnona-history');
-    if (arnonaHistoryInput) arnonaHistoryInput.value = formatArnonaHistoryForText(tenant.arnonaHistory || []);
+    loadTenantRatesIntoForm(tenant);
     if (tenantForm.elements['active']) tenantForm.elements['active'].checked = !tenant.archived;
     return;
   }

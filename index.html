@@ -51,21 +51,83 @@
         <div class="row"><label>תאריך סיום<input type="text" name="endDate" placeholder="DD/MM/YYYY"></label></div>
         <div class="row"><label>תאריך עזיבה<input type="text" name="moveOutDate" placeholder="DD/MM/YYYY"></label></div>
         <div class="row"><input name="rentAmount" type="number" placeholder="סכום שכירות"></div>
-        <div class="row">
-          <label>היסטוריית שכירויות (שורה לכל תקופה)</label>
-          <textarea id="rent-history" rows="4" placeholder="01/01/2024,3500&#10;01/01/2025,31/12/2025,3800&#10;01/01/2026,4200"></textarea>
-          <small style="display:block; color:#666; margin-top:5px;">פורמט: תאריך התחלה,שכירות חודשית או תאריך התחלה,תאריך סיום,שכירות חודשית.</small>
-        </div>
         <div class="row"><input name="arnonaAmount" type="number" placeholder="ארנונה"></div>
-        <div class="row">
-          <label>היסטוריית ארנונה (שורה לכל תקופה)</label>
-          <textarea id="arnona-history" rows="4" placeholder="01/01/2024,175&#10;01/01/2025,31/12/2025,375&#10;01/01/2026,425"></textarea>
-          <small style="display:block; color:#666; margin-top:5px;">פורמט: תאריך התחלה,ארנונה חודשית או תאריך התחלה,תאריך סיום,ארנונה חודשית.</small>
-        </div>
         <div class="row"><input name="depositDay" type="number" min="1" max="31" step="1" placeholder="יום הפקדה בחודש (1-31)"></div>
         <div class="row"><input name="apartmentNumber" placeholder="מספר דירה"></div>
         <div class="row"><input name="electricityMeter" placeholder="מונה חשמל"></div>
         <div class="row"><input name="waterMeter" placeholder="מונה מים"></div>
+        <div id="tenant-rates-section" style="display:none;">
+          <hr style="margin: 16px 0; border: none; border-top: 1px solid var(--border);">
+          <h3 style="font-size:15px; margin-bottom:8px;">ניהול תעריפים ותקופות</h3>
+          <small style="display:block; color:#666; margin-bottom:10px;">כדי לחדש חוזה: הוסיפו תקופה חדשה עם התעריף המעודכן ותאריך התחלה — תאריך הסיום של התקופה הקודמת יתמלא אוטומטית.</small>
+          <div class="rates-grid">
+            <!-- שכירות -->
+            <div class="rates-card">
+              <strong>שכירות (₪/חודש)</strong>
+              <table id="rates-rent-table">
+                <thead>
+                  <tr>
+                    <th>מתאריך</th>
+                    <th>עד תאריך</th>
+                    <th>₪/חודש</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody id="rates-rent-body"></tbody>
+              </table>
+              <button type="button" id="rates-rent-add" class="rates-add-btn">+ הוסף תקופה</button>
+            </div>
+            <!-- ארנונה -->
+            <div class="rates-card">
+              <strong>ארנונה (₪/חודש)</strong>
+              <table id="rates-arnona-table">
+                <thead>
+                  <tr>
+                    <th>מתאריך</th>
+                    <th>עד תאריך</th>
+                    <th>₪/חודש</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody id="rates-arnona-body"></tbody>
+              </table>
+              <button type="button" id="rates-arnona-add" class="rates-add-btn">+ הוסף תקופה</button>
+            </div>
+            <!-- מים -->
+            <div class="rates-card">
+              <strong>מים (₪/מ"ק)</strong>
+              <table id="rates-water-table">
+                <thead>
+                  <tr>
+                    <th>מתאריך</th>
+                    <th>עד תאריך</th>
+                    <th>₪/מ"ק</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody id="rates-water-body"></tbody>
+              </table>
+              <button type="button" id="rates-water-add" class="rates-add-btn">+ הוסף תקופה</button>
+            </div>
+            <!-- חשמל -->
+            <div class="rates-card">
+              <strong>חשמל</strong>
+              <table id="rates-electricity-table">
+                <thead>
+                  <tr>
+                    <th>מתאריך</th>
+                    <th>עד תאריך</th>
+                    <th>₪/קוט"ש</th>
+                    <th>KVA+CON/חודש</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody id="rates-electricity-body"></tbody>
+              </table>
+              <button type="button" id="rates-electricity-add" class="rates-add-btn">+ הוסף תקופה</button>
+            </div>
+          </div>
+        </div>
         <div class="row"><textarea name="notes" placeholder="הערות"></textarea></div>
         <div class="actions">
           <button type="submit">שמור</button>
@@ -271,70 +333,6 @@
             הרץ את start-tunnel.ps1 והעתק את ה-URL שמתקבל
           </small>
         </div>
-        <hr style="margin: 20px 0; border: none; border-top: 1px solid #ddd;">
-        <h3>תעריפי שירותים לפי דירה</h3>
-        <div class="row">
-          <label>בחר דייר/דירה
-            <select id="rates-tenant-select" style="min-width: 200px;"></select>
-          </label>
-        </div>
-        <div id="rates-section" style="display:none; margin-top: 12px;">
-          <div class="rates-grid">
-            <!-- ארנונה -->
-            <div class="rates-card">
-              <strong>ארנונה (₪/חודש)</strong>
-              <table id="rates-arnona-table">
-                <thead>
-                  <tr>
-                    <th>מתאריך</th>
-                    <th>עד תאריך</th>
-                    <th>₪/חודש</th>
-                    <th></th>
-                  </tr>
-                </thead>
-                <tbody id="rates-arnona-body"></tbody>
-              </table>
-              <button type="button" id="rates-arnona-add" class="rates-add-btn">+ הוסף תקופה</button>
-            </div>
-            <!-- מים -->
-            <div class="rates-card">
-              <strong>מים (₪/מ"ק)</strong>
-              <table id="rates-water-table">
-                <thead>
-                  <tr>
-                    <th>מתאריך</th>
-                    <th>עד תאריך</th>
-                    <th>₪/מ"ק</th>
-                    <th></th>
-                  </tr>
-                </thead>
-                <tbody id="rates-water-body"></tbody>
-              </table>
-              <button type="button" id="rates-water-add" class="rates-add-btn">+ הוסף תקופה</button>
-            </div>
-            <!-- חשמל -->
-            <div class="rates-card">
-              <strong>חשמל</strong>
-              <table id="rates-electricity-table">
-                <thead>
-                  <tr>
-                    <th>מתאריך</th>
-                    <th>עד תאריך</th>
-                    <th>₪/קוט"ש</th>
-                    <th>KVA+CON/חודש</th>
-                    <th></th>
-                  </tr>
-                </thead>
-                <tbody id="rates-electricity-body"></tbody>
-              </table>
-              <button type="button" id="rates-electricity-add" class="rates-add-btn">+ הוסף תקופה</button>
-            </div>
-          </div>
-          <div class="actions" style="margin-top: 14px;">
-            <button type="button" id="rates-save" style="background:#2980b9; color:white;">שמור תעריפים</button>
-          </div>
-        </div>
-
         <hr style="margin: 20px 0; border: none; border-top: 1px solid #ddd;">
         <h3>סנכרון דיירים</h3>
         <div class="actions">
