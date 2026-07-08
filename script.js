@@ -9639,27 +9639,42 @@ creditsImportBtn?.addEventListener('click', async () => {
 
 // Settings
 const saveSettingsBtn = document.getElementById('save-settings');
+async function saveParentPaymentSettings() {
+  const parentDefaultRaw = document.getElementById('parent-payment-default').value;
+  await setSetting('parentPaymentDefault', parentDefaultRaw === '' ? null : Number(parentDefaultRaw));
+  await setSetting('parentPaymentPeriods', readParentPaymentPeriodsRows());
+}
+
 saveSettingsBtn?.addEventListener('click', async () => {
   const t = document.getElementById('app-title').value || '';
   const serverUrl = document.getElementById('server-url').value.trim();
 
   await setSetting('appTitle', t);
   await setSetting('serverUrl', serverUrl);
-
-  const parentDefaultRaw = document.getElementById('parent-payment-default').value;
-  await setSetting('parentPaymentDefault', parentDefaultRaw === '' ? null : Number(parentDefaultRaw));
-  await setSetting('parentPaymentPeriods', readParentPaymentPeriodsRows());
+  await saveParentPaymentSettings();
 
   // Update global server URL
   window.CURRENT_SERVER_URL = serverUrl || 'http://localhost:3001';
-  
+
   // Update page title
   const titleElement = document.querySelector('header h1');
   if (titleElement && t) titleElement.textContent = t;
   document.title = t || 'ניהול דיירים — טרומפלדור 31, נהריה';
-  
+
   alert('שמור');
   show(tenantForm);
+});
+
+document.getElementById('parent-payment-save')?.addEventListener('click', async () => {
+  try {
+    await saveParentPaymentSettings();
+    alert('נשמר');
+    await renderBalance();
+    await renderMom();
+  } catch (err) {
+    console.error(err);
+    alert(err.message || 'שגיאה בשמירה');
+  }
 });
 
 // ─── Rates section (per-tenant rent/arnona/water/electricity history) ────────
