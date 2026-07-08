@@ -9623,18 +9623,18 @@ saveSettingsBtn?.addEventListener('click', async () => {
 // ─── Rates section (per-apartment tariff history) ────────────────────────────
 
 function makeRatesDateInput(value = '') {
-  return `<input type="text" placeholder="DD/MM/YYYY" style="width:100px;" value="${value}">`;
+  return `<input type="text" placeholder="DD/MM/YYYY" style="width:82px;" value="${value}">`;
 }
 
 function makeRatesRow(type, entry = {}) {
   const start = entry.startIso ? formatDateEu(entry.startIso) : '';
   const end   = entry.endIso   ? formatDateEu(entry.endIso)   : '';
-  const td = (content) => `<td style="padding:3px 6px;">${content}</td>`;
+  const td = (content) => `<td>${content}</td>`;
   if (type === 'arnona') {
     return `<tr data-type="arnona">
       ${td(makeRatesDateInput(start))}
       ${td(makeRatesDateInput(end))}
-      ${td(`<input type="number" step="0.01" style="width:80px;" value="${entry.arnonaAmount || ''}">`)}
+      ${td(`<input type="number" step="0.01" style="width:64px;" value="${entry.arnonaAmount || ''}">`)}
       ${td(`<button type="button" class="rates-delete-row">✕</button>`)}
     </tr>`;
   }
@@ -9642,7 +9642,7 @@ function makeRatesRow(type, entry = {}) {
     return `<tr data-type="water">
       ${td(makeRatesDateInput(start))}
       ${td(makeRatesDateInput(end))}
-      ${td(`<input type="number" step="0.0001" style="width:80px;" value="${entry.pricePerM3 || ''}">`)}
+      ${td(`<input type="number" step="0.0001" style="width:64px;" value="${entry.pricePerM3 || ''}">`)}
       ${td(`<button type="button" class="rates-delete-row">✕</button>`)}
     </tr>`;
   }
@@ -9650,8 +9650,8 @@ function makeRatesRow(type, entry = {}) {
     return `<tr data-type="electricity">
       ${td(makeRatesDateInput(start))}
       ${td(makeRatesDateInput(end))}
-      ${td(`<input type="number" step="0.0001" style="width:80px;" value="${entry.pricePerKwh || ''}">`)}
-      ${td(`<input type="number" step="0.01" style="width:80px;" value="${entry.kvaConAmount || ''}">`)}
+      ${td(`<input type="number" step="0.0001" style="width:64px;" value="${entry.pricePerKwh || ''}">`)}
+      ${td(`<input type="number" step="0.01" style="width:64px;" value="${entry.kvaConAmount || ''}">`)}
       ${td(`<button type="button" class="rates-delete-row">✕</button>`)}
     </tr>`;
   }

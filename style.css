@@ -277,6 +277,73 @@ body.sidebar-resizing {
   border-color: var(--accent-light);
 }
 
+.rates-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.rates-card {
+  flex: 1 1 260px;
+  min-width: 240px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+
+.rates-card > strong {
+  display: block;
+  font-size: 13px;
+  color: var(--text);
+  margin-bottom: 6px;
+}
+
+.rates-card table {
+  border-collapse: collapse;
+  font-size: 12.5px;
+  margin-top: 4px;
+}
+
+.rates-card th {
+  padding: 2px 6px;
+  text-align: right;
+  font-weight: 600;
+  color: var(--text-light);
+  font-size: 11px;
+  white-space: nowrap;
+  border-bottom: 1px solid var(--border);
+}
+
+.rates-card td {
+  padding: 2px 6px;
+  vertical-align: middle;
+}
+
+.rates-card input {
+  width: 84px;
+  padding: 4px 6px;
+  margin-bottom: 0;
+  font-size: 12.5px;
+  border-radius: 4px;
+}
+
+.rates-card .rates-delete-row {
+  padding: 2px 7px;
+  font-size: 11px;
+  line-height: 1;
+  border-radius: 4px;
+}
+
+.rates-add-btn {
+  margin-top: 6px;
+  padding: 4px 10px;
+  font-size: 12px;
+  background: transparent;
+  border: 1px dashed var(--border);
+  color: var(--accent);
+}
+
 .reading-row.selected td,
 .balance-month-row.selected td {
   background: #eaf2ff;
