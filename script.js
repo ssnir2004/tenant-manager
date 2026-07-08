@@ -9938,9 +9938,13 @@ document.getElementById('apartments-table')?.addEventListener('input', e => {
   if (cell) cell.textContent = (size && price) ? `₪${formatCurrency(size * price)}` : '-';
 });
 
-document.getElementById('apartments-table')?.addEventListener('click', e => {
+document.getElementById('apartments-table')?.addEventListener('click', async e => {
   const btn = e.target.closest('.apt-delete-row');
-  if (btn) btn.closest('tr').remove();
+  if (!btn) return;
+  const row = btn.closest('tr');
+  const apartmentNumber = row.querySelector('.apt-number')?.value.trim() || '';
+  const message = apartmentNumber ? `למחוק את דירה ${apartmentNumber}?` : 'למחוק שורה זו?';
+  if (await confirmDialog(message)) row.remove();
 });
 
 document.getElementById('apartments-save')?.addEventListener('click', async () => {
