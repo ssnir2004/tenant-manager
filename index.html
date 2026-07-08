@@ -53,9 +53,10 @@
         <div class="row"><input name="rentAmount" type="number" placeholder="סכום שכירות"></div>
         <div class="row"><input name="arnonaAmount" type="number" placeholder="ארנונה"></div>
         <div class="row"><input name="depositDay" type="number" min="1" max="31" step="1" placeholder="יום הפקדה בחודש (1-31)"></div>
-        <div class="row"><input name="apartmentNumber" placeholder="מספר דירה"></div>
-        <div class="row"><input name="electricityMeter" placeholder="מונה חשמל"></div>
-        <div class="row"><input name="waterMeter" placeholder="מונה מים"></div>
+        <div class="row">
+          <input name="apartmentNumber" placeholder="מספר דירה">
+          <small id="apartment-meters-hint" style="display:block; color:#666;"></small>
+        </div>
         <div id="tenant-rates-section" style="display:none;">
           <hr style="margin: 16px 0; border: none; border-top: 1px solid var(--border);">
           <h3 style="font-size:15px; margin-bottom:8px;">ניהול תעריפים ותקופות</h3>
@@ -333,6 +334,17 @@
             הרץ את start-tunnel.ps1 והעתק את ה-URL שמתקבל
           </small>
         </div>
+        <hr style="margin: 20px 0; border: none; border-top: 1px solid #ddd;">
+        <h3>נתוני דירות</h3>
+        <small style="display: block; color: #666; margin-bottom: 10px;">
+          מספרי המונים, גודל הדירה ותעריף למ"ר משמשים למילוי אוטומטי של מספרי המונים בעת הוספת/עריכת דייר, ולחישוב שכירות מומלצת.
+        </small>
+        <div id="apartments-table" class="section-container"></div>
+        <div class="actions" style="margin-top: 10px;">
+          <button type="button" id="apartments-add-row">+ הוסף דירה</button>
+          <button type="button" id="apartments-save" style="background:#2980b9; color:white;">שמור נתוני דירות</button>
+        </div>
+
         <hr style="margin: 20px 0; border: none; border-top: 1px solid #ddd;">
         <h3>סנכרון דיירים</h3>
         <div class="actions">

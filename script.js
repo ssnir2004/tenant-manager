@@ -3521,6 +3521,41 @@ async function setSetting(key, value) {
   });
 }
 
+const APARTMENTS_SETTING_KEY = 'apartmentsData';
+
+function normalizeApartmentsData(raw) {
+  let list = raw;
+  if (typeof list === 'string') {
+    try { list = JSON.parse(list); } catch { list = []; }
+  }
+  if (!Array.isArray(list)) return [];
+  return list
+    .map(item => ({
+      apartmentNumber: String(item?.apartmentNumber || '').trim(),
+      waterMeter: String(item?.waterMeter || '').trim(),
+      electricityMeter: String(item?.electricityMeter || '').trim(),
+      sizeSqm: Number(item?.sizeSqm) || 0,
+      pricePerSqm: Number(item?.pricePerSqm) || 0
+    }))
+    .filter(a => a.apartmentNumber);
+}
+
+async function getApartmentsData() {
+  const raw = await getSetting(APARTMENTS_SETTING_KEY);
+  return normalizeApartmentsData(raw || []);
+}
+
+async function saveApartmentsData(list) {
+  await setSetting(APARTMENTS_SETTING_KEY, normalizeApartmentsData(list));
+}
+
+async function getApartmentByNumber(apartmentNumber) {
+  const num = String(apartmentNumber || '').trim();
+  if (!num) return null;
+  const list = await getApartmentsData();
+  return list.find(a => a.apartmentNumber === num) || null;
+}
+
 async function getTenantBalanceCreditsMap() {
   const raw = await getSetting(TENANT_BALANCE_CREDITS_KEY);
   return normalizeTenantCreditsMap(raw || {});
@@ -8567,6 +8602,7 @@ showSettingsBtn?.addEventListener('click', async () => {
   const themeToggle = document.getElementById('theme-dark-toggle');
   if (themeToggle) themeToggle.checked = localStorage.getItem(THEME_STORAGE_KEY) === 'dark';
   show(settingsView);
+  await renderApartmentsTable();
 });
 showPaymentsBtn?.addEventListener('click', async () => {
   setActiveButton('show-payments');
@@ -9186,6 +9222,9 @@ tenantForm?.addEventListener('submit', async e => {
     data.moveOutDate = null;
   }
   data.depositDay = normalizeDepositDay(data.depositDay);
+  const linkedApartment = await getApartmentByNumber(data.apartmentNumber);
+  data.waterMeter = linkedApartment?.waterMeter || '';
+  data.electricityMeter = linkedApartment?.electricityMeter || '';
   if (isRemoteApp()) {
     if (f.editId) {
       await updateTenantRemote(Number(f.editId), data);
@@ -9625,7 +9664,25 @@ function clearTenantRatesForm() {
     const body = document.getElementById(id);
     if (body) body.innerHTML = '';
   });
+  updateApartmentMetersHint('');
 }
+
+async function updateApartmentMetersHint(apartmentNumber) {
+  const hint = document.getElementById('apartment-meters-hint');
+  if (!hint) return;
+  const num = String(apartmentNumber || '').trim();
+  if (!num) { hint.textContent = ''; return; }
+  const apt = await getApartmentByNumber(num);
+  if (!apt) {
+    hint.textContent = 'לא נמצאו נתוני מונים לדירה זו — ניתן להגדיר בהגדרות ← נתוני דירות';
+    return;
+  }
+  hint.textContent = `מונה מים: ${apt.waterMeter || '—'} · מונה חשמל: ${apt.electricityMeter || '—'}`;
+}
+
+document.querySelector('#tenant-form input[name="apartmentNumber"]')?.addEventListener('input', e => {
+  updateApartmentMetersHint(e.target.value);
+});
 
 function readRatesRows(tbody, type) {
   const entries = [];
@@ -9698,6 +9755,100 @@ document.getElementById('tenant-rates-section')?.addEventListener('change', e =>
   const prevStartIso = parseDateToIso(prevInputs[0]?.value.trim() || '');
   if (!prevStartIso || prevStartIso >= newStartIso) return;
   prevEndInput.value = formatDateEu(isoMinusOneDay(newStartIso));
+});
+
+// ─── Apartment data (meters, size, ₪/מ"ר → recommended rent) ─────────────────
+
+function makeApartmentRow(entry = {}) {
+  const recommended = (entry.sizeSqm && entry.pricePerSqm) ? `₪${formatCurrency(entry.sizeSqm * entry.pricePerSqm)}` : '-';
+  return `<tr>
+    <td><input type="text" class="apt-number" style="width:70px;" value="${entry.apartmentNumber || ''}"></td>
+    <td><input type="text" class="apt-water" style="width:90px;" value="${entry.waterMeter || ''}"></td>
+    <td><input type="text" class="apt-elec" style="width:90px;" value="${entry.electricityMeter || ''}"></td>
+    <td><input type="number" step="0.01" class="apt-size" style="width:80px;" value="${entry.sizeSqm || ''}"></td>
+    <td><input type="number" step="0.01" class="apt-price" style="width:80px;" value="${entry.pricePerSqm || ''}"></td>
+    <td class="apt-recommended" style="direction:ltr; white-space:nowrap;">${recommended}</td>
+    <td><button type="button" class="apt-delete-row">✕</button></td>
+  </tr>`;
+}
+
+async function renderApartmentsTable() {
+  const container = document.getElementById('apartments-table');
+  if (!container) return;
+  const apartments = await getApartmentsData();
+  const knownNumbers = new Set(apartments.map(a => a.apartmentNumber));
+  const tenants = await getAllTenants(true);
+  const tenantAptNumbers = Array.from(new Set(
+    tenants.map(t => String(t.apartmentNumber || '').trim()).filter(Boolean)
+  ));
+  const merged = [...apartments];
+  tenantAptNumbers.forEach(num => {
+    if (!knownNumbers.has(num)) merged.push({ apartmentNumber: num, waterMeter: '', electricityMeter: '', sizeSqm: 0, pricePerSqm: 0 });
+  });
+  merged.sort((a, b) => String(a.apartmentNumber).localeCompare(String(b.apartmentNumber), 'he', { numeric: true }));
+
+  container.innerHTML = `
+    <table class="payments-table">
+      <thead>
+        <tr>
+          <th>מספר דירה</th>
+          <th>מונה מים</th>
+          <th>מונה חשמל</th>
+          <th>גודל (מ"ר)</th>
+          <th>תעריף (₪/מ"ר)</th>
+          <th>שכירות מומלצת</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>${merged.map(makeApartmentRow).join('')}</tbody>
+    </table>
+  `;
+}
+
+document.getElementById('apartments-add-row')?.addEventListener('click', () => {
+  const tbody = document.querySelector('#apartments-table tbody');
+  if (tbody) tbody.insertAdjacentHTML('beforeend', makeApartmentRow());
+});
+
+document.getElementById('apartments-table')?.addEventListener('input', e => {
+  if (!e.target.classList.contains('apt-size') && !e.target.classList.contains('apt-price')) return;
+  const row = e.target.closest('tr');
+  if (!row) return;
+  const size = Number(row.querySelector('.apt-size')?.value) || 0;
+  const price = Number(row.querySelector('.apt-price')?.value) || 0;
+  const cell = row.querySelector('.apt-recommended');
+  if (cell) cell.textContent = (size && price) ? `₪${formatCurrency(size * price)}` : '-';
+});
+
+document.getElementById('apartments-table')?.addEventListener('click', e => {
+  const btn = e.target.closest('.apt-delete-row');
+  if (btn) btn.closest('tr').remove();
+});
+
+document.getElementById('apartments-save')?.addEventListener('click', async () => {
+  const rows = document.querySelectorAll('#apartments-table tbody tr');
+  const list = [];
+  const seen = new Set();
+  for (const row of rows) {
+    const apartmentNumber = row.querySelector('.apt-number')?.value.trim() || '';
+    if (!apartmentNumber) continue;
+    if (seen.has(apartmentNumber)) { alert(`מספר דירה כפול: ${apartmentNumber}`); return; }
+    seen.add(apartmentNumber);
+    list.push({
+      apartmentNumber,
+      waterMeter: row.querySelector('.apt-water')?.value.trim() || '',
+      electricityMeter: row.querySelector('.apt-elec')?.value.trim() || '',
+      sizeSqm: Number(row.querySelector('.apt-size')?.value) || 0,
+      pricePerSqm: Number(row.querySelector('.apt-price')?.value) || 0
+    });
+  }
+  try {
+    await saveApartmentsData(list);
+    alert('נתוני הדירות נשמרו');
+  } catch (err) {
+    console.error(err);
+    alert(err.message || 'שגיאה בשמירת נתוני הדירות');
+  }
 });
 
 // Manual tenant sync
@@ -11022,12 +11173,13 @@ document.getElementById('tenants-table')?.addEventListener('click', async e => {
     show(tenantForm);
     tenantForm.editId = tenant.id;
     document.getElementById('form-title').textContent = 'ערוך דייר';
-    for (const k of ['firstName', 'lastName', 'nationalId', 'phone', 'rentAmount', 'arnonaAmount', 'depositDay', 'apartmentNumber', 'electricityMeter', 'waterMeter', 'notes']) {
+    for (const k of ['firstName', 'lastName', 'nationalId', 'phone', 'rentAmount', 'arnonaAmount', 'depositDay', 'apartmentNumber', 'notes']) {
       tenantForm.elements[k].value = tenant[k] || '';
     }
     tenantForm.elements['startDate'].value = formatDateEu(tenant.startDate || '');
     tenantForm.elements['endDate'].value = formatDateEu(tenant.endDate || '');
     tenantForm.elements['moveOutDate'].value = formatDateEu(tenant.moveOutDate || '');
+    await updateApartmentMetersHint(tenant.apartmentNumber || '');
     loadTenantRatesIntoForm(tenant);
     if (tenantForm.elements['active']) tenantForm.elements['active'].checked = !tenant.archived;
     return;
