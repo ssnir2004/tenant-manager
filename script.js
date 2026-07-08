@@ -2766,6 +2766,69 @@ function parseParentPaymentPeriods(text) {
   return periods;
 }
 
+// ─── Parent payment periods table (Settings → תשלום לאסתר ומיכאל) ────────────
+
+function parseParentPeriodLine(line) {
+  const trimmed = String(line || '').trim();
+  if (!trimmed) return null;
+  const commaIdx = trimmed.indexOf(',');
+  if (commaIdx < 0) return null;
+  const periodText = trimmed.slice(0, commaIdx).trim();
+  const amount = Number(trimmed.slice(commaIdx + 1).trim());
+  const parsed = parsePeriodMonths(periodText);
+  if (!parsed || Number.isNaN(amount)) return null;
+  return { startMonth: parsed.months[0], endMonth: parsed.months[parsed.months.length - 1], year: parsed.year, amount };
+}
+
+function makeParentPeriodRow(entry = {}) {
+  const td = c => `<td>${c}</td>`;
+  return `<tr>
+    ${td(`<input type="number" min="1" max="12" class="ppp-start" style="width:56px;" value="${entry.startMonth || ''}">`)}
+    ${td(`<input type="number" min="1" max="12" class="ppp-end" style="width:56px;" value="${entry.endMonth || ''}">`)}
+    ${td(`<input type="number" min="2000" max="2100" class="ppp-year" style="width:76px;" value="${entry.year || ''}">`)}
+    ${td(`<input type="number" step="0.01" class="ppp-amount" style="width:80px;" value="${entry.amount || ''}">`)}
+    ${td(`<button type="button" class="rates-delete-row">✕</button>`)}
+  </tr>`;
+}
+
+async function renderParentPaymentPeriodsTable() {
+  const tbody = document.getElementById('parent-payment-periods-body');
+  if (!tbody) return;
+  const text = await getSetting('parentPaymentPeriods');
+  const rows = String(text || '').split('\n').map(parseParentPeriodLine).filter(Boolean);
+  tbody.innerHTML = rows.map(makeParentPeriodRow).join('');
+}
+
+function readParentPaymentPeriodsText() {
+  const tbody = document.getElementById('parent-payment-periods-body');
+  if (!tbody) return '';
+  const lines = [];
+  tbody.querySelectorAll('tr').forEach(row => {
+    const start = Number(row.querySelector('.ppp-start')?.value);
+    const end = Number(row.querySelector('.ppp-end')?.value);
+    const year = Number(row.querySelector('.ppp-year')?.value);
+    const amount = Number(row.querySelector('.ppp-amount')?.value);
+    if (!Number.isFinite(start) || start < 1 || start > 12) return;
+    if (!Number.isFinite(end) || end < 1 || end > 12) return;
+    if (!Number.isFinite(year) || year < 2000) return;
+    if (!Number.isFinite(amount) || amount <= 0) return;
+    const s = String(Math.min(start, end)).padStart(2, '0');
+    const e = String(Math.max(start, end)).padStart(2, '0');
+    lines.push(`${s}-${e}/${year},${amount}`);
+  });
+  return lines.join('\n');
+}
+
+document.getElementById('parent-payment-periods-add')?.addEventListener('click', () => {
+  const tbody = document.getElementById('parent-payment-periods-body');
+  if (tbody) tbody.insertAdjacentHTML('beforeend', makeParentPeriodRow());
+});
+
+document.getElementById('parent-payment-periods-table')?.addEventListener('click', e => {
+  const btn = e.target.closest('.rates-delete-row');
+  if (btn) btn.closest('tr').remove();
+});
+
 function parseDateToIso(value) {
   if (!value) return '';
   const raw = String(value).trim();
@@ -8599,6 +8662,9 @@ showSettingsBtn?.addEventListener('click', async () => {
   const serverUrl = await getSetting('serverUrl');
   document.getElementById('app-title').value = t ?? '';
   document.getElementById('server-url').value = serverUrl ?? '';
+  const parentDefault = await getSetting('parentPaymentDefault');
+  document.getElementById('parent-payment-default').value = parentDefault ?? '';
+  await renderParentPaymentPeriodsTable();
   const themeToggle = document.getElementById('theme-dark-toggle');
   if (themeToggle) themeToggle.checked = localStorage.getItem(THEME_STORAGE_KEY) === 'dark';
   show(settingsView);
@@ -9562,7 +9628,11 @@ saveSettingsBtn?.addEventListener('click', async () => {
 
   await setSetting('appTitle', t);
   await setSetting('serverUrl', serverUrl);
-  
+
+  const parentDefaultRaw = document.getElementById('parent-payment-default').value;
+  await setSetting('parentPaymentDefault', parentDefaultRaw === '' ? null : Number(parentDefaultRaw));
+  await setSetting('parentPaymentPeriods', readParentPaymentPeriodsText());
+
   // Update global server URL
   window.CURRENT_SERVER_URL = serverUrl || 'http://localhost:3001';
   
