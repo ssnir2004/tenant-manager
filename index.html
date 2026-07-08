@@ -40,21 +40,21 @@
       <!-- Tenant Form -->
       <form id="tenant-form" class="card hidden">
         <h2 id="form-title">הוספת דייר</h2>
-        <div class="row"><input name="firstName" placeholder="שם" required></div>
-        <div class="row"><input name="lastName" placeholder="שם משפחה" required></div>
-        <div class="row"><input name="nationalId" placeholder="ת.ז."></div>
-        <div class="row"><input name="phone" placeholder="טלפון"></div>
+        <div class="row"><label>שם<input name="firstName" placeholder="שם" required></label></div>
+        <div class="row"><label>שם משפחה<input name="lastName" placeholder="שם משפחה" required></label></div>
+        <div class="row"><label>ת.ז.<input name="nationalId" placeholder="ת.ז."></label></div>
+        <div class="row"><label>טלפון<input name="phone" placeholder="טלפון"></label></div>
         <div class="row">
           <label><input type="checkbox" name="active" checked> דייר פעיל</label>
         </div>
         <div class="row"><label>תאריך התחלה<input type="text" name="startDate" placeholder="DD/MM/YYYY"></label></div>
         <div class="row"><label>תאריך סיום<input type="text" name="endDate" placeholder="DD/MM/YYYY"></label></div>
         <div class="row"><label>תאריך עזיבה<input type="text" name="moveOutDate" placeholder="DD/MM/YYYY"></label></div>
-        <div class="row"><input name="rentAmount" type="number" placeholder="סכום שכירות"></div>
-        <div class="row"><input name="arnonaAmount" type="number" placeholder="ארנונה"></div>
-        <div class="row"><input name="depositDay" type="number" min="1" max="31" step="1" placeholder="יום הפקדה בחודש (1-31)"></div>
+        <div class="row"><label>סכום שכירות<input name="rentAmount" type="number" placeholder="סכום שכירות"></label></div>
+        <div class="row"><label>ארנונה<input name="arnonaAmount" type="number" placeholder="ארנונה"></label></div>
+        <div class="row"><label>יום הפקדה בחודש (1-31)<input name="depositDay" type="number" min="1" max="31" step="1" placeholder="יום הפקדה בחודש (1-31)"></label></div>
         <div class="row">
-          <input name="apartmentNumber" placeholder="מספר דירה">
+          <label>מספר דירה<input name="apartmentNumber" placeholder="מספר דירה"></label>
           <small id="apartment-meters-hint" style="display:block; color:#666;"></small>
         </div>
         <div id="tenant-rates-section" style="display:none;">
@@ -129,7 +129,7 @@
             </div>
           </div>
         </div>
-        <div class="row"><textarea name="notes" placeholder="הערות"></textarea></div>
+        <div class="row"><label>הערות<textarea name="notes" placeholder="הערות"></textarea></label></div>
         <div class="actions">
           <button type="submit">שמור</button>
           <button type="button" id="cancel">בטל</button>
