@@ -2749,43 +2749,56 @@ function parsePeriodMonths(period) {
   return { months, year };
 }
 
-function parseParentPaymentPeriods(text) {
-  const lines = String(text || '').split('\n');
-  const periods = [];
-  lines.forEach(line => {
-    const trimmed = line.trim();
-    if (!trimmed) return;
-    const parts = trimmed.split(',');
-    if (parts.length < 2) return;
-    const periodText = parts[0].trim();
-    const amount = Number(parts.slice(1).join(',').trim());
-    const parsed = parsePeriodMonths(periodText);
-    if (!parsed || Number.isNaN(amount)) return;
-    periods.push({ year: parsed.year, months: parsed.months, amount });
+function normalizeParentPaymentPeriods(raw) {
+  let list = raw;
+  if (typeof list === 'string') {
+    try { list = JSON.parse(list); } catch { list = []; }
+  }
+  if (!Array.isArray(list)) return [];
+  return list
+    .map(item => {
+      const startIso = parseDateToIso(item?.startIso || item?.startDate || '');
+      const endIso = parseDateToIso(item?.endIso || item?.endDate || '');
+      const amount = Number(item?.amount ?? 0);
+      if (!startIso || !Number.isFinite(amount) || amount <= 0) return null;
+      if (endIso && endIso < startIso) return null;
+      return { startIso, endIso: endIso || '', amount: Number(amount.toFixed(2)) };
+    })
+    .filter(Boolean)
+    .sort((a, b) => a.startIso.localeCompare(b.startIso));
+}
+
+function getParentObligationForMonthKey(periods, defaultAmount, monthKey) {
+  const monthStart = monthKeyStartIso(monthKey);
+  const monthEnd = monthKeyEndIso(monthKey);
+  const match = periods.find(p => p.startIso <= monthEnd && (!p.endIso || p.endIso >= monthStart));
+  return match ? match.amount : defaultAmount;
+}
+
+function parentPaymentPeriodMonthKeys(periods) {
+  const keys = new Set();
+  const todayKey = currentIsoDate().slice(0, 7);
+  periods.forEach(p => {
+    let cursor = p.startIso.slice(0, 7);
+    const endKey = (p.endIso ? p.endIso.slice(0, 7) : todayKey);
+    while (cursor <= endKey) {
+      keys.add(cursor);
+      const [y, m] = cursor.split('-').map(Number);
+      cursor = m === 12 ? `${y + 1}-01` : `${y}-${String(m + 1).padStart(2, '0')}`;
+    }
   });
-  return periods;
+  return keys;
 }
 
 // ─── Parent payment periods table (Settings → תשלום לאסתר ומיכאל) ────────────
 
-function parseParentPeriodLine(line) {
-  const trimmed = String(line || '').trim();
-  if (!trimmed) return null;
-  const commaIdx = trimmed.indexOf(',');
-  if (commaIdx < 0) return null;
-  const periodText = trimmed.slice(0, commaIdx).trim();
-  const amount = Number(trimmed.slice(commaIdx + 1).trim());
-  const parsed = parsePeriodMonths(periodText);
-  if (!parsed || Number.isNaN(amount)) return null;
-  return { startMonth: parsed.months[0], endMonth: parsed.months[parsed.months.length - 1], year: parsed.year, amount };
-}
-
 function makeParentPeriodRow(entry = {}) {
+  const start = entry.startIso ? formatDateEu(entry.startIso) : '';
+  const end   = entry.endIso   ? formatDateEu(entry.endIso)   : '';
   const td = c => `<td>${c}</td>`;
   return `<tr>
-    ${td(`<input type="number" min="1" max="12" class="ppp-start" style="width:56px;" value="${entry.startMonth || ''}">`)}
-    ${td(`<input type="number" min="1" max="12" class="ppp-end" style="width:56px;" value="${entry.endMonth || ''}">`)}
-    ${td(`<input type="number" min="2000" max="2100" class="ppp-year" style="width:76px;" value="${entry.year || ''}">`)}
+    ${td(makeRatesDateInput(start))}
+    ${td(makeRatesDateInput(end))}
     ${td(`<input type="number" step="0.01" class="ppp-amount" style="width:80px;" value="${entry.amount || ''}">`)}
     ${td(`<button type="button" class="rates-delete-row">✕</button>`)}
   </tr>`;
@@ -2794,29 +2807,24 @@ function makeParentPeriodRow(entry = {}) {
 async function renderParentPaymentPeriodsTable() {
   const tbody = document.getElementById('parent-payment-periods-body');
   if (!tbody) return;
-  const text = await getSetting('parentPaymentPeriods');
-  const rows = String(text || '').split('\n').map(parseParentPeriodLine).filter(Boolean);
-  tbody.innerHTML = rows.map(makeParentPeriodRow).join('');
+  const raw = await getSetting('parentPaymentPeriods');
+  const periods = normalizeParentPaymentPeriods(raw || []);
+  tbody.innerHTML = periods.map(makeParentPeriodRow).join('');
 }
 
-function readParentPaymentPeriodsText() {
+function readParentPaymentPeriodsRows() {
   const tbody = document.getElementById('parent-payment-periods-body');
-  if (!tbody) return '';
-  const lines = [];
+  if (!tbody) return [];
+  const entries = [];
   tbody.querySelectorAll('tr').forEach(row => {
-    const start = Number(row.querySelector('.ppp-start')?.value);
-    const end = Number(row.querySelector('.ppp-end')?.value);
-    const year = Number(row.querySelector('.ppp-year')?.value);
-    const amount = Number(row.querySelector('.ppp-amount')?.value);
-    if (!Number.isFinite(start) || start < 1 || start > 12) return;
-    if (!Number.isFinite(end) || end < 1 || end > 12) return;
-    if (!Number.isFinite(year) || year < 2000) return;
-    if (!Number.isFinite(amount) || amount <= 0) return;
-    const s = String(Math.min(start, end)).padStart(2, '0');
-    const e = String(Math.max(start, end)).padStart(2, '0');
-    lines.push(`${s}-${e}/${year},${amount}`);
+    const inputs = row.querySelectorAll('input');
+    const startIso = parseDateToIso(inputs[0]?.value.trim() || '') || '';
+    const endIso   = parseDateToIso(inputs[1]?.value.trim() || '') || '';
+    const amount   = Number(row.querySelector('.ppp-amount')?.value);
+    if (!startIso || !Number.isFinite(amount) || amount <= 0) return;
+    entries.push({ startIso, endIso, amount });
   });
-  return lines.join('\n');
+  return entries;
 }
 
 document.getElementById('parent-payment-periods-add')?.addEventListener('click', () => {
@@ -2827,6 +2835,27 @@ document.getElementById('parent-payment-periods-add')?.addEventListener('click',
 document.getElementById('parent-payment-periods-table')?.addEventListener('click', e => {
   const btn = e.target.closest('.rates-delete-row');
   if (btn) btn.closest('tr').remove();
+});
+
+// Renewing a period: once a new row's start date is filled in, auto-close the
+// previous open-ended row the day before it (still overridable by hand).
+document.getElementById('parent-payment-periods-table')?.addEventListener('change', e => {
+  const input = e.target;
+  if (input.tagName !== 'INPUT' || input.type !== 'text') return;
+  const row = input.closest('tr');
+  if (!row) return;
+  const rowInputs = row.querySelectorAll('input');
+  if (rowInputs[0] !== input) return;
+  const newStartIso = parseDateToIso(input.value.trim());
+  if (!newStartIso) return;
+  const prevRow = row.previousElementSibling;
+  if (!prevRow) return;
+  const prevInputs = prevRow.querySelectorAll('input');
+  const prevEndInput = prevInputs[1];
+  if (!prevEndInput || prevEndInput.value.trim()) return;
+  const prevStartIso = parseDateToIso(prevInputs[0]?.value.trim() || '');
+  if (!prevStartIso || prevStartIso >= newStartIso) return;
+  prevEndInput.value = formatDateEu(isoMinusOneDay(newStartIso));
 });
 
 function parseDateToIso(value) {
@@ -6874,11 +6903,11 @@ async function renderBalance() {
     : (await getSetting('balanceIncludeSolar')) !== false;
   const solarIncome = includeSolar ? await getAllSolarIncome() : [];
   const parentDefaultRaw = await getSetting('parentPaymentDefault');
-  const parentPeriodsText = await getSetting('parentPaymentPeriods');
+  const parentPeriodsRaw = await getSetting('parentPaymentPeriods');
   const parentExempt = await getSetting('parentPaymentExemptMonths');
   const parentReductionsRaw = await getSetting('parentPaymentReductions');
   const parentDefault = Number(parentDefaultRaw ?? 4400) || 0;
-  const parentPeriods = parseParentPaymentPeriods(parentPeriodsText || '');
+  const parentPeriods = normalizeParentPaymentPeriods(parentPeriodsRaw || []);
   const parentExemptSet = new Set(Array.isArray(parentExempt) ? parentExempt : []);
   const parentReductions = parentReductionsRaw || {};
   const list = document.getElementById('balance-list');
@@ -7134,12 +7163,10 @@ async function renderBalance() {
 
   // Find the earliest and latest months
   const allMonths = [];
-  
+
   // Add months from parentPeriods
-  parentPeriods.forEach(p => {
-    p.months.forEach(m => {
-      allMonths.push(`${p.year}-${String(m).padStart(2, '0')}`);
-    });
+  parentPaymentPeriodMonthKeys(parentPeriods).forEach(key => {
+    allMonths.push(key);
   });
   
   // Add months with actual payments
@@ -7415,12 +7442,7 @@ async function renderBalance() {
 
   let cumulativeBalance = 0;
   const parentRows = parentMonths.length ? parentMonths.map(key => {
-    const year = Number(key.slice(0, 4));
-    const month = Number(key.slice(5, 7));
-    let obligation = parentDefault;
-    parentPeriods.forEach(p => {
-      if (p.year === year && p.months.includes(month)) obligation = p.amount;
-    });
+    let obligation = getParentObligationForMonthKey(parentPeriods, parentDefault, key);
     const isExempt = parentExemptSet.has(key);
     if (isExempt) obligation = 0;
     
@@ -7550,12 +7572,12 @@ async function renderMom() {
   
   const payments = await getAllPayments();
   const parentDefaultRaw = await getSetting('parentPaymentDefault');
-  const parentPeriodsText = await getSetting('parentPaymentPeriods');
+  const parentPeriodsRaw = await getSetting('parentPaymentPeriods');
   const parentExempt = await getSetting('parentPaymentExemptMonths');
   const parentReductionsRaw = await getSetting('parentPaymentReductions');
-  
+
   const parentDefault = Number(parentDefaultRaw ?? 4400) || 0;
-  const parentPeriods = parseParentPaymentPeriods(parentPeriodsText || '');
+  const parentPeriods = normalizeParentPaymentPeriods(parentPeriodsRaw || []);
   const parentExemptSet = new Set(Array.isArray(parentExempt) ? parentExempt : []);
   const parentReductions = parentReductionsRaw || {};
   
@@ -7602,12 +7624,7 @@ async function renderMom() {
 
   let cumulativeBalance = 0;
   const rowsData = parentMonths.map(key => {
-    const year = Number(key.slice(0, 4));
-    const month = Number(key.slice(5, 7));
-    let obligation = parentDefault;
-    parentPeriods.forEach(p => {
-      if (p.year === year && p.months.includes(month)) obligation = p.amount;
-    });
+    let obligation = getParentObligationForMonthKey(parentPeriods, parentDefault, key);
     const isExempt = parentExemptSet.has(key);
     if (isExempt) obligation = 0;
     
@@ -9631,7 +9648,7 @@ saveSettingsBtn?.addEventListener('click', async () => {
 
   const parentDefaultRaw = document.getElementById('parent-payment-default').value;
   await setSetting('parentPaymentDefault', parentDefaultRaw === '' ? null : Number(parentDefaultRaw));
-  await setSetting('parentPaymentPeriods', readParentPaymentPeriodsText());
+  await setSetting('parentPaymentPeriods', readParentPaymentPeriodsRows());
 
   // Update global server URL
   window.CURRENT_SERVER_URL = serverUrl || 'http://localhost:3001';
@@ -11425,12 +11442,12 @@ async function renderCurrentMonthSummary() {
     // This is the balance from the "Mom" payment table
     const payments = await getAllPayments();
     const parentDefaultRaw = await getSetting('parentPaymentDefault');
-    const parentPeriodsText = await getSetting('parentPaymentPeriods');
+    const parentPeriodsRaw = await getSetting('parentPaymentPeriods');
     const parentExempt = await getSetting('parentPaymentExemptMonths');
     const parentReductionsRaw = await getSetting('parentPaymentReductions');
-    
+
     const parentDefault = Number(parentDefaultRaw ?? 4400) || 0;
-    const parentPeriods = parseParentPaymentPeriods(parentPeriodsText || '');
+    const parentPeriods = normalizeParentPaymentPeriods(parentPeriodsRaw || []);
     const parentExemptSet = new Set(Array.isArray(parentExempt) ? parentExempt : []);
     const parentReductions = parentReductionsRaw || {};
     
@@ -11448,11 +11465,7 @@ async function renderCurrentMonthSummary() {
     let currentMonthBalance = 0;
     const allMonths = [];
     
-    parentPeriods.forEach(p => {
-      p.months.forEach(m => {
-        allMonths.push(`${p.year}-${String(m).padStart(2, '0')}`);
-      });
-    });
+    parentPaymentPeriodMonthKeys(parentPeriods).forEach(key => allMonths.push(key));
     parentPaymentsByMonth.forEach((_, key) => allMonths.push(key));
     parentExemptSet.forEach(key => allMonths.push(key));
     
@@ -11477,12 +11490,7 @@ async function renderCurrentMonthSummary() {
       let cumulativeBalance = 0;
       
       parentMonths.forEach(key => {
-        const year = Number(key.slice(0, 4));
-        const month = Number(key.slice(5, 7));
-        let obligation = parentDefault;
-        parentPeriods.forEach(p => {
-          if (p.year === year && p.months.includes(month)) obligation = p.amount;
-        });
+        let obligation = getParentObligationForMonthKey(parentPeriods, parentDefault, key);
         const isExempt = parentExemptSet.has(key);
         if (isExempt) obligation = 0;
         
