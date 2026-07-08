@@ -8671,7 +8671,7 @@ const showExpensesBtn = document.getElementById('show-expenses');
 const showSolarBtn = document.getElementById('show-solar');
 const showBalanceBtn = document.getElementById('show-balance');
 
-showAddBtn?.addEventListener('click', async () => { setActiveButton('show-add'); show(tenantForm); tenantForm.editId = null; document.getElementById('form-title').textContent = 'הוספת דייר'; tenantForm.reset(); clearTenantRatesForm(); await renderTenantsTable(); });
+showAddBtn?.addEventListener('click', async () => { setActiveButton('show-add'); show(tenantForm); tenantForm.editId = null; document.getElementById('form-title').textContent = 'הוספת דייר'; tenantForm.reset(); clearTenantRatesForm(); await populateApartmentNumberSelect(''); await renderTenantsTable(); });
 showArchiveBtn?.addEventListener('click', async () => { setActiveButton('show-archive'); await renderArchive(); show(archiveView); });
 showSettingsBtn?.addEventListener('click', async () => {
   setActiveButton('show-settings');
@@ -9767,7 +9767,23 @@ async function updateApartmentMetersHint(apartmentNumber) {
   hint.textContent = `מונה מים: ${apt.waterMeter || '—'} · מונה חשמל: ${apt.electricityMeter || '—'}`;
 }
 
-document.querySelector('#tenant-form input[name="apartmentNumber"]')?.addEventListener('input', e => {
+async function populateApartmentNumberSelect(selectedValue = '') {
+  const select = document.querySelector('#tenant-form select[name="apartmentNumber"]');
+  if (!select) return;
+  const apartments = await getApartmentsData();
+  const numbers = apartments.map(a => a.apartmentNumber).filter(Boolean);
+  const selected = String(selectedValue || '').trim();
+  if (selected && !numbers.includes(selected)) numbers.push(selected);
+  numbers.sort((a, b) => String(a).localeCompare(String(b), 'he', { numeric: true }));
+  const optionsHtml = numbers.length
+    ? numbers.map(n => `<option value="${n}">${n}</option>`).join('')
+    : '<option value="" disabled>אין דירות מוגדרות — הוסף בהגדרות</option>';
+  select.innerHTML = '<option value="">— בחר דירה —</option>' + optionsHtml;
+  select.value = selected;
+  await updateApartmentMetersHint(selected);
+}
+
+document.querySelector('#tenant-form select[name="apartmentNumber"]')?.addEventListener('change', e => {
   updateApartmentMetersHint(e.target.value);
 });
 
@@ -11260,13 +11276,13 @@ document.getElementById('tenants-table')?.addEventListener('click', async e => {
     show(tenantForm);
     tenantForm.editId = tenant.id;
     document.getElementById('form-title').textContent = 'ערוך דייר';
-    for (const k of ['firstName', 'lastName', 'nationalId', 'phone', 'rentAmount', 'arnonaAmount', 'depositDay', 'apartmentNumber', 'notes']) {
+    for (const k of ['firstName', 'lastName', 'nationalId', 'phone', 'rentAmount', 'arnonaAmount', 'depositDay', 'notes']) {
       tenantForm.elements[k].value = tenant[k] || '';
     }
     tenantForm.elements['startDate'].value = formatDateEu(tenant.startDate || '');
     tenantForm.elements['endDate'].value = formatDateEu(tenant.endDate || '');
     tenantForm.elements['moveOutDate'].value = formatDateEu(tenant.moveOutDate || '');
-    await updateApartmentMetersHint(tenant.apartmentNumber || '');
+    await populateApartmentNumberSelect(tenant.apartmentNumber || '');
     loadTenantRatesIntoForm(tenant);
     if (tenantForm.elements['active']) tenantForm.elements['active'].checked = !tenant.archived;
     return;
