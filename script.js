@@ -9958,13 +9958,51 @@ async function renderApartmentsTable() {
         </tr>
       </thead>
       <tbody>${merged.map(makeApartmentRow).join('')}</tbody>
+      <tfoot>
+        <tr style="font-weight:700; border-top:2px solid #ccc;">
+          <td colspan="5">סה"כ</td>
+          <td class="apt-total-recommended" style="direction:ltr; white-space:nowrap;">-</td>
+          <td class="apt-total-paid" style="direction:ltr; white-space:nowrap;">-</td>
+          <td class="apt-total-gap" style="direction:ltr; white-space:nowrap;">-</td>
+          <td></td>
+        </tr>
+      </tfoot>
     </table>
   `;
+  recomputeApartmentsTotals();
+}
+
+function recomputeApartmentsTotals() {
+  const container = document.getElementById('apartments-table');
+  if (!container) return;
+  let totalRecommended = 0;
+  let totalPaid = 0;
+  container.querySelectorAll('tbody tr').forEach(row => {
+    const size = Number(row.querySelector('.apt-size')?.value) || 0;
+    const price = Number(row.querySelector('.apt-price')?.value) || 0;
+    const paid = Number(row.querySelector('.apt-paid')?.value) || 0;
+    totalRecommended += size * price;
+    totalPaid += paid;
+  });
+  const totalGap = totalRecommended - totalPaid;
+  const gapColor = totalGap > 0 ? '#c0392b' : (totalGap < 0 ? '#27ae60' : '#666');
+  const gapSign = totalGap > 0 ? '+' : '';
+  const recommendedCell = container.querySelector('.apt-total-recommended');
+  if (recommendedCell) recommendedCell.textContent = totalRecommended ? `₪${formatCurrency(totalRecommended)}` : '-';
+  const paidCell = container.querySelector('.apt-total-paid');
+  if (paidCell) paidCell.textContent = totalPaid ? `₪${formatCurrency(totalPaid)}` : '-';
+  const gapCell = container.querySelector('.apt-total-gap');
+  if (gapCell) {
+    gapCell.innerHTML = (totalRecommended || totalPaid)
+      ? `<span style="color:${gapColor};">${gapSign}₪${formatCurrency(totalGap)}</span>`
+      : '-';
+  }
 }
 
 document.getElementById('apartments-add-row')?.addEventListener('click', () => {
   const tbody = document.querySelector('#apartments-table tbody');
   if (tbody) tbody.insertAdjacentHTML('beforeend', makeApartmentRow());
+  recomputeApartmentsTotals();
 });
 
 document.getElementById('apartments-table')?.addEventListener('input', e => {
@@ -9978,6 +10016,7 @@ document.getElementById('apartments-table')?.addEventListener('input', e => {
   if (recommendedCell) recommendedCell.textContent = (size && price) ? `₪${formatCurrency(size * price)}` : '-';
   const gapCell = row.querySelector('.apt-gap');
   if (gapCell) gapCell.innerHTML = computeApartmentGapHtml(size, price, paid);
+  recomputeApartmentsTotals();
 });
 
 document.getElementById('apartments-table')?.addEventListener('click', async e => {
@@ -9986,7 +10025,10 @@ document.getElementById('apartments-table')?.addEventListener('click', async e =
   const row = btn.closest('tr');
   const apartmentNumber = row.querySelector('.apt-number')?.value.trim() || '';
   const message = apartmentNumber ? `למחוק את דירה ${apartmentNumber}?` : 'למחוק שורה זו?';
-  if (await confirmDialog(message)) row.remove();
+  if (await confirmDialog(message)) {
+    row.remove();
+    recomputeApartmentsTotals();
+  }
 });
 
 document.getElementById('apartments-save')?.addEventListener('click', async () => {
