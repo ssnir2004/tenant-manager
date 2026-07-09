@@ -5341,6 +5341,7 @@ async function renderTenantsTable() {
       : `<button data-id="${t.id}" class="btn-edit">✏️</button><button data-id="${t.id}" class="btn-archive">📦</button><button data-id="${t.id}" class="btn-delete">🗑️</button>`;
     return `
       <tr>
+        <td><input type="checkbox" class="tenant-select-row" data-id="${t.id}" aria-label="בחר דייר"></td>
         <td>${t.apartmentNumber || '-'}</td>
         <td>${name || '-'}</td>
         <td>${t.phone || '-'}</td>
@@ -5363,6 +5364,7 @@ async function renderTenantsTable() {
     <table class="payments-table">
       <thead>
         <tr>
+          <th><input type="checkbox" id="tenants-select-all" aria-label="בחר את כל הדיירים"></th>
           <th>דירה</th>
           <th>דייר</th>
           <th>טלפון</th>
@@ -5382,6 +5384,7 @@ async function renderTenantsTable() {
       <tbody>${rows}</tbody>
     </table>
   `;
+  updateTenantsBulkSelectedCount();
 }
 
 async function renderArchive() {
@@ -9901,6 +9904,169 @@ document.getElementById('tenant-rates-section')?.addEventListener('change', e =>
   prevEndInput.value = formatDateEu(isoMinusOneDay(newStartIso));
 });
 
+// ─── Bulk water/electricity rate edit (multiple tenants at once) ─────────────
+
+function getSelectedTenantIds() {
+  return Array.from(document.querySelectorAll('.tenant-select-row:checked'))
+    .map(cb => Number(cb.dataset.id))
+    .filter(id => Number.isFinite(id) && id > 0);
+}
+
+function updateTenantsBulkSelectedCount() {
+  const ids = getSelectedTenantIds();
+  const button = document.getElementById('tenants-bulk-edit-rates');
+  const countEl = document.getElementById('tenants-bulk-selected-count');
+  if (countEl) countEl.textContent = String(ids.length);
+  if (button) button.disabled = ids.length === 0;
+
+  const selectAll = document.getElementById('tenants-select-all');
+  if (selectAll) {
+    const selectable = document.querySelectorAll('.tenant-select-row');
+    const total = selectable.length;
+    if (total === 0) {
+      selectAll.checked = false;
+      selectAll.indeterminate = false;
+      selectAll.disabled = true;
+    } else {
+      selectAll.disabled = false;
+      if (ids.length === 0) {
+        selectAll.checked = false;
+        selectAll.indeterminate = false;
+      } else if (ids.length === total) {
+        selectAll.checked = true;
+        selectAll.indeterminate = false;
+      } else {
+        selectAll.checked = false;
+        selectAll.indeterminate = true;
+      }
+    }
+  }
+}
+
+// Appends a new rate period starting at newEntry.startIso, dropping any existing
+// periods that start on/after it and closing the previous open period the day before.
+function appendRateHistoryEntry(entries, newEntry) {
+  const kept = entries.filter(e => e.startIso < newEntry.startIso);
+  const prev = kept[kept.length - 1];
+  if (prev && !prev.endIso) prev.endIso = isoMinusOneDay(newEntry.startIso);
+  kept.push(newEntry);
+  return kept;
+}
+
+function showTenantsBulkRatesModal(selectedCount) {
+  return new Promise(resolve => {
+    const modal = document.getElementById('tenants-bulk-rates-modal');
+    if (!modal) return resolve(null);
+
+    const countText = document.getElementById('tenants-bulk-rates-count-text');
+    if (countText) countText.textContent = `${selectedCount} דיירים נבחרו`;
+
+    const startInput = document.getElementById('tenants-bulk-rates-start');
+    const waterEnable = document.getElementById('tenants-bulk-water-enable');
+    const waterPrice = document.getElementById('tenants-bulk-water-price');
+    const elecEnable = document.getElementById('tenants-bulk-elec-enable');
+    const elecPrice = document.getElementById('tenants-bulk-elec-price');
+    const elecKva = document.getElementById('tenants-bulk-elec-kva');
+
+    if (startInput) startInput.value = formatDateEu(currentIsoDate());
+    if (waterEnable) waterEnable.checked = false;
+    if (waterPrice) { waterPrice.value = ''; waterPrice.disabled = true; }
+    if (elecEnable) elecEnable.checked = false;
+    if (elecPrice) { elecPrice.value = ''; elecPrice.disabled = true; }
+    if (elecKva) { elecKva.value = ''; elecKva.disabled = true; }
+
+    const onWaterToggle = () => { if (waterPrice) waterPrice.disabled = !waterEnable.checked; };
+    const onElecToggle = () => {
+      if (elecPrice) elecPrice.disabled = !elecEnable.checked;
+      if (elecKva) elecKva.disabled = !elecEnable.checked;
+    };
+    waterEnable?.addEventListener('change', onWaterToggle);
+    elecEnable?.addEventListener('change', onElecToggle);
+
+    modal.classList.remove('hidden');
+    startInput?.focus();
+
+    const onConfirm = () => {
+      const startIso = parseDateToIso(startInput ? startInput.value.trim() : '');
+      if (!startIso) { alert('תאריך לא תקין'); return; }
+      const wantWater = !!waterEnable?.checked;
+      const wantElec = !!elecEnable?.checked;
+      if (!wantWater && !wantElec) { alert('בחרו לפחות תעריף אחד לעדכון'); return; }
+      let waterPricePerM3 = null;
+      if (wantWater) {
+        waterPricePerM3 = Number(waterPrice?.value);
+        if (!Number.isFinite(waterPricePerM3) || waterPricePerM3 <= 0) { alert('תעריף מים לא תקין'); return; }
+      }
+      let elecPricePerKwh = null;
+      let elecKvaConAmount = 0;
+      if (wantElec) {
+        elecPricePerKwh = Number(elecPrice?.value);
+        if (!Number.isFinite(elecPricePerKwh) || elecPricePerKwh <= 0) { alert('תעריף חשמל לא תקין'); return; }
+        elecKvaConAmount = Number(elecKva?.value) || 0;
+      }
+      cleanup();
+      resolve({ startIso, waterPricePerM3, elecPricePerKwh, elecKvaConAmount });
+    };
+    const onCancel = () => { cleanup(); resolve(null); };
+
+    const confirmBtn = document.getElementById('tenants-bulk-rates-confirm');
+    const cancelBtn = document.getElementById('tenants-bulk-rates-cancel');
+    confirmBtn?.addEventListener('click', onConfirm, { once: true });
+    cancelBtn?.addEventListener('click', onCancel, { once: true });
+
+    function cleanup() {
+      modal.classList.add('hidden');
+      confirmBtn?.removeEventListener('click', onConfirm);
+      cancelBtn?.removeEventListener('click', onCancel);
+      waterEnable?.removeEventListener('change', onWaterToggle);
+      elecEnable?.removeEventListener('change', onElecToggle);
+    }
+  });
+}
+
+async function handleTenantsBulkEditRates() {
+  const ids = getSelectedTenantIds();
+  if (!ids.length) return;
+
+  const result = await showTenantsBulkRatesModal(ids.length);
+  if (!result) return;
+
+  try {
+    for (const id of ids) {
+      const tenant = await getTenantById(id);
+      if (!tenant) continue;
+      const patch = {};
+      if (result.waterPricePerM3 !== null) {
+        const existing = normalizeWaterPriceHistory(tenant.waterPriceHistory);
+        patch.waterPriceHistory = appendRateHistoryEntry(existing, {
+          startIso: result.startIso,
+          endIso: '',
+          pricePerM3: result.waterPricePerM3
+        });
+      }
+      if (result.elecPricePerKwh !== null) {
+        const existing = normalizeElectricityHistory(tenant.electricityHistory);
+        patch.electricityHistory = appendRateHistoryEntry(existing, {
+          startIso: result.startIso,
+          endIso: '',
+          pricePerKwh: result.elecPricePerKwh,
+          kvaConAmount: result.elecKvaConAmount
+        });
+      }
+      if (Object.keys(patch).length) await saveTenantPatch(id, patch);
+    }
+    await renderTenants();
+    alert(`תעריפים עודכנו ל-${ids.length} דיירים`);
+  } catch (err) {
+    console.error(err);
+    alert(err.message || 'שגיאה בעדכון תעריפים');
+  }
+}
+
+document.getElementById('tenants-bulk-edit-rates')?.addEventListener('click', async () => {
+  await handleTenantsBulkEditRates();
+});
+
 // ─── Apartment data (meters, size, ₪/מ"ר → recommended rent) ─────────────────
 
 function computeApartmentGapHtml(sizeSqm, pricePerSqm, paidRent) {
@@ -11346,6 +11512,18 @@ document.getElementById('archive-list')?.addEventListener('change', async e => {
 });
 
 document.getElementById('tenants-table')?.addEventListener('change', async e => {
+  const selectAll = e.target.closest('#tenants-select-all');
+  if (selectAll) {
+    const checked = !!selectAll.checked;
+    document.querySelectorAll('.tenant-select-row').forEach(cb => { cb.checked = checked; });
+    updateTenantsBulkSelectedCount();
+    return;
+  }
+  const rowSelect = e.target.closest('.tenant-select-row');
+  if (rowSelect) {
+    updateTenantsBulkSelectedCount();
+    return;
+  }
   const input = e.target.closest('.moveout-input');
   if (!input) return;
   const id = Number(input.dataset.id);

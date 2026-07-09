@@ -149,6 +149,9 @@
         <div class="row" style="margin-top: 12px;">
           <label><input id="tenants-show-archived" type="checkbox"> הצג גם דיירים בארכיון</label>
         </div>
+        <div class="actions" style="margin-top: 8px;">
+          <button id="tenants-bulk-edit-rates" type="button" disabled>⚡💧 עדכון תעריפי מים/חשמל לדיירים נבחרים (<span id="tenants-bulk-selected-count">0</span>)</button>
+        </div>
         <div id="tenants-table" class="section-container" style="margin-top: 12px;"></div>
       </form>
 
@@ -990,6 +993,38 @@
     </div>
   </div>
 
+  <!-- Bulk Tenant Water/Electricity Rate Edit Modal -->
+  <div id="tenants-bulk-rates-modal" class="modal hidden">
+    <div class="modal-content">
+      <h2>עדכון תעריפי מים/חשמל לדיירים נבחרים</h2>
+      <p id="tenants-bulk-rates-count-text" style="color:#666;"></p>
+      <div class="row">
+        <label>בתוקף מתאריך
+          <input id="tenants-bulk-rates-start" type="text" placeholder="DD/MM/YYYY">
+        </label>
+      </div>
+      <div class="row">
+        <label><input type="checkbox" id="tenants-bulk-water-enable"> עדכן תעריף מים</label>
+        <label>₪ למ"ק
+          <input id="tenants-bulk-water-price" type="number" step="0.0001" disabled>
+        </label>
+      </div>
+      <div class="row">
+        <label><input type="checkbox" id="tenants-bulk-elec-enable"> עדכן תעריף חשמל</label>
+        <label>₪ לקוט"ש
+          <input id="tenants-bulk-elec-price" type="number" step="0.0001" disabled>
+        </label>
+        <label>KVA+CON/חודש
+          <input id="tenants-bulk-elec-kva" type="number" step="0.01" disabled>
+        </label>
+      </div>
+      <div class="modal-actions">
+        <button id="tenants-bulk-rates-confirm" type="button">עדכן</button>
+        <button id="tenants-bulk-rates-cancel" type="button">בטל</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Sync Conflict Modal -->
   <div id="sync-conflict-modal" class="modal hidden">
     <div class="modal-content sync-modal-content">
@@ -999,6 +1034,6 @@
       </div>
     </div>
   </div>
-  <script src="script.js?v=2026070905" defer></script>
+  <script src="script.js?v=2026070906" defer></script>
 </body>
 </html>
