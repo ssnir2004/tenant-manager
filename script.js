@@ -8336,7 +8336,7 @@ async function renderExpenses() {
   const expenses = await getAllExpenses();
   const listEl = document.getElementById('expenses-list');
   if (expenses.length === 0) {
-    listEl.innerHTML = '<p>אין הוצאות</p>';
+    listEl.innerHTML = '<p>אין חשבונות</p>';
     return;
   }
   
@@ -9073,7 +9073,7 @@ document.getElementById('save-expense')?.addEventListener('click', async () => {
     }
     
     if (saved === 0) {
-      alert('כל ההוצאות שלא הוכנסו - כבר קיימות בנתונים');
+      alert('כל החשבונות שלא הוכנסו - כבר קיימים בנתונים');
     }
   }
   
@@ -9137,7 +9137,7 @@ document.getElementById('expenses-export-csv')?.addEventListener('click', async 
   const expenses = await getAllExpenses();
   const csv = 'Type,Period,Amount,Frequency\n' + 
     expenses.map(e => `${e.type},${e.period||''},${e.amount||0},${e.frequency||''}`).join('\n');
-  await downloadCsv(csv, 'expenses.csv');
+  await downloadCsv(csv, 'bills.csv');
 });
 
 document.getElementById('expenses-import-csv')?.addEventListener('click', async () => {
@@ -9168,7 +9168,7 @@ document.getElementById('expenses-import-csv')?.addEventListener('click', async 
         }
       }
     }
-    const msg = `יובאו ${imported} הוצאות ✓${skipped > 0 ? ` (${skipped} כפילויות התעלמו)` : ''}`;
+    const msg = `יובאו ${imported} חשבונות ✓${skipped > 0 ? ` (${skipped} כפילויות התעלמו)` : ''}`;
     if (statusEl) statusEl.textContent = msg;
   } catch(err) {
     if (statusEl) statusEl.textContent = `שגיאה: ${err.message}`;
@@ -9177,7 +9177,7 @@ document.getElementById('expenses-import-csv')?.addEventListener('click', async 
 });
 
 document.getElementById('expenses-clear-all')?.addEventListener('click', async () => {
-  if (await confirmDialog('מחק את כל ההוצאות?')) {
+  if (await confirmDialog('מחק את כל החשבונות?')) {
     const expenses = await getAllExpenses();
     for (const e of expenses) await deleteExpense(e.id);
     await renderExpenses();
