@@ -3641,7 +3641,8 @@ function normalizeApartmentsData(raw) {
       waterMeter: String(item?.waterMeter || '').trim(),
       electricityMeter: String(item?.electricityMeter || '').trim(),
       sizeSqm: Number(item?.sizeSqm) || 0,
-      pricePerSqm: Number(item?.pricePerSqm) || 0
+      pricePerSqm: Number(item?.pricePerSqm) || 0,
+      paidRent: Number(item?.paidRent) || 0
     }))
     .filter(a => a.apartmentNumber);
 }
@@ -9902,8 +9903,17 @@ document.getElementById('tenant-rates-section')?.addEventListener('change', e =>
 
 // ─── Apartment data (meters, size, ₪/מ"ר → recommended rent) ─────────────────
 
+function computeApartmentGapHtml(sizeSqm, pricePerSqm, paidRent) {
+  if (!sizeSqm || !pricePerSqm || !paidRent) return '<span style="color:#999;">-</span>';
+  const gap = (sizeSqm * pricePerSqm) - paidRent;
+  const color = gap > 0 ? '#c0392b' : (gap < 0 ? '#27ae60' : '#666');
+  const sign = gap > 0 ? '+' : '';
+  return `<span style="color:${color};">${sign}₪${formatCurrency(gap)}</span>`;
+}
+
 function makeApartmentRow(entry = {}) {
   const recommended = (entry.sizeSqm && entry.pricePerSqm) ? `₪${formatCurrency(entry.sizeSqm * entry.pricePerSqm)}` : '-';
+  const gap = computeApartmentGapHtml(entry.sizeSqm, entry.pricePerSqm, entry.paidRent);
   return `<tr>
     <td><input type="text" class="apt-number" style="width:70px;" value="${entry.apartmentNumber || ''}"></td>
     <td><input type="text" class="apt-water" style="width:90px;" value="${entry.waterMeter || ''}"></td>
@@ -9911,6 +9921,8 @@ function makeApartmentRow(entry = {}) {
     <td><input type="number" step="0.01" class="apt-size" style="width:80px;" value="${entry.sizeSqm || ''}"></td>
     <td><input type="number" step="0.01" class="apt-price" style="width:80px;" value="${entry.pricePerSqm || ''}"></td>
     <td class="apt-recommended" style="direction:ltr; white-space:nowrap;">${recommended}</td>
+    <td><input type="number" step="0.01" class="apt-paid" style="width:80px;" value="${entry.paidRent || ''}"></td>
+    <td class="apt-gap" style="direction:ltr; white-space:nowrap;">${gap}</td>
     <td><button type="button" class="apt-delete-row">✕</button></td>
   </tr>`;
 }
@@ -9926,7 +9938,7 @@ async function renderApartmentsTable() {
   ));
   const merged = [...apartments];
   tenantAptNumbers.forEach(num => {
-    if (!knownNumbers.has(num)) merged.push({ apartmentNumber: num, waterMeter: '', electricityMeter: '', sizeSqm: 0, pricePerSqm: 0 });
+    if (!knownNumbers.has(num)) merged.push({ apartmentNumber: num, waterMeter: '', electricityMeter: '', sizeSqm: 0, pricePerSqm: 0, paidRent: 0 });
   });
   merged.sort((a, b) => String(a.apartmentNumber).localeCompare(String(b.apartmentNumber), 'he', { numeric: true }));
 
@@ -9940,6 +9952,8 @@ async function renderApartmentsTable() {
           <th>גודל (מ"ר)</th>
           <th>תעריף (₪/מ"ר)</th>
           <th>שכירות מומלצת</th>
+          <th>שכירות משולמת</th>
+          <th>פער</th>
           <th></th>
         </tr>
       </thead>
@@ -9954,13 +9968,16 @@ document.getElementById('apartments-add-row')?.addEventListener('click', () => {
 });
 
 document.getElementById('apartments-table')?.addEventListener('input', e => {
-  if (!e.target.classList.contains('apt-size') && !e.target.classList.contains('apt-price')) return;
+  if (!e.target.classList.contains('apt-size') && !e.target.classList.contains('apt-price') && !e.target.classList.contains('apt-paid')) return;
   const row = e.target.closest('tr');
   if (!row) return;
   const size = Number(row.querySelector('.apt-size')?.value) || 0;
   const price = Number(row.querySelector('.apt-price')?.value) || 0;
-  const cell = row.querySelector('.apt-recommended');
-  if (cell) cell.textContent = (size && price) ? `₪${formatCurrency(size * price)}` : '-';
+  const paid = Number(row.querySelector('.apt-paid')?.value) || 0;
+  const recommendedCell = row.querySelector('.apt-recommended');
+  if (recommendedCell) recommendedCell.textContent = (size && price) ? `₪${formatCurrency(size * price)}` : '-';
+  const gapCell = row.querySelector('.apt-gap');
+  if (gapCell) gapCell.innerHTML = computeApartmentGapHtml(size, price, paid);
 });
 
 document.getElementById('apartments-table')?.addEventListener('click', async e => {
@@ -9986,7 +10003,8 @@ document.getElementById('apartments-save')?.addEventListener('click', async () =
       waterMeter: row.querySelector('.apt-water')?.value.trim() || '',
       electricityMeter: row.querySelector('.apt-elec')?.value.trim() || '',
       sizeSqm: Number(row.querySelector('.apt-size')?.value) || 0,
-      pricePerSqm: Number(row.querySelector('.apt-price')?.value) || 0
+      pricePerSqm: Number(row.querySelector('.apt-price')?.value) || 0,
+      paidRent: Number(row.querySelector('.apt-paid')?.value) || 0
     });
   }
   try {
