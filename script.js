@@ -1529,6 +1529,17 @@ async function setReleasedAutoReminderIds(list) {
   await setSetting('releasedAutoReminders', cleaned);
 }
 
+async function getPaidAutoReminderIds() {
+  const saved = await getSetting('paidAutoReminders');
+  if (!Array.isArray(saved)) return [];
+  return saved.map(id => String(id || '').trim()).filter(Boolean);
+}
+
+async function setPaidAutoReminderIds(list) {
+  const cleaned = Array.from(new Set((Array.isArray(list) ? list : []).map(id => String(id || '').trim()).filter(Boolean)));
+  await setSetting('paidAutoReminders', cleaned);
+}
+
 function buildTenantTargetDate(tenant) {
   const moveOutIso = parseDateToIso(tenant?.moveOutDate || '');
   if (moveOutIso) return { kind: 'moveout', iso: moveOutIso };
@@ -2253,11 +2264,12 @@ async function renderReminders() {
   if (contractDaysInput) contractDaysInput.disabled = !canWrite;
   if (checkDaysInput) checkDaysInput.disabled = !canWrite;
 
-  const [config, autoReminders, manualReminders, releasedAutoIds, upcoming, payments, tenants, readings, tenantCreditsMap] = await Promise.all([
+  const [config, autoReminders, manualReminders, releasedAutoIds, paidAutoIds, upcoming, payments, tenants, readings, tenantCreditsMap] = await Promise.all([
     getRemindersConfig(),
     buildAutomaticReminders(),
     getManualReminders(),
     getReleasedAutoReminderIds(),
+    getPaidAutoReminderIds(),
     buildUpcomingKeyDates(),
     getAllPayments(),
     getAllTenants(true),
@@ -2274,6 +2286,7 @@ async function renderReminders() {
 
   const todayIso = currentIsoDate();
   const releasedSet = new Set(releasedAutoIds.map(id => String(id)));
+  const paidSet = new Set(paidAutoIds.map(id => String(id)));
   const activeAutoRows = autoReminders.filter(item => !releasedSet.has(String(item.id)));
   const releasedAutoRows = autoReminders.filter(item => releasedSet.has(String(item.id)));
 
@@ -2304,11 +2317,12 @@ async function renderReminders() {
 
   const renderReminderRow = (r, released = false) => {
     const dueText = r.dueDate ? formatDateEu(r.dueDate) : 'ללא תאריך';
+    const isPaidLocally = paidSet.has(String(r.id));
     let actions = '—';
     if (released) {
-      const markPaidBtn = (r.source === 'קריאות' && Number.isFinite(Number(r.readingId)))
-        ? `<button class="btn-mark-reading-paid" data-reading-id="${Number(r.readingId)}" ${canWrite ? '' : 'disabled'}>שולם ✓</button>`
-        : '';
+      const markPaidBtn = (!isPaidLocally && r.source === 'קריאות' && Number.isFinite(Number(r.readingId)))
+        ? `<button class="btn-mark-reading-paid" data-id="${escapeHtml(r.id)}" ${canWrite ? '' : 'disabled'}>שולם ✓</button>`
+        : (isPaidLocally ? '<span style="color:#1b5e20; font-weight:700;">✅ שולם</span>' : '');
       actions = `${markPaidBtn}<button class="btn-restore-auto-reminder" data-id="${escapeHtml(r.id)}" ${canWrite ? '' : 'disabled'}>↩️</button>`;
     } else if (r.type === 'manual') {
       actions = `
@@ -2317,11 +2331,11 @@ async function renderReminders() {
       `;
     } else if (r.type === 'auto') {
       const markPaidBtn = (r.source === 'קריאות' && Number.isFinite(Number(r.readingId)))
-        ? `<button class="btn-mark-reading-paid" data-reading-id="${Number(r.readingId)}" ${canWrite ? '' : 'disabled'}>שולם ✓</button>`
+        ? `<button class="btn-mark-reading-paid" data-id="${escapeHtml(r.id)}" ${canWrite ? '' : 'disabled'}>שולם ✓</button>`
         : '';
       actions = `${markPaidBtn}<button class="btn-release-auto-reminder" data-id="${escapeHtml(r.id)}" ${canWrite ? '' : 'disabled'}>שחרר</button>`;
     }
-    const titleStyle = r.done ? 'text-decoration: line-through; color: #666;' : '';
+    const titleStyle = (r.done || isPaidLocally) ? 'text-decoration: line-through; color: #666;' : '';
     return `
       <tr>
         <td>${renderReminderPriorityBadge(r.priority)}</td>
@@ -8885,11 +8899,17 @@ document.getElementById('reminders-list')?.addEventListener('click', async e => 
   const markPaidBtn = e.target.closest('.btn-mark-reading-paid');
   if (markPaidBtn) {
     if (!canWriteCurrentUser()) return;
-    const readingId = Number(markPaidBtn.dataset.readingId || 0);
-    if (!readingId) return;
-    await updateReading(readingId, { paid: true });
-    if (readingsView && !readingsView.classList.contains('hidden')) {
-      await renderReadings();
+    const targetId = String(markPaidBtn.dataset.id || '');
+    if (!targetId) return;
+    const releasedIds = await getReleasedAutoReminderIds();
+    if (!releasedIds.includes(targetId)) {
+      releasedIds.push(targetId);
+      await setReleasedAutoReminderIds(releasedIds);
+    }
+    const paidIds = await getPaidAutoReminderIds();
+    if (!paidIds.includes(targetId)) {
+      paidIds.push(targetId);
+      await setPaidAutoReminderIds(paidIds);
     }
     await renderReminders();
     return;
@@ -8915,6 +8935,11 @@ document.getElementById('reminders-list')?.addEventListener('click', async e => 
     const current = await getReleasedAutoReminderIds();
     const next = current.filter(id => String(id) !== targetId);
     await setReleasedAutoReminderIds(next);
+    const paidCurrent = await getPaidAutoReminderIds();
+    const paidNext = paidCurrent.filter(id => String(id) !== targetId);
+    if (paidNext.length !== paidCurrent.length) {
+      await setPaidAutoReminderIds(paidNext);
+    }
     await renderReminders();
     return;
   }
