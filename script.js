@@ -3199,6 +3199,7 @@ function findTenantByNameParts(namePartsIndex, firstName, lastName) {
 
 async function exportTenantsCsv() {
   const tenants = await getAllTenants(true);
+  const apartmentMetersMap = await getApartmentMetersMap();
   const rows = [
     ['apartment', 'first_name', 'last_name', 'national_id', 'phone', 'active', 'start_date', 'end_date', 'move_out_date', 'rent_amount', 'rent_history_json', 'arnona_amount', 'arnona_history_json', 'electricity_meter', 'water_meter', 'deposit_day', 'notes', 'archived']
   ];
@@ -3220,8 +3221,8 @@ async function exportTenantsCsv() {
       rentHistoryJson,
       t.arnonaAmount ?? '',
       arnonaHistoryJson,
-      t.electricityMeter || '',
-      t.waterMeter || '',
+      tenantElectricityMeterDisplay(t, apartmentMetersMap),
+      tenantWaterMeterDisplay(t, apartmentMetersMap),
       normalizeDepositDay(t.depositDay),
       t.notes || '',
       t.archived ? 'true' : 'false'
@@ -3661,6 +3662,28 @@ async function getApartmentByNumber(apartmentNumber) {
   if (!num) return null;
   const list = await getApartmentsData();
   return list.find(a => a.apartmentNumber === num) || null;
+}
+
+// Apartment meter numbers in Settings are the canonical source of truth; a tenant's own
+// waterMeter/electricityMeter fields are only a snapshot copied in at save time, so any
+// display of a tenant's meter number should look this up live instead of trusting the
+// (possibly stale) snapshot.
+async function getApartmentMetersMap() {
+  const apartments = await getApartmentsData();
+  return new Map(apartments.map(a => [
+    String(a.apartmentNumber || '').trim(),
+    { waterMeter: a.waterMeter || '', electricityMeter: a.electricityMeter || '' }
+  ]));
+}
+
+function tenantWaterMeterDisplay(tenant, apartmentMetersMap) {
+  const apt = apartmentMetersMap?.get(String(tenant?.apartmentNumber || '').trim());
+  return apt?.waterMeter || tenant?.waterMeter || '';
+}
+
+function tenantElectricityMeterDisplay(tenant, apartmentMetersMap) {
+  const apt = apartmentMetersMap?.get(String(tenant?.apartmentNumber || '').trim());
+  return apt?.electricityMeter || tenant?.electricityMeter || '';
 }
 
 async function getTenantBalanceCreditsMap() {
@@ -4143,7 +4166,7 @@ function resolveReadingDisplayInfo(tenant, waterCurrent, elecCurrent) {
   };
 }
 
-function buildMonthlyReportSync(monthValue, { tenants, allReadings }) {
+function buildMonthlyReportSync(monthValue, { tenants, allReadings, apartmentMetersMap }) {
   const parsed = parseMonthValue(monthValue);
   if (!parsed) throw new Error('בחר חודש תקין (MM/YYYY)');
   const { year, month, normalized } = parsed;
@@ -4170,8 +4193,8 @@ function buildMonthlyReportSync(monthValue, { tenants, allReadings }) {
     return {
       tenantName: displayInfo.tenantName,
       apartment: displayInfo.apartment,
-      waterMeter: t.waterMeter || '',
-      electricMeter: t.electricityMeter || '',
+      waterMeter: tenantWaterMeterDisplay(t, apartmentMetersMap),
+      electricMeter: tenantElectricityMeterDisplay(t, apartmentMetersMap),
       water: waterReport,
       electric: elecReport,
       total,
@@ -4183,11 +4206,12 @@ function buildMonthlyReportSync(monthValue, { tenants, allReadings }) {
 }
 
 async function buildMonthlyReport(monthValue) {
-  const [tenants, allReadings] = await Promise.all([
+  const [tenants, allReadings, apartmentMetersMap] = await Promise.all([
     getAllTenants(true),
-    getAllReadings()
+    getAllReadings(),
+    getApartmentMetersMap()
   ]);
-  return buildMonthlyReportSync(monthValue, { tenants, allReadings });
+  return buildMonthlyReportSync(monthValue, { tenants, allReadings, apartmentMetersMap });
 }
 
 function renderBillsReport(report) {
@@ -5328,6 +5352,7 @@ async function renderTenantsTable() {
     container.innerHTML = showArchived ? '<p>אין דיירים להצגה</p>' : '<p>אין דיירים פעילים</p>';
     return;
   }
+  const apartmentMetersMap = await getApartmentMetersMap();
 
   const rows = tenants.slice().sort((a, b) => Number(a.apartmentNumber || 0) - Number(b.apartmentNumber || 0)).map(t => {
     const rentNum = Number(t.rentAmount);
@@ -5336,6 +5361,8 @@ async function renderTenantsTable() {
     const arnona = !Number.isNaN(arnonaNum) && String(t.arnonaAmount).trim() !== '' ? `<span style="direction: ltr; display: inline-block;">₪${formatCurrency(arnonaNum)}</span>` : '-';
     const name = `${t.firstName || ''} ${t.lastName || ''}`.trim();
     const status = t.archived ? 'לא פעיל' : 'פעיל';
+    const electricityMeter = tenantElectricityMeterDisplay(t, apartmentMetersMap);
+    const waterMeter = tenantWaterMeterDisplay(t, apartmentMetersMap);
     const actions = t.archived
       ? `<button data-id="${t.id}" class="btn-edit">✏️</button><button data-id="${t.id}" class="btn-restore">↩️</button><button data-id="${t.id}" class="btn-delete">🗑️</button>`
       : `<button data-id="${t.id}" class="btn-edit">✏️</button><button data-id="${t.id}" class="btn-archive">📦</button><button data-id="${t.id}" class="btn-delete">🗑️</button>`;
@@ -5349,8 +5376,8 @@ async function renderTenantsTable() {
         <td>${normalizeDepositDay(t.depositDay) || '-'}</td>
         <td>${rent}</td>
         <td>${arnona}</td>
-        <td>${t.electricityMeter || '-'}</td>
-        <td>${t.waterMeter || '-'}</td>
+        <td>${electricityMeter || '-'}</td>
+        <td>${waterMeter || '-'}</td>
         <td>${formatDateEu(t.startDate || '') || '-'}</td>
         <td>${formatDateEu(t.endDate || '') || '-'}</td>
         <td><input type="text" class="moveout-input" data-id="${t.id}" value="${formatDateEu(t.moveOutDate || '')}" placeholder="DD/MM/YYYY"></td>
@@ -5395,6 +5422,7 @@ async function renderArchive() {
     list.innerHTML = '<p>אין בארכיון</p>';
     return;
   }
+  const apartmentMetersMap = await getApartmentMetersMap();
 
   const rows = archived.slice().sort((a, b) => Number(a.apartmentNumber || 0) - Number(b.apartmentNumber || 0)).map(t => {
     const rentNum = Number(t.rentAmount);
@@ -5411,8 +5439,8 @@ async function renderArchive() {
         <td>${normalizeDepositDay(t.depositDay) || '-'}</td>
         <td>${rent}</td>
         <td>${arnona}</td>
-        <td>${t.electricityMeter || '-'}</td>
-        <td>${t.waterMeter || '-'}</td>
+        <td>${tenantElectricityMeterDisplay(t, apartmentMetersMap) || '-'}</td>
+        <td>${tenantWaterMeterDisplay(t, apartmentMetersMap) || '-'}</td>
         <td>${formatDateEu(t.startDate || '') || '-'}</td>
         <td>${formatDateEu(t.endDate || '') || '-'}</td>
         <td><input type="text" class="moveout-input" data-id="${t.id}" value="${formatDateEu(t.moveOutDate || '')}" placeholder="DD/MM/YYYY"></td>
@@ -5911,11 +5939,12 @@ async function renderMonthlyChargesChart() {
   if (!container) return;
 
   try {
-    const [tenants, allReadings] = await Promise.all([
+    const [tenants, allReadings, apartmentMetersMap] = await Promise.all([
       getAllTenants(true),
-      getAllReadings()
+      getAllReadings(),
+      getApartmentMetersMap()
     ]);
-    const reportCtx = { tenants, allReadings };
+    const reportCtx = { tenants, allReadings, apartmentMetersMap };
     window.__monthlyChargesReportCtx = reportCtx;
 
     const monthKeys = Array.from(new Set(
@@ -9305,52 +9334,66 @@ document.getElementById('solar-clear-all')?.addEventListener('click', async () =
 });
 
 // Tenant form
+let tenantFormSubmitting = false;
 tenantForm?.addEventListener('submit', async e => {
   e.preventDefault();
-  const f = e.target;
-  const data = {};
-  for (const el of f.elements) if (el.name) data[el.name] = el.value;
-  data.rentHistory        = readRatesRows(document.getElementById('rates-rent-body'), 'rent');
-  data.arnonaHistory      = readRatesRows(document.getElementById('rates-arnona-body'), 'arnona');
-  data.waterPriceHistory  = readRatesRows(document.getElementById('rates-water-body'), 'water');
-  data.electricityHistory = readRatesRows(document.getElementById('rates-electricity-body'), 'electricity');
-  const isActive = f.elements['active'] ? f.elements['active'].checked : true;
-  data.archived = !isActive;
-  if (data.startDate) {
-    const parsedStart = parseDateToIso(data.startDate);
-    if (!parsedStart) { alert('תאריך התחלה לא תקין'); return; }
-    data.startDate = parsedStart;
-  }
-  if (data.endDate) {
-    const parsedEnd = parseDateToIso(data.endDate);
-    if (!parsedEnd) { alert('תאריך סיום לא תקין'); return; }
-    data.endDate = parsedEnd;
-  }
-  if (data.moveOutDate) {
-    const parsedMoveOut = parseDateToIso(data.moveOutDate);
-    if (!parsedMoveOut) { alert('תאריך עזיבה לא תקין'); return; }
-    data.moveOutDate = parsedMoveOut;
-  } else {
-    data.moveOutDate = null;
-  }
-  data.depositDay = normalizeDepositDay(data.depositDay);
-  const linkedApartment = await getApartmentByNumber(data.apartmentNumber);
-  data.waterMeter = linkedApartment?.waterMeter || '';
-  data.electricityMeter = linkedApartment?.electricityMeter || '';
-  if (isRemoteApp()) {
-    if (f.editId) {
-      await updateTenantRemote(Number(f.editId), data);
-    } else {
-      await addTenantRemote(data);
+  // Guard against double-submit (double-click / double Enter on a slow connection):
+  // without this, a second overlapping submit could race the first and, combined
+  // with editId not being cleared afterwards, save data under the wrong tenant.
+  if (tenantFormSubmitting) return;
+  tenantFormSubmitting = true;
+  const submitBtn = tenantForm.querySelector('button[type="submit"]');
+  if (submitBtn) submitBtn.disabled = true;
+  try {
+    const f = e.target;
+    const data = {};
+    for (const el of f.elements) if (el.name) data[el.name] = el.value;
+    data.rentHistory        = readRatesRows(document.getElementById('rates-rent-body'), 'rent');
+    data.arnonaHistory      = readRatesRows(document.getElementById('rates-arnona-body'), 'arnona');
+    data.waterPriceHistory  = readRatesRows(document.getElementById('rates-water-body'), 'water');
+    data.electricityHistory = readRatesRows(document.getElementById('rates-electricity-body'), 'electricity');
+    const isActive = f.elements['active'] ? f.elements['active'].checked : true;
+    data.archived = !isActive;
+    if (data.startDate) {
+      const parsedStart = parseDateToIso(data.startDate);
+      if (!parsedStart) { alert('תאריך התחלה לא תקין'); return; }
+      data.startDate = parsedStart;
     }
-    await syncRemoteTenantsToLocalCache();
-  } else {
-    if (f.editId) await updateTenant(Number(f.editId), data); else await addTenant(data);
+    if (data.endDate) {
+      const parsedEnd = parseDateToIso(data.endDate);
+      if (!parsedEnd) { alert('תאריך סיום לא תקין'); return; }
+      data.endDate = parsedEnd;
+    }
+    if (data.moveOutDate) {
+      const parsedMoveOut = parseDateToIso(data.moveOutDate);
+      if (!parsedMoveOut) { alert('תאריך עזיבה לא תקין'); return; }
+      data.moveOutDate = parsedMoveOut;
+    } else {
+      data.moveOutDate = null;
+    }
+    data.depositDay = normalizeDepositDay(data.depositDay);
+    const linkedApartment = await getApartmentByNumber(data.apartmentNumber);
+    data.waterMeter = linkedApartment?.waterMeter || '';
+    data.electricityMeter = linkedApartment?.electricityMeter || '';
+    if (isRemoteApp()) {
+      if (f.editId) {
+        await updateTenantRemote(Number(f.editId), data);
+      } else {
+        await addTenantRemote(data);
+      }
+      await syncRemoteTenantsToLocalCache();
+    } else {
+      if (f.editId) await updateTenant(Number(f.editId), data); else await addTenant(data);
+    }
+    show(tenantForm);
+    await renderTenants();
+    f.reset();
+    f.editId = null;
+    clearTenantRatesForm();
+  } finally {
+    tenantFormSubmitting = false;
+    if (submitBtn) submitBtn.disabled = false;
   }
-  show(tenantForm);
-  await renderTenants();
-  f.reset();
-  clearTenantRatesForm();
 });
 
 const tenantsExportBtn = document.getElementById('tenants-export-csv');
@@ -10989,6 +11032,7 @@ async function exportReadingsCsv() {
   const readings = await getAllReadings();
   const tenants = await getAllTenants(true);
   const tenantMap = new Map(tenants.map(t => [t.id, t]));
+  const apartmentMetersMap = await getApartmentMetersMap();
   const rows = [
     ['date', 'apartment', 'tenant', 'meter_type', 'meter_number', 'value', 'paid']
   ];
@@ -10997,7 +11041,9 @@ async function exportReadingsCsv() {
     const t = tenantMap.get(r.tenantId) || {};
     const name = t.id ? `${t.firstName || ''} ${t.lastName || ''}`.trim() : (r.tenantName || '');
     const apartment = t.id ? (t.apartmentNumber || '') : (r.apartmentNumber || '');
-    const meterNumber = r.meterType === 'electricity' ? (t.electricityMeter || '') : (t.waterMeter || '');
+    const meterNumber = r.meterType === 'electricity'
+      ? tenantElectricityMeterDisplay(t, apartmentMetersMap)
+      : tenantWaterMeterDisplay(t, apartmentMetersMap);
     rows.push([
       r.date || '',
       apartment,
