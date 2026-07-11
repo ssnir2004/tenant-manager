@@ -6811,6 +6811,7 @@ function renderBalanceTenantTables() {
     return;
   }
 
+  let grandTotal = 0;
   const cards = visibleTenants
     .slice()
     .sort((a, b) => Number(a.apartmentNumber || 0) - Number(b.apartmentNumber || 0))
@@ -6861,6 +6862,7 @@ function renderBalanceTenantTables() {
       if (months.length > 0) {
         const latestBreakdown = computeTenantMonthBreakdown(tenant, months[months.length - 1], ctx);
         const total = latestBreakdown.total;
+        grandTotal += total;
         const totalLabel = total > 0 ? `חוב: ₪${formatCurrency(total)}` : (total < 0 ? `זכות: ₪${formatCurrency(Math.abs(total))}` : 'מאוזן');
         const totalClass = total > 0 ? 'btt-summary-debt' : (total < 0 ? 'btt-summary-credit' : '');
         headerSummary = `<span class="btt-summary ${totalClass}">${totalLabel}</span> · <span class="btt-summary-months">${months.length} חודשים</span>`;
@@ -6899,9 +6901,12 @@ function renderBalanceTenantTables() {
     }).join('');
 
   const inactiveCount = tenants.filter(t => t.archived || t.active === false).length;
+  const grandTotalLabel = grandTotal > 0 ? `סה"כ חוב: ₪${formatCurrency(grandTotal)}` : (grandTotal < 0 ? `סה"כ זכות: ₪${formatCurrency(Math.abs(grandTotal))}` : 'סה"כ מאוזן');
+  const grandTotalClass = grandTotal > 0 ? 'btt-summary-debt' : (grandTotal < 0 ? 'btt-summary-credit' : '');
   container.innerHTML = `
     <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom:4px;">
       <div class="btt-section-title" style="margin-bottom:0;">פירוט חודשי לכל דייר${showInactive ? '' : ' פעיל'}</div>
+      <span class="btt-summary ${grandTotalClass}" style="font-weight:700;">${grandTotalLabel}</span>
       ${inactiveCount > 0 ? `<label style="font-size:13px; color:var(--text-light); cursor:pointer; display:flex; align-items:center; gap:5px; user-select:none;">
         <input type="checkbox" id="btt-show-inactive" ${showInactive ? 'checked' : ''}>
         הצג דיירים לא פעילים (${inactiveCount})
