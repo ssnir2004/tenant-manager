@@ -6988,7 +6988,7 @@ async function renderBalance() {
   const monthly = new Map();
   const monthlyDetails = new Map();
   const ensureMonth = key => {
-    if (!monthly.has(key)) monthly.set(key, { income: 0, expense: 0 });
+    if (!monthly.has(key)) monthly.set(key, { income: 0, expense: 0, myIncome: 0, grandmaIncome: 0 });
     return monthly.get(key);
   };
   const ensureDetails = key => {
@@ -7042,7 +7042,11 @@ async function renderBalance() {
     if (!iso) return;
     const key = iso.slice(0, 7);
     const rec = ensureMonth(key);
-    rec.income += Number(p.amount || 0);
+    const amount = Number(p.amount || 0);
+    rec.income += amount;
+    const acct = accountValueFromCsv(p.account);
+    if (acct === 'my') rec.myIncome += amount;
+    else if (acct === 'grandma') rec.grandmaIncome += amount;
     const tenant = tenantMap.get(p.tenantId);
     const resolvedTenantName = tenant
       ? `${tenant.firstName || ''} ${tenant.lastName || ''}`.trim()
@@ -7272,6 +7276,8 @@ async function renderBalance() {
 
   let totalIncome = 0;
   let totalExpense = 0;
+  let totalMyIncome = 0;
+  let totalGrandmaIncome = 0;
 
   // Use all months in the range (first to last month) instead of only months with data
   const displayMonths = keys.length > 0 ? keys : [];
@@ -7313,13 +7319,17 @@ async function renderBalance() {
   }
 
   const rows = displayMonths.length > 0 ? displayMonths.map(key => {
-    const rec = monthly.get(key) || { income: 0, expense: 0 };
+    const rec = monthly.get(key) || { income: 0, expense: 0, myIncome: 0, grandmaIncome: 0 };
     const details = monthlyDetails.get(key) || { incomes: [], expenses: [] };
     const income = rec.income || 0;
     const expense = rec.expense || 0;
+    const myIncome = rec.myIncome || 0;
+    const grandmaIncome = rec.grandmaIncome || 0;
     const net = income - expense;
     totalIncome += income;
     totalExpense += expense;
+    totalMyIncome += myIncome;
+    totalGrandmaIncome += grandmaIncome;
     const monthLabel = `${key.slice(5, 7)}/${key.slice(0, 4)}`;
     const netColor = net >= 0 ? '#27ae60' : '#e74c3c';
     const typeLabels = {
@@ -7352,11 +7362,13 @@ async function renderBalance() {
       <tr class="balance-month-row" data-month="${key}" style="cursor:pointer;">
         <td>${monthLabel}</td>
         <td style="direction: ltr; text-align: left;">₪${formatCurrency(income)}</td>
+        <td style="direction: ltr; text-align: left;">₪${formatCurrency(myIncome)}</td>
+        <td style="direction: ltr; text-align: left;">₪${formatCurrency(grandmaIncome)}</td>
         <td style="direction: ltr; text-align: left;">₪${formatCurrency(expense)}</td>
         <td style="color:${netColor};font-weight:bold;direction: ltr; text-align: left;">₪${formatCurrency(net)}</td>
       </tr>
       <tr class="balance-detail-row hidden" data-month="${key}">
-        <td colspan="4" style="padding: 12px 8px;">
+        <td colspan="6" style="padding: 12px 8px;">
           <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
             <div>
               <div style="font-weight: bold; margin-bottom: 6px;">הכנסות</div>
@@ -7394,7 +7406,7 @@ async function renderBalance() {
         </td>
       </tr>
     `;
-  }).join('') : '<tr><td colspan="4" style="text-align:center;color:#999;">אין נתונים למאזן חודשי</td></tr>';
+  }).join('') : '<tr><td colspan="6" style="text-align:center;color:#999;">אין נתונים למאזן חודשי</td></tr>';
 
   const totalNet = totalIncome - totalExpense;
   const totalNetColor = totalNet >= 0 ? '#27ae60' : '#e74c3c';
@@ -7525,6 +7537,8 @@ async function renderBalance() {
         <tr>
           <th>חודש</th>
           <th>הכנסות</th>
+          <th>הכנסות ניר</th>
+          <th>הכנסות אמא</th>
           <th>הוצאות</th>
           <th>נטו</th>
         </tr>
@@ -7534,6 +7548,8 @@ async function renderBalance() {
         <tr style="font-weight: bold; border-top: 2px solid #333;">
           <td>סה"כ</td>
           <td style="direction: ltr; text-align: left;">₪${formatCurrency(totalIncome)}</td>
+          <td style="direction: ltr; text-align: left;">₪${formatCurrency(totalMyIncome)}</td>
+          <td style="direction: ltr; text-align: left;">₪${formatCurrency(totalGrandmaIncome)}</td>
           <td style="direction: ltr; text-align: left;">₪${formatCurrency(totalExpense)}</td>
           <td style="color:${totalNetColor};direction: ltr; text-align: left;">₪${formatCurrency(totalNet)}</td>
         </tr>
