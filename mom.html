@@ -251,21 +251,19 @@
                 <td>${escapeHtml(item.tenantName || '-')}</td>
                 <td>${escapeHtml(item.description || '')}</td>
                 <td style="direction: ltr; text-align: left;">₪${formatCurrency(item.amount)}</td>
-                <td>${escapeHtml(item.notes || '')}</td>
               </tr>
             `;
           }).join('');
           expensesTableEl.innerHTML = `
             <table class="payments-table">
               <thead>
-                <tr><th>תאריך</th><th>דירה</th><th>דייר</th><th>תיאור ההוצאה</th><th>סכום</th><th>הערות</th></tr>
+                <tr><th>תאריך</th><th>דירה</th><th>דייר</th><th>תיאור ההוצאה</th><th>סכום</th></tr>
               </thead>
               <tbody>
                 ${rows}
                 <tr style="font-weight:bold;border-top:2px solid #333;">
                   <td colspan="4">סה"כ:</td>
                   <td style="direction: ltr; text-align: left;">₪${formatCurrency(total)}</td>
-                  <td></td>
                 </tr>
               </tbody>
             </table>
