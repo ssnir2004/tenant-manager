@@ -9614,6 +9614,8 @@ function resetParentContributionForm() {
   document.getElementById('parent-contribution-notes').value = '';
 }
 
+let sharedExpensesBalanceExpanded = false;
+
 async function renderSharedExpensesBalance() {
   const container = document.getElementById('shared-expenses-balance');
   if (!container) return;
@@ -9649,25 +9651,40 @@ async function renderSharedExpensesBalance() {
 
   container.innerHTML = `
     <div class="btt-card">
-      <div class="btt-header-title" style="padding:10px 14px;">אמא ואבא · <span class="btt-summary ${summaryClass}" style="font-weight:700;">${summaryLabel}</span></div>
-      <div class="btt-table-wrap">
-        <table class="btt-table">
-          <thead>
-            <tr>
-              <th>חודש</th>
-              <th>הוצאות משותפות</th>
-              <th>התחייבות הורים (40%)</th>
-              <th>התקבל מההורים</th>
-              <th>יתרה חודשית</th>
-              <th>יתרה מצטברת</th>
-            </tr>
-          </thead>
-          <tbody>${rows}</tbody>
-        </table>
-      </div>
+      <button type="button" class="btt-header" id="shared-expenses-balance-toggle">
+        <span class="btt-header-arrow">${sharedExpensesBalanceExpanded ? '▼' : '◀'}</span>
+        <span class="btt-header-title">יתרה מצטברת מול ההורים</span>
+        <span class="btt-header-summary">
+          <span class="btt-summary ${summaryClass}" style="font-size:16px;">${summaryLabel}</span>
+          · <span class="btt-summary-months">${monthly.length} חודשים</span>
+        </span>
+      </button>
+      ${sharedExpensesBalanceExpanded ? `
+        <div class="btt-table-wrap">
+          <table class="btt-table">
+            <thead>
+              <tr>
+                <th>חודש</th>
+                <th>הוצאות משותפות</th>
+                <th>התחייבות הורים (40%)</th>
+                <th>התקבל מההורים</th>
+                <th>יתרה חודשית</th>
+                <th>יתרה מצטברת</th>
+              </tr>
+            </thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </div>
+      ` : ''}
     </div>
   `;
 }
+
+document.getElementById('shared-expenses-balance')?.addEventListener('click', e => {
+  if (!e.target.closest('#shared-expenses-balance-toggle')) return;
+  sharedExpensesBalanceExpanded = !sharedExpensesBalanceExpanded;
+  renderSharedExpensesBalance();
+});
 
 async function renderSharedExpensesList() {
   const listEl = document.getElementById('shared-expenses-list');

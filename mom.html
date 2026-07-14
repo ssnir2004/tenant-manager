@@ -308,6 +308,12 @@
         if (!monthly.length) {
           balanceTableEl.innerHTML = '<div style="text-align:center;color:#999;">אין נתונים</div>';
         } else {
+          const last = monthly[monthly.length - 1];
+          const summaryColor = last.cumulativeBalance > 0 ? '#1b5e20' : (last.cumulativeBalance < 0 ? '#b71c1c' : '#666');
+          const summaryLabel = last.cumulativeBalance > 0
+            ? `להורים זכות: ₪${formatCurrency(last.cumulativeBalance)}`
+            : (last.cumulativeBalance < 0 ? `להורים חוב: ₪${formatCurrency(Math.abs(last.cumulativeBalance))}` : 'מאוזן');
+
           const rows = monthly.map(m => {
             const balanceColor = m.balance >= 0 ? '#27ae60' : '#e74c3c';
             const cumulativeColor = m.cumulativeBalance >= 0 ? '#27ae60' : '#e74c3c';
@@ -323,12 +329,18 @@
             `;
           }).join('');
           balanceTableEl.innerHTML = `
-            <table class="payments-table">
-              <thead>
-                <tr><th>חודש</th><th>הוצאות משותפות</th><th>התחייבות הורים (40%)</th><th>התקבל מההורים</th><th>יתרה חודשית</th><th>יתרה מצטברת</th></tr>
-              </thead>
-              <tbody>${rows}</tbody>
-            </table>
+            <div style="background:#f5f5f5;border-radius:6px;padding:12px 16px;margin-bottom:10px;font-weight:bold;font-size:16px;color:${summaryColor};">
+              ${summaryLabel}
+            </div>
+            <details>
+              <summary style="cursor:pointer;color:#666;font-size:13px;margin-bottom:8px;">הצג פירוט חודשי (${monthly.length} חודשים)</summary>
+              <table class="payments-table" style="margin-top:8px;">
+                <thead>
+                  <tr><th>חודש</th><th>הוצאות משותפות</th><th>התחייבות הורים (40%)</th><th>התקבל מההורים</th><th>יתרה חודשית</th><th>יתרה מצטברת</th></tr>
+                </thead>
+                <tbody>${rows}</tbody>
+              </table>
+            </details>
           `;
         }
 
