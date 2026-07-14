@@ -106,3 +106,23 @@ CREATE TABLE IF NOT EXISTS settings (
   key TEXT PRIMARY KEY,
   value TEXT
 );
+
+CREATE TABLE IF NOT EXISTS shared_expenses (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  date TEXT,
+  apartmentNumber TEXT,
+  tenantName TEXT,
+  description TEXT,
+  amount REAL,
+  notes TEXT,
+  createdAt TEXT
+);
+
+CREATE TABLE IF NOT EXISTS parent_contributions (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  date TEXT,
+  description TEXT,
+  amount REAL,
+  notes TEXT,
+  createdAt TEXT
+);

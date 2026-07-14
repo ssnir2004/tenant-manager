@@ -26,6 +26,7 @@
         <button id="show-credits">זיכוי\חיוב</button>
         <button id="show-expenses">חשבונות</button>
         <button id="show-solar">גג סולרי</button>
+        <button id="show-shared-expenses">הוצאות משותפות</button>
         <button id="show-balance">מאזן</button>
         <button id="show-mom" style="background-color: #9b59b6; color: white;">אמא</button>
       </div>
@@ -682,6 +683,39 @@
         <div id="solar-list" class="section-container" style="margin-top: 12px;"></div>
       </div>
 
+      <!-- Shared Expenses View -->
+      <div id="shared-expenses-view" class="card hidden">
+        <h2>🤝 הוצאות משותפות עם אמא ואבא</h2>
+        <p style="color:#666; font-size:13px; margin-top:-8px;">40% מסך ההוצאות המשותפות מחוייבות מההורים, מתוך הכסף שהתקבל מהם. 60% הנותרים עליי.</p>
+
+        <h3 style="margin-bottom:8px;">הוצאות משותפות</h3>
+        <div class="row"><label>תאריך<input id="shared-expense-date" type="text" placeholder="DD/MM/YYYY"></label></div>
+        <div class="row">
+          <label>דירה<select id="shared-expense-apartment"><option value="">— כללי / לא משויך —</option></select></label>
+        </div>
+        <div class="row"><label>דייר<input id="shared-expense-tenant" type="text" placeholder="שם הדייר (אופציונלי)"></label></div>
+        <div class="row"><label>תיאור ההוצאה<input id="shared-expense-description" type="text" placeholder="תיאור ההוצאה"></label></div>
+        <div class="row"><label>סכום<input id="shared-expense-amount" type="number" step="0.01" placeholder="0.00"></label></div>
+        <div class="row"><label>הערות<input id="shared-expense-notes" type="text" placeholder="הערות"></label></div>
+        <div class="actions">
+          <button id="save-shared-expense" type="button">שמור הוצאה</button>
+        </div>
+        <div id="shared-expenses-list" class="section-container" style="margin-top: 12px;"></div>
+
+        <h3 style="margin-top:28px; margin-bottom:8px;">כסף שקיבלתי מאמא ואבא</h3>
+        <div class="row"><label>תאריך<input id="parent-contribution-date" type="text" placeholder="DD/MM/YYYY"></label></div>
+        <div class="row"><label>תיאור השתתפות אמא ואבא<input id="parent-contribution-description" type="text" placeholder="תיאור"></label></div>
+        <div class="row"><label>סכום<input id="parent-contribution-amount" type="number" step="0.01" placeholder="0.00"></label></div>
+        <div class="row"><label>הערות<input id="parent-contribution-notes" type="text" placeholder="הערות"></label></div>
+        <div class="actions">
+          <button id="save-parent-contribution" type="button">שמור קבלה</button>
+        </div>
+        <div id="parent-contributions-list" class="section-container" style="margin-top: 12px;"></div>
+
+        <h3 style="margin-top:28px; margin-bottom:8px;">יתרה מצטברת מול ההורים</h3>
+        <div id="shared-expenses-balance" class="section-container"></div>
+      </div>
+
       <!-- Balance View -->
       <div id="balance-view" class="card hidden">
         <h2>מאזן דיירים</h2>
@@ -1034,6 +1068,6 @@
       </div>
     </div>
   </div>
-  <script src="script.js?v=2026071102" defer></script>
+  <script src="script.js?v=2026071401" defer></script>
 </body>
 </html>

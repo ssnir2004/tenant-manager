@@ -18,7 +18,9 @@ const RETURNING_TABLES = new Set([
   'bills',
   'payments',
   'expenses',
-  'solar'
+  'solar',
+  'shared_expenses',
+  'parent_contributions'
 ]);
 
 function isPostgresEnabled() {
@@ -54,6 +56,7 @@ const POSTGRES_CAMEL_CASE_IDENTIFIERS = [
   'electricityHistory',
   'createdAt',
   'tenantId',
+  'tenantName',
   'meterType',
   'submittedByUserId',
   'approvedByUserId',

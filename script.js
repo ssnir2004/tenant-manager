@@ -2,8 +2,8 @@
 const APP_VERSION = '2025-02-18-expenses-paid';
 console.log('App version:', APP_VERSION);
 const DB_NAME = 'tenant_mgmt_v1';
-const DB_VERSION = 5;
-const STORES = ['tenants', 'readings', 'bills', 'payments', 'expenses', 'solar', 'settings'];
+const DB_VERSION = 6;
+const STORES = ['tenants', 'readings', 'bills', 'payments', 'expenses', 'solar', 'settings', 'sharedExpenses', 'parentContributions'];
 const SIDEBAR_WIDTH_STORAGE_KEY = 'sidebarWidthPx';
 const TENANT_BALANCE_CREDITS_KEY = 'tenantBalanceCredits';
 const THEME_STORAGE_KEY = 'appTheme';
@@ -420,7 +420,8 @@ function applyRoleUI() {
       'show-expenses',
       'show-solar',
       'show-balance',
-      'show-mom'
+      'show-mom',
+      'show-shared-expenses'
     ];
     hideIds.forEach(id => {
       const el = document.getElementById(id);
@@ -4581,10 +4582,11 @@ const remindersView = document.getElementById('reminders-view');
 const balanceView = document.getElementById('balance-view');
 const dashboardView = document.getElementById('dashboard-view');
 const momView = document.getElementById('mom-view');
+const sharedExpensesView = document.getElementById('shared-expenses-view');
 const confirmModal = document.getElementById('confirm-modal');
 
 // UI Helpers
-function hideAll() { [tenantForm, archiveView, readingsView, settingsView, paymentsView, creditsView, remindersView, expensesView, solarView, balanceView, dashboardView, momView].forEach(x => x?.classList.add('hidden')); }
+function hideAll() { [tenantForm, archiveView, readingsView, settingsView, paymentsView, creditsView, remindersView, expensesView, solarView, balanceView, dashboardView, momView, sharedExpensesView].forEach(x => x?.classList.add('hidden')); }
 function show(el) { hideAll(); el?.classList.remove('hidden'); }
 function confirmDialog(msg) {
   return new Promise(res => {
@@ -8569,6 +8571,226 @@ async function solarIncomeExists(entry, excludeId = null) {
   });
 }
 
+// Shared expenses (with parents)
+async function addSharedExpense(data) {
+  if (isRemoteApp()) {
+    return await addSharedExpenseRemote(data);
+  }
+  const tx = await getTx('sharedExpenses', 'readwrite');
+  data.createdAt = new Date().toISOString();
+  return new Promise((res, rej) => {
+    const r = tx.objectStore('sharedExpenses').add(data);
+    r.onsuccess = () => res(r.result);
+    r.onerror = () => rej(r.error);
+  });
+}
+
+async function updateSharedExpense(id, data) {
+  if (isRemoteApp()) {
+    return await updateSharedExpenseRemote(id, data);
+  }
+  const tx = await getTx('sharedExpenses', 'readwrite');
+  data.id = id;
+  data.createdAt = new Date().toISOString();
+  return new Promise((res, rej) => {
+    const r = tx.objectStore('sharedExpenses').put(data);
+    r.onsuccess = () => res(r.result);
+    r.onerror = () => rej(r.error);
+  });
+}
+
+async function deleteSharedExpense(id) {
+  if (isRemoteApp()) {
+    return await deleteSharedExpenseRemote(id);
+  }
+  const tx = await getTx('sharedExpenses', 'readwrite');
+  return new Promise((res, rej) => {
+    const r = tx.objectStore('sharedExpenses').delete(id);
+    r.onsuccess = () => res();
+    r.onerror = () => rej(r.error);
+  });
+}
+
+async function getAllSharedExpenses() {
+  if (isRemoteApp()) {
+    return await getAllSharedExpensesRemote();
+  }
+  const tx = await getTx('sharedExpenses', 'readonly');
+  return new Promise((res, rej) => {
+    const r = tx.objectStore('sharedExpenses').getAll();
+    r.onsuccess = () => res((r.result || []).sort((a, b) => ((dateValueFromAny(b.date) || 0) - (dateValueFromAny(a.date) || 0))));
+    r.onerror = () => rej(r.error);
+  });
+}
+
+async function addSharedExpenseRemote(data) {
+  const payload = {
+    date: data.date || '',
+    apartmentNumber: data.apartmentNumber || '',
+    tenantName: data.tenantName || '',
+    description: data.description || '',
+    amount: data.amount ?? null,
+    notes: data.notes || ''
+  };
+  return await apiRequest('/api/shared-expenses', {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  });
+}
+
+async function updateSharedExpenseRemote(id, data) {
+  const payload = {
+    date: data.date || '',
+    apartmentNumber: data.apartmentNumber || '',
+    tenantName: data.tenantName || '',
+    description: data.description || '',
+    amount: data.amount ?? null,
+    notes: data.notes || ''
+  };
+  return await apiRequest(`/api/shared-expenses/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(payload)
+  });
+}
+
+async function deleteSharedExpenseRemote(id) {
+  await apiRequest(`/api/shared-expenses/${id}`, { method: 'DELETE' });
+}
+
+async function getAllSharedExpensesRemote() {
+  const rows = await apiRequest('/api/shared-expenses');
+  return rows || [];
+}
+
+// Money received from mom & dad
+async function addParentContribution(data) {
+  if (isRemoteApp()) {
+    return await addParentContributionRemote(data);
+  }
+  const tx = await getTx('parentContributions', 'readwrite');
+  data.createdAt = new Date().toISOString();
+  return new Promise((res, rej) => {
+    const r = tx.objectStore('parentContributions').add(data);
+    r.onsuccess = () => res(r.result);
+    r.onerror = () => rej(r.error);
+  });
+}
+
+async function updateParentContribution(id, data) {
+  if (isRemoteApp()) {
+    return await updateParentContributionRemote(id, data);
+  }
+  const tx = await getTx('parentContributions', 'readwrite');
+  data.id = id;
+  data.createdAt = new Date().toISOString();
+  return new Promise((res, rej) => {
+    const r = tx.objectStore('parentContributions').put(data);
+    r.onsuccess = () => res(r.result);
+    r.onerror = () => rej(r.error);
+  });
+}
+
+async function deleteParentContribution(id) {
+  if (isRemoteApp()) {
+    return await deleteParentContributionRemote(id);
+  }
+  const tx = await getTx('parentContributions', 'readwrite');
+  return new Promise((res, rej) => {
+    const r = tx.objectStore('parentContributions').delete(id);
+    r.onsuccess = () => res();
+    r.onerror = () => rej(r.error);
+  });
+}
+
+async function getAllParentContributions() {
+  if (isRemoteApp()) {
+    return await getAllParentContributionsRemote();
+  }
+  const tx = await getTx('parentContributions', 'readonly');
+  return new Promise((res, rej) => {
+    const r = tx.objectStore('parentContributions').getAll();
+    r.onsuccess = () => res((r.result || []).sort((a, b) => ((dateValueFromAny(b.date) || 0) - (dateValueFromAny(a.date) || 0))));
+    r.onerror = () => rej(r.error);
+  });
+}
+
+async function addParentContributionRemote(data) {
+  const payload = {
+    date: data.date || '',
+    description: data.description || '',
+    amount: data.amount ?? null,
+    notes: data.notes || ''
+  };
+  return await apiRequest('/api/parent-contributions', {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  });
+}
+
+async function updateParentContributionRemote(id, data) {
+  const payload = {
+    date: data.date || '',
+    description: data.description || '',
+    amount: data.amount ?? null,
+    notes: data.notes || ''
+  };
+  return await apiRequest(`/api/parent-contributions/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(payload)
+  });
+}
+
+async function deleteParentContributionRemote(id) {
+  await apiRequest(`/api/parent-contributions/${id}`, { method: 'DELETE' });
+}
+
+async function getAllParentContributionsRemote() {
+  const rows = await apiRequest('/api/parent-contributions');
+  return rows || [];
+}
+
+const PARENT_SHARE_RATIO = 0.4;
+
+function computeSharedExpensesMonthly(expenses, contributions) {
+  const expensesByMonth = new Map();
+  (expenses || []).forEach(e => {
+    const iso = parseDateToIso(e.date);
+    if (!iso) return;
+    const key = iso.slice(0, 7);
+    expensesByMonth.set(key, (expensesByMonth.get(key) || 0) + Number(e.amount || 0));
+  });
+
+  const contributionsByMonth = new Map();
+  (contributions || []).forEach(c => {
+    const iso = parseDateToIso(c.date);
+    if (!iso) return;
+    const key = iso.slice(0, 7);
+    contributionsByMonth.set(key, (contributionsByMonth.get(key) || 0) + Number(c.amount || 0));
+  });
+
+  const allMonths = new Set([...expensesByMonth.keys(), ...contributionsByMonth.keys()]);
+  const sortedMonths = Array.from(allMonths).sort();
+
+  let cumulativeBalance = 0;
+  return sortedMonths.map(key => {
+    const totalExpenses = expensesByMonth.get(key) || 0;
+    const parentObligation = totalExpenses * PARENT_SHARE_RATIO;
+    const received = contributionsByMonth.get(key) || 0;
+    const balance = received - parentObligation;
+    cumulativeBalance += balance;
+
+    return {
+      key,
+      label: `${key.slice(5, 7)}/${key.slice(0, 4)}`,
+      totalExpenses,
+      parentObligation,
+      received,
+      balance,
+      cumulativeBalance
+    };
+  });
+}
+
 async function renderSolarIncome() {
   const items = await getAllSolarIncome();
   const listEl = document.getElementById('solar-list');
@@ -8808,6 +9030,14 @@ showMomBtn?.addEventListener('click', async () => {
   setActiveButton('show-mom');
   await renderMom();
   show(document.getElementById('mom-view'));
+});
+
+const showSharedExpensesBtn = document.getElementById('show-shared-expenses');
+showSharedExpensesBtn?.addEventListener('click', async () => {
+  setActiveButton('show-shared-expenses');
+  await populateSharedExpenseApartmentSelect();
+  await renderSharedExpenses();
+  show(sharedExpensesView);
 });
 
 document.getElementById('refresh-tenant-balances')?.addEventListener('click', async (e) => {
@@ -9351,6 +9581,281 @@ document.getElementById('solar-clear-all')?.addEventListener('click', async () =
   if (await confirmDialog('מחק את כל ההכנסות?')) {
     await clearAllSolarIncome();
     await renderSolarIncome();
+  }
+});
+
+// Shared expenses with parents
+async function populateSharedExpenseApartmentSelect() {
+  const select = document.getElementById('shared-expense-apartment');
+  if (!select) return;
+  const current = select.value;
+  const apartments = await getApartmentsData();
+  const numbers = apartments.map(a => a.apartmentNumber).filter(Boolean)
+    .sort((a, b) => String(a).localeCompare(String(b), 'he', { numeric: true }));
+  select.innerHTML = '<option value="">— כללי / לא משויך —</option>' + numbers.map(n => `<option value="${n}">${n}</option>`).join('');
+  select.value = current;
+}
+
+function resetSharedExpenseForm() {
+  delete sharedExpensesView?.dataset?.editExpenseId;
+  document.getElementById('shared-expense-date').value = '';
+  document.getElementById('shared-expense-apartment').value = '';
+  document.getElementById('shared-expense-tenant').value = '';
+  document.getElementById('shared-expense-description').value = '';
+  document.getElementById('shared-expense-amount').value = '';
+  document.getElementById('shared-expense-notes').value = '';
+}
+
+function resetParentContributionForm() {
+  delete sharedExpensesView?.dataset?.editContributionId;
+  document.getElementById('parent-contribution-date').value = '';
+  document.getElementById('parent-contribution-description').value = '';
+  document.getElementById('parent-contribution-amount').value = '';
+  document.getElementById('parent-contribution-notes').value = '';
+}
+
+async function renderSharedExpensesBalance() {
+  const container = document.getElementById('shared-expenses-balance');
+  if (!container) return;
+  const expenses = await getAllSharedExpenses();
+  const contributions = await getAllParentContributions();
+  const monthly = computeSharedExpensesMonthly(expenses, contributions);
+
+  if (monthly.length === 0) {
+    container.innerHTML = '<p>אין עדיין נתונים לחישוב יתרה</p>';
+    return;
+  }
+
+  const rows = monthly.map(m => {
+    const balanceClass = m.balance > 0 ? 'btt-cell-credit' : (m.balance < 0 ? 'btt-cell-debt' : '');
+    const cumulativeClass = m.cumulativeBalance > 0 ? 'btt-cell-credit' : (m.cumulativeBalance < 0 ? 'btt-cell-debt' : '');
+    return `
+      <tr>
+        <td class="btt-cell-month">${escapeHtml(m.label)}</td>
+        <td class="btt-cell">₪${formatCurrency(m.totalExpenses)}</td>
+        <td class="btt-cell">₪${formatCurrency(m.parentObligation)}</td>
+        <td class="btt-cell">₪${formatCurrency(m.received)}</td>
+        <td class="btt-cell ${balanceClass}" style="font-weight:500;">${m.balance >= 0 ? '₪' + formatCurrency(m.balance) : '-₪' + formatCurrency(Math.abs(m.balance))}</td>
+        <td class="btt-cell ${cumulativeClass}" style="font-weight:700;">${m.cumulativeBalance >= 0 ? '₪' + formatCurrency(m.cumulativeBalance) : '-₪' + formatCurrency(Math.abs(m.cumulativeBalance))}</td>
+      </tr>
+    `;
+  }).join('');
+
+  const last = monthly[monthly.length - 1];
+  const summaryLabel = last.cumulativeBalance > 0
+    ? `להורים זכות: ₪${formatCurrency(last.cumulativeBalance)}`
+    : (last.cumulativeBalance < 0 ? `להורים חוב: ₪${formatCurrency(Math.abs(last.cumulativeBalance))}` : 'מאוזן');
+  const summaryClass = last.cumulativeBalance > 0 ? 'btt-summary-credit' : (last.cumulativeBalance < 0 ? 'btt-summary-debt' : '');
+
+  container.innerHTML = `
+    <div class="btt-card">
+      <div class="btt-header-title" style="padding:10px 14px;">אמא ואבא · <span class="btt-summary ${summaryClass}" style="font-weight:700;">${summaryLabel}</span></div>
+      <div class="btt-table-wrap">
+        <table class="btt-table">
+          <thead>
+            <tr>
+              <th>חודש</th>
+              <th>הוצאות משותפות</th>
+              <th>התחייבות הורים (40%)</th>
+              <th>התקבל מההורים</th>
+              <th>יתרה חודשית</th>
+              <th>יתרה מצטברת</th>
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>
+    </div>
+  `;
+}
+
+async function renderSharedExpensesList() {
+  const listEl = document.getElementById('shared-expenses-list');
+  if (!listEl) return;
+  const items = await getAllSharedExpenses();
+  if (items.length === 0) {
+    listEl.innerHTML = '<p>אין הוצאות משותפות</p>';
+    return;
+  }
+  let total = 0;
+  const rows = items.map(item => {
+    total += Number(item.amount || 0);
+    return `
+      <tr>
+        <td>${escapeHtml(formatDateEu(item.date) || item.date || '')}</td>
+        <td>${escapeHtml(item.apartmentNumber || '-')}</td>
+        <td>${escapeHtml(item.tenantName || '-')}</td>
+        <td>${escapeHtml(item.description || '')}</td>
+        <td style="direction: ltr; text-align: left;">₪${formatCurrency(item.amount || 0)}</td>
+        <td>${escapeHtml(item.notes || '')}</td>
+        <td><button class="btn-edit-shared-expense" data-id="${item.id}" style="margin-right: 5px;">✏️</button><button class="btn-delete-shared-expense" data-id="${item.id}">🗑️</button></td>
+      </tr>
+    `;
+  }).join('');
+
+  listEl.innerHTML = `
+    <table class="payments-table">
+      <thead>
+        <tr>
+          <th>תאריך</th>
+          <th>דירה</th>
+          <th>דייר</th>
+          <th>תיאור ההוצאה</th>
+          <th>סכום</th>
+          <th>הערות</th>
+          <th>פעולות</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${rows}
+        <tr style="font-weight: bold; border-top: 2px solid #333;">
+          <td colspan="4">סה"כ:</td>
+          <td style="direction: ltr; text-align: left;">₪${formatCurrency(total)}</td>
+          <td colspan="2"></td>
+        </tr>
+      </tbody>
+    </table>
+  `;
+}
+
+async function renderParentContributionsList() {
+  const listEl = document.getElementById('parent-contributions-list');
+  if (!listEl) return;
+  const items = await getAllParentContributions();
+  if (items.length === 0) {
+    listEl.innerHTML = '<p>אין רשומות</p>';
+    return;
+  }
+  let total = 0;
+  const rows = items.map(item => {
+    total += Number(item.amount || 0);
+    return `
+      <tr>
+        <td>${escapeHtml(formatDateEu(item.date) || item.date || '')}</td>
+        <td>${escapeHtml(item.description || '')}</td>
+        <td style="direction: ltr; text-align: left;">₪${formatCurrency(item.amount || 0)}</td>
+        <td>${escapeHtml(item.notes || '')}</td>
+        <td><button class="btn-edit-parent-contribution" data-id="${item.id}" style="margin-right: 5px;">✏️</button><button class="btn-delete-parent-contribution" data-id="${item.id}">🗑️</button></td>
+      </tr>
+    `;
+  }).join('');
+
+  listEl.innerHTML = `
+    <table class="payments-table">
+      <thead>
+        <tr>
+          <th>תאריך</th>
+          <th>תיאור השתתפות אמא ואבא</th>
+          <th>סכום</th>
+          <th>הערות</th>
+          <th>פעולות</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${rows}
+        <tr style="font-weight: bold; border-top: 2px solid #333;">
+          <td colspan="2">סה"כ:</td>
+          <td style="direction: ltr; text-align: left;">₪${formatCurrency(total)}</td>
+          <td colspan="2"></td>
+        </tr>
+      </tbody>
+    </table>
+  `;
+}
+
+async function renderSharedExpenses() {
+  await renderSharedExpensesList();
+  await renderParentContributionsList();
+  await renderSharedExpensesBalance();
+}
+
+document.getElementById('save-shared-expense')?.addEventListener('click', async () => {
+  const editId = sharedExpensesView?.dataset?.editExpenseId;
+  const dateRaw = document.getElementById('shared-expense-date').value.trim();
+  const date = parseDateToIso(dateRaw);
+  const apartmentNumber = document.getElementById('shared-expense-apartment').value.trim();
+  const tenantName = document.getElementById('shared-expense-tenant').value.trim();
+  const description = document.getElementById('shared-expense-description').value.trim();
+  const amount = parseFloat(document.getElementById('shared-expense-amount').value) || 0;
+  const notes = document.getElementById('shared-expense-notes').value.trim();
+  if (!date) { alert('הזן תאריך תקין'); return; }
+  if (!description) { alert('הזן תיאור להוצאה'); return; }
+  if (amount <= 0) { alert('הזן סכום תקין'); return; }
+  const entry = { date, apartmentNumber, tenantName, description, amount, notes };
+  if (editId) {
+    await updateSharedExpense(Number(editId), entry);
+  } else {
+    await addSharedExpense(entry);
+  }
+  resetSharedExpenseForm();
+  await renderSharedExpenses();
+});
+
+document.getElementById('shared-expenses-list')?.addEventListener('click', async e => {
+  const editBtn = e.target.closest('.btn-edit-shared-expense');
+  const delBtn = e.target.closest('.btn-delete-shared-expense');
+  if (editBtn) {
+    const id = Number(editBtn.dataset.id);
+    const items = await getAllSharedExpenses();
+    const item = items.find(i => i.id === id);
+    if (!item) return;
+    document.getElementById('shared-expense-date').value = formatDateEu(item.date) || '';
+    await populateSharedExpenseApartmentSelect();
+    document.getElementById('shared-expense-apartment').value = item.apartmentNumber || '';
+    document.getElementById('shared-expense-tenant').value = item.tenantName || '';
+    document.getElementById('shared-expense-description').value = item.description || '';
+    document.getElementById('shared-expense-amount').value = Number(item.amount || 0);
+    document.getElementById('shared-expense-notes').value = item.notes || '';
+    sharedExpensesView.dataset.editExpenseId = id;
+    return;
+  }
+  if (!delBtn) return;
+  const id = Number(delBtn.dataset.id);
+  if (await confirmDialog('מחק את ההוצאה?')) {
+    await deleteSharedExpense(id);
+    await renderSharedExpenses();
+  }
+});
+
+document.getElementById('save-parent-contribution')?.addEventListener('click', async () => {
+  const editId = sharedExpensesView?.dataset?.editContributionId;
+  const dateRaw = document.getElementById('parent-contribution-date').value.trim();
+  const date = parseDateToIso(dateRaw);
+  const description = document.getElementById('parent-contribution-description').value.trim();
+  const amount = parseFloat(document.getElementById('parent-contribution-amount').value) || 0;
+  const notes = document.getElementById('parent-contribution-notes').value.trim();
+  if (!date) { alert('הזן תאריך תקין'); return; }
+  if (amount <= 0) { alert('הזן סכום תקין'); return; }
+  const entry = { date, description, amount, notes };
+  if (editId) {
+    await updateParentContribution(Number(editId), entry);
+  } else {
+    await addParentContribution(entry);
+  }
+  resetParentContributionForm();
+  await renderSharedExpenses();
+});
+
+document.getElementById('parent-contributions-list')?.addEventListener('click', async e => {
+  const editBtn = e.target.closest('.btn-edit-parent-contribution');
+  const delBtn = e.target.closest('.btn-delete-parent-contribution');
+  if (editBtn) {
+    const id = Number(editBtn.dataset.id);
+    const items = await getAllParentContributions();
+    const item = items.find(i => i.id === id);
+    if (!item) return;
+    document.getElementById('parent-contribution-date').value = formatDateEu(item.date) || '';
+    document.getElementById('parent-contribution-description').value = item.description || '';
+    document.getElementById('parent-contribution-amount').value = Number(item.amount || 0);
+    document.getElementById('parent-contribution-notes').value = item.notes || '';
+    sharedExpensesView.dataset.editContributionId = id;
+    return;
+  }
+  if (!delBtn) return;
+  const id = Number(delBtn.dataset.id);
+  if (await confirmDialog('מחק את הרשומה?')) {
+    await deleteParentContribution(id);
+    await renderSharedExpenses();
   }
 });
 

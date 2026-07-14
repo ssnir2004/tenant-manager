@@ -104,3 +104,23 @@ CREATE TABLE IF NOT EXISTS settings (
   key TEXT PRIMARY KEY,
   value TEXT
 );
+
+CREATE TABLE IF NOT EXISTS shared_expenses (
+  id SERIAL PRIMARY KEY,
+  date TEXT,
+  "apartmentNumber" TEXT,
+  "tenantName" TEXT,
+  description TEXT,
+  amount DOUBLE PRECISION,
+  notes TEXT,
+  "createdAt" TEXT
+);
+
+CREATE TABLE IF NOT EXISTS parent_contributions (
+  id SERIAL PRIMARY KEY,
+  date TEXT,
+  description TEXT,
+  amount DOUBLE PRECISION,
+  notes TEXT,
+  "createdAt" TEXT
+);

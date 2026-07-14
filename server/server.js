@@ -51,6 +51,48 @@ function parseDateToIso(value) {
   return `${yyyy}-${mm}-${dd}`;
 }
 
+const PARENT_SHARE_RATIO = 0.4;
+
+function computeSharedExpensesMonthly(expenses, contributions) {
+  const expensesByMonth = new Map();
+  (expenses || []).forEach(e => {
+    const iso = parseDateToIso(e.date);
+    if (!iso) return;
+    const key = iso.slice(0, 7);
+    expensesByMonth.set(key, (expensesByMonth.get(key) || 0) + Number(e.amount || 0));
+  });
+
+  const contributionsByMonth = new Map();
+  (contributions || []).forEach(c => {
+    const iso = parseDateToIso(c.date);
+    if (!iso) return;
+    const key = iso.slice(0, 7);
+    contributionsByMonth.set(key, (contributionsByMonth.get(key) || 0) + Number(c.amount || 0));
+  });
+
+  const allMonths = new Set([...expensesByMonth.keys(), ...contributionsByMonth.keys()]);
+  const sortedMonths = Array.from(allMonths).sort();
+
+  let cumulativeBalance = 0;
+  return sortedMonths.map(key => {
+    const totalExpenses = expensesByMonth.get(key) || 0;
+    const parentObligation = totalExpenses * PARENT_SHARE_RATIO;
+    const received = contributionsByMonth.get(key) || 0;
+    const balance = received - parentObligation;
+    cumulativeBalance += balance;
+
+    return {
+      key,
+      label: `${key.slice(5, 7)}/${key.slice(0, 4)}`,
+      totalExpenses,
+      parentObligation,
+      received,
+      balance,
+      cumulativeBalance
+    };
+  });
+}
+
 function parsePeriodMonths(period) {
   const raw = String(period || '').trim();
   if (!raw) return null;
@@ -612,6 +654,19 @@ function respondDbError(res, err) {
     }
   });
 
+  app.get('/public/shared-expenses-data', async (req, res) => {
+    try {
+      const expenses = await db.all('SELECT * FROM shared_expenses ORDER BY date ASC, id ASC');
+      const contributions = await db.all('SELECT * FROM parent_contributions ORDER BY date ASC, id ASC');
+      const monthly = computeSharedExpensesMonthly(expenses, contributions);
+
+      res.json({ expenses, contributions, monthly });
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ error: 'Server error' });
+    }
+  });
+
   const authRequired = requireAuth(db);
 
   app.get('/health', (req, res) => {
@@ -1149,6 +1204,90 @@ function respondDbError(res, err) {
   app.delete('/api/solar', authRequired, async (req, res) => {
     if (!isAdmin(req.user)) return res.status(403).json({ error: 'Forbidden' });
     await db.run('DELETE FROM solar');
+    res.json({ ok: true });
+  });
+
+  // Shared expenses (with parents)
+  app.get('/api/shared-expenses', authRequired, async (req, res) => {
+    if (req.user.role === 'tenant') return res.json([]);
+    const rows = await db.all('SELECT * FROM shared_expenses ORDER BY date DESC, id DESC');
+    res.json(rows);
+  });
+
+  app.post('/api/shared-expenses', authRequired, async (req, res) => {
+    if (!canWrite(req.user)) return res.status(403).json({ error: 'Forbidden' });
+    const e = req.body || {};
+    const now = new Date().toISOString();
+    const result = await db.run(
+      'INSERT INTO shared_expenses (date, apartmentNumber, tenantName, description, amount, notes, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      [e.date || '', e.apartmentNumber || '', e.tenantName || '', e.description || '', e.amount ?? null, e.notes || '', now]
+    );
+    const row = await db.get('SELECT * FROM shared_expenses WHERE id = ?', [result.lastID]);
+    res.json(row);
+  });
+
+  app.put('/api/shared-expenses/:id', authRequired, async (req, res) => {
+    if (!canWrite(req.user)) return res.status(403).json({ error: 'Forbidden' });
+    const e = req.body || {};
+    await db.run(
+      'UPDATE shared_expenses SET date = ?, apartmentNumber = ?, tenantName = ?, description = ?, amount = ?, notes = ? WHERE id = ?',
+      [e.date || '', e.apartmentNumber || '', e.tenantName || '', e.description || '', e.amount ?? null, e.notes || '', req.params.id]
+    );
+    const row = await db.get('SELECT * FROM shared_expenses WHERE id = ?', [req.params.id]);
+    res.json(row);
+  });
+
+  app.delete('/api/shared-expenses/:id', authRequired, async (req, res) => {
+    if (!canWrite(req.user)) return res.status(403).json({ error: 'Forbidden' });
+    await db.run('DELETE FROM shared_expenses WHERE id = ?', [req.params.id]);
+    res.json({ ok: true });
+  });
+
+  app.delete('/api/shared-expenses', authRequired, async (req, res) => {
+    if (!isAdmin(req.user)) return res.status(403).json({ error: 'Forbidden' });
+    await db.run('DELETE FROM shared_expenses');
+    res.json({ ok: true });
+  });
+
+  // Money received from parents (funds the parents' 40% share of shared expenses)
+  app.get('/api/parent-contributions', authRequired, async (req, res) => {
+    if (req.user.role === 'tenant') return res.json([]);
+    const rows = await db.all('SELECT * FROM parent_contributions ORDER BY date DESC, id DESC');
+    res.json(rows);
+  });
+
+  app.post('/api/parent-contributions', authRequired, async (req, res) => {
+    if (!canWrite(req.user)) return res.status(403).json({ error: 'Forbidden' });
+    const c = req.body || {};
+    const now = new Date().toISOString();
+    const result = await db.run(
+      'INSERT INTO parent_contributions (date, description, amount, notes, createdAt) VALUES (?, ?, ?, ?, ?)',
+      [c.date || '', c.description || '', c.amount ?? null, c.notes || '', now]
+    );
+    const row = await db.get('SELECT * FROM parent_contributions WHERE id = ?', [result.lastID]);
+    res.json(row);
+  });
+
+  app.put('/api/parent-contributions/:id', authRequired, async (req, res) => {
+    if (!canWrite(req.user)) return res.status(403).json({ error: 'Forbidden' });
+    const c = req.body || {};
+    await db.run(
+      'UPDATE parent_contributions SET date = ?, description = ?, amount = ?, notes = ? WHERE id = ?',
+      [c.date || '', c.description || '', c.amount ?? null, c.notes || '', req.params.id]
+    );
+    const row = await db.get('SELECT * FROM parent_contributions WHERE id = ?', [req.params.id]);
+    res.json(row);
+  });
+
+  app.delete('/api/parent-contributions/:id', authRequired, async (req, res) => {
+    if (!canWrite(req.user)) return res.status(403).json({ error: 'Forbidden' });
+    await db.run('DELETE FROM parent_contributions WHERE id = ?', [req.params.id]);
+    res.json({ ok: true });
+  });
+
+  app.delete('/api/parent-contributions', authRequired, async (req, res) => {
+    if (!isAdmin(req.user)) return res.status(403).json({ error: 'Forbidden' });
+    await db.run('DELETE FROM parent_contributions');
     res.json({ ok: true });
   });
 

@@ -24,6 +24,20 @@
         <div id="mom-public-status" style="margin-bottom: 12px; color: #666;"></div>
         <div id="mom-public-table"></div>
       </div>
+
+      <div class="card" id="shared-expenses-public-card" style="margin-top: 20px;">
+        <h2 style="margin-top: 0;">🤝 הוצאות משותפות עם אמא ואבא</h2>
+        <div id="shared-expenses-public-status" style="margin-bottom: 12px; color: #666;"></div>
+
+        <h3>הוצאות משותפות</h3>
+        <div id="shared-expenses-public-table"></div>
+
+        <h3 style="margin-top: 24px;">כסף שקיבלתי מאמא ואבא</h3>
+        <div id="parent-contributions-public-table"></div>
+
+        <h3 style="margin-top: 24px;">יתרה מצטברת מול ההורים</h3>
+        <div id="shared-expenses-public-balance"></div>
+      </div>
     </section>
   </main>
 
@@ -209,7 +223,123 @@
       }
     }
 
+    async function loadSharedExpensesTable() {
+      const statusEl = document.getElementById('shared-expenses-public-status');
+      const expensesTableEl = document.getElementById('shared-expenses-public-table');
+      const contributionsTableEl = document.getElementById('parent-contributions-public-table');
+      const balanceTableEl = document.getElementById('shared-expenses-public-balance');
+      if (statusEl) statusEl.textContent = 'טוען נתונים...';
+
+      try {
+        const res = await fetch('/public/shared-expenses-data');
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        const expenses = Array.isArray(data?.expenses) ? data.expenses : [];
+        const contributions = Array.isArray(data?.contributions) ? data.contributions : [];
+        const monthly = Array.isArray(data?.monthly) ? data.monthly : [];
+
+        if (!expenses.length) {
+          expensesTableEl.innerHTML = '<div style="text-align:center;color:#999;">אין נתונים</div>';
+        } else {
+          let total = 0;
+          const rows = expenses.slice().reverse().map(item => {
+            total += Number(item.amount || 0);
+            return `
+              <tr>
+                <td>${escapeHtml(formatDate(item.date))}</td>
+                <td>${escapeHtml(item.apartmentNumber || '-')}</td>
+                <td>${escapeHtml(item.tenantName || '-')}</td>
+                <td>${escapeHtml(item.description || '')}</td>
+                <td style="direction: ltr; text-align: left;">₪${formatCurrency(item.amount)}</td>
+                <td>${escapeHtml(item.notes || '')}</td>
+              </tr>
+            `;
+          }).join('');
+          expensesTableEl.innerHTML = `
+            <table class="payments-table">
+              <thead>
+                <tr><th>תאריך</th><th>דירה</th><th>דייר</th><th>תיאור ההוצאה</th><th>סכום</th><th>הערות</th></tr>
+              </thead>
+              <tbody>
+                ${rows}
+                <tr style="font-weight:bold;border-top:2px solid #333;">
+                  <td colspan="4">סה"כ:</td>
+                  <td style="direction: ltr; text-align: left;">₪${formatCurrency(total)}</td>
+                  <td></td>
+                </tr>
+              </tbody>
+            </table>
+          `;
+        }
+
+        if (!contributions.length) {
+          contributionsTableEl.innerHTML = '<div style="text-align:center;color:#999;">אין נתונים</div>';
+        } else {
+          let total = 0;
+          const rows = contributions.slice().reverse().map(item => {
+            total += Number(item.amount || 0);
+            return `
+              <tr>
+                <td>${escapeHtml(formatDate(item.date))}</td>
+                <td>${escapeHtml(item.description || '')}</td>
+                <td style="direction: ltr; text-align: left;">₪${formatCurrency(item.amount)}</td>
+                <td>${escapeHtml(item.notes || '')}</td>
+              </tr>
+            `;
+          }).join('');
+          contributionsTableEl.innerHTML = `
+            <table class="payments-table">
+              <thead>
+                <tr><th>תאריך</th><th>תיאור השתתפות אמא ואבא</th><th>סכום</th><th>הערות</th></tr>
+              </thead>
+              <tbody>
+                ${rows}
+                <tr style="font-weight:bold;border-top:2px solid #333;">
+                  <td>סה"כ:</td>
+                  <td></td>
+                  <td style="direction: ltr; text-align: left;">₪${formatCurrency(total)}</td>
+                  <td></td>
+                </tr>
+              </tbody>
+            </table>
+          `;
+        }
+
+        if (!monthly.length) {
+          balanceTableEl.innerHTML = '<div style="text-align:center;color:#999;">אין נתונים</div>';
+        } else {
+          const rows = monthly.map(m => {
+            const balanceColor = m.balance >= 0 ? '#27ae60' : '#e74c3c';
+            const cumulativeColor = m.cumulativeBalance >= 0 ? '#27ae60' : '#e74c3c';
+            return `
+              <tr>
+                <td style="white-space:nowrap;">${escapeHtml(m.label)}</td>
+                <td style="white-space:nowrap;direction: ltr; text-align: left;">₪${formatCurrency(m.totalExpenses)}</td>
+                <td style="white-space:nowrap;direction: ltr; text-align: left;">₪${formatCurrency(m.parentObligation)}</td>
+                <td style="white-space:nowrap;direction: ltr; text-align: left;">₪${formatCurrency(m.received)}</td>
+                <td style="color:${balanceColor};font-weight:bold;white-space:nowrap;direction: ltr; text-align: left;">₪${formatCurrency(m.balance)}</td>
+                <td style="color:${cumulativeColor};font-weight:bold;white-space:nowrap;direction: ltr; text-align: left;">₪${formatCurrency(m.cumulativeBalance)}</td>
+              </tr>
+            `;
+          }).join('');
+          balanceTableEl.innerHTML = `
+            <table class="payments-table">
+              <thead>
+                <tr><th>חודש</th><th>הוצאות משותפות</th><th>התחייבות הורים (40%)</th><th>התקבל מההורים</th><th>יתרה חודשית</th><th>יתרה מצטברת</th></tr>
+              </thead>
+              <tbody>${rows}</tbody>
+            </table>
+          `;
+        }
+
+        if (statusEl) statusEl.textContent = '';
+      } catch (err) {
+        if (statusEl) statusEl.textContent = 'שגיאה בטעינת נתונים';
+      }
+    }
+
     loadMomTable();
+    loadSharedExpensesTable();
   </script>
 </body>
 </html>
