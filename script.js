@@ -9709,7 +9709,7 @@ async function renderSharedExpensesList() {
         <td>${escapeHtml(item.description || '')}</td>
         <td style="direction: ltr; text-align: left;">₪${formatCurrency(item.amount || 0)}</td>
         <td>${escapeHtml(item.notes || '')}</td>
-        <td><button class="btn-edit-shared-expense" data-id="${item.id}" style="margin-right: 5px;">✏️</button><button class="btn-delete-shared-expense" data-id="${item.id}">🗑️</button></td>
+        <td><button class="btn-edit-shared-expense" data-id="${item.id}" style="margin-right: 5px;">✏️</button><button class="btn-duplicate-shared-expense" data-id="${item.id}" style="margin-right: 5px;" title="שכפול">⧉</button><button class="btn-delete-shared-expense" data-id="${item.id}">🗑️</button></td>
       </tr>
     `;
   }).join('');
@@ -9814,6 +9814,7 @@ document.getElementById('save-shared-expense')?.addEventListener('click', async 
 
 document.getElementById('shared-expenses-list')?.addEventListener('click', async e => {
   const editBtn = e.target.closest('.btn-edit-shared-expense');
+  const dupBtn = e.target.closest('.btn-duplicate-shared-expense');
   const delBtn = e.target.closest('.btn-delete-shared-expense');
   if (editBtn) {
     const id = Number(editBtn.dataset.id);
@@ -9828,6 +9829,24 @@ document.getElementById('shared-expenses-list')?.addEventListener('click', async
     document.getElementById('shared-expense-amount').value = Number(item.amount || 0);
     document.getElementById('shared-expense-notes').value = item.notes || '';
     sharedExpensesView.dataset.editExpenseId = id;
+    return;
+  }
+  if (dupBtn) {
+    const id = Number(dupBtn.dataset.id);
+    const items = await getAllSharedExpenses();
+    const item = items.find(i => i.id === id);
+    if (!item) return;
+    delete sharedExpensesView.dataset.editExpenseId;
+    document.getElementById('shared-expense-date').value = formatDateEu(item.date) || '';
+    await populateSharedExpenseApartmentSelect();
+    document.getElementById('shared-expense-apartment').value = item.apartmentNumber || '';
+    document.getElementById('shared-expense-tenant').value = item.tenantName || '';
+    document.getElementById('shared-expense-description').value = item.description || '';
+    document.getElementById('shared-expense-amount').value = Number(item.amount || 0);
+    document.getElementById('shared-expense-notes').value = item.notes || '';
+    const dateInput = document.getElementById('shared-expense-date');
+    dateInput.focus();
+    dateInput.select();
     return;
   }
   if (!delBtn) return;
