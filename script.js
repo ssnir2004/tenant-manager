@@ -6960,7 +6960,9 @@ async function renderBalance() {
   const parentPeriodsRaw = await getSetting('parentPaymentPeriods');
   const parentExempt = await getSetting('parentPaymentExemptMonths');
   const parentReductionsRaw = await getSetting('parentPaymentReductions');
-  const parentDefault = Number(parentDefaultRaw ?? 4400) || 0;
+  const parentDefault = (parentDefaultRaw === null || parentDefaultRaw === undefined || parentDefaultRaw === '')
+    ? 4400
+    : (Number(parentDefaultRaw) || 0);
   const parentPeriods = normalizeParentPaymentPeriods(parentPeriodsRaw || []);
   const parentExemptSet = new Set(Array.isArray(parentExempt) ? parentExempt : []);
   const parentReductions = parentReductionsRaw || {};
@@ -7646,11 +7648,13 @@ async function renderMom() {
   const parentExempt = await getSetting('parentPaymentExemptMonths');
   const parentReductionsRaw = await getSetting('parentPaymentReductions');
 
-  const parentDefault = Number(parentDefaultRaw ?? 4400) || 0;
+  const parentDefault = (parentDefaultRaw === null || parentDefaultRaw === undefined || parentDefaultRaw === '')
+    ? 4400
+    : (Number(parentDefaultRaw) || 0);
   const parentPeriods = normalizeParentPaymentPeriods(parentPeriodsRaw || []);
   const parentExemptSet = new Set(Array.isArray(parentExempt) ? parentExempt : []);
   const parentReductions = parentReductionsRaw || {};
-  
+
   const parentPaymentsByMonth = new Map();
   payments
     .filter(p => accountValueFromCsv(p.account) === 'grandma')
@@ -12333,7 +12337,9 @@ async function renderCurrentMonthSummary() {
     const parentExempt = await getSetting('parentPaymentExemptMonths');
     const parentReductionsRaw = await getSetting('parentPaymentReductions');
 
-    const parentDefault = Number(parentDefaultRaw ?? 4400) || 0;
+    const parentDefault = (parentDefaultRaw === null || parentDefaultRaw === undefined || parentDefaultRaw === '')
+      ? 4400
+      : (Number(parentDefaultRaw) || 0);
     const parentPeriods = normalizeParentPaymentPeriods(parentPeriodsRaw || []);
     const parentExemptSet = new Set(Array.isArray(parentExempt) ? parentExempt : []);
     const parentReductions = parentReductionsRaw || {};

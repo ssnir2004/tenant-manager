@@ -491,7 +491,9 @@ function respondDbError(res, err) {
       const parentExempt = settings.get('parentPaymentExemptMonths');
       const parentReductionsRaw = settings.get('parentPaymentReductions');
 
-      const parentDefault = Number(parentDefaultRaw ?? 4400) || 0;
+      const parentDefault = (parentDefaultRaw === null || parentDefaultRaw === undefined || parentDefaultRaw === '')
+        ? 4400
+        : (Number(parentDefaultRaw) || 0);
       const parentPeriods = parseParentPaymentPeriods(parentPeriodsText || '');
       const parentExemptSet = new Set(Array.isArray(parentExempt) ? parentExempt : []);
       const parentReductions = parentReductionsRaw && typeof parentReductionsRaw === 'object'
