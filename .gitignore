@@ -1,0 +1,21 @@
+node_modules/
+
+# environment secrets - never commit real values
+.env
+server/.env
+
+# local/dev databases (production uses DATABASE_URL/Postgres, see server/db.js)
+*.sqlite
+*.db
+
+# logs
+*.log
+
+# tunnel/deploy scratch (legacy, superseded by render.yaml)
+tunnel-url.txt
+
+# IDE state
+.vs/
+
+# editor lock files
+~$*
