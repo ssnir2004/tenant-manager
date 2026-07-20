@@ -4400,7 +4400,8 @@ function buildTenantPdfContentHtml(row, monthValue) {
   const total = (row.total ?? 0).toFixed(2);
   return `
       <style>
-        .tenant-pdf-root{font-family:Arial, sans-serif; direction:rtl; padding:24px;}
+        .tenant-pdf-root,.tenant-pdf-root *{color:#1a1a1a !important;}
+        .tenant-pdf-root{font-family:Arial, sans-serif; direction:rtl; padding:24px; background:#fff;}
         .tenant-pdf-root h1{font-size:20px; margin-bottom:8px;}
         .tenant-pdf-root table{width:100%; border-collapse:collapse; margin-top:12px;}
         .tenant-pdf-root th,.tenant-pdf-root td{border:1px solid #ccc; padding:6px; font-size:12px;}
