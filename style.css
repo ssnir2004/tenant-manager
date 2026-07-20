@@ -675,12 +675,14 @@ textarea {
   font-size: 14px;
   margin-bottom: 0;
   background: #fafbfc;
+  color: var(--text);
 }
 
 #edit-dates-modal .row input:focus {
   outline: none;
   border-color: var(--accent);
   background: white;
+  color: var(--text);
   box-shadow: 0 0 0 3px rgba(43, 108, 176, 0.1);
 }
 
@@ -1626,6 +1628,17 @@ textarea {
   color: #6b7280;
 }
 
+[data-theme="dark"] #edit-dates-modal .row input {
+  background: #1c2233 !important;
+  color: var(--text) !important;
+  border-color: var(--border) !important;
+}
+
+[data-theme="dark"] #edit-dates-modal .row input:focus {
+  background: #232a3d !important;
+  color: var(--text) !important;
+}
+
 [data-theme="dark"] .row label {
   color: var(--text);
 }
@@ -1695,6 +1708,16 @@ textarea {
 
 [data-theme="dark"] .modal-content p {
   color: var(--text-light);
+}
+
+[data-theme="dark"] .sync-conflict-item {
+  background: #1c2233;
+}
+
+[data-theme="dark"] .sync-diff-value {
+  background: #232a3d;
+  border-color: var(--border);
+  color: var(--text);
 }
 
 [data-theme="dark"] .auth-status {
