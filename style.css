@@ -1546,6 +1546,23 @@ textarea {
   border-collapse: collapse;
 }
 
+.balance-table-scroll {
+  max-height: 60vh;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.balance-table-scroll .payments-table {
+  margin-top: 0;
+}
+
+.balance-table-scroll .payments-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+}
+
 .payments-table th,
 .payments-table td {
   padding: 8px 10px;

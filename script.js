@@ -7287,6 +7287,7 @@ async function renderBalance() {
   let totalIncome = 0;
   let totalExpense = 0;
   let totalMyIncome = 0;
+  let totalMyIncomeAfterExpenses = 0;
   let totalGrandmaIncome = 0;
 
   // Use all months in the range (first to last month) instead of only months with data
@@ -7335,10 +7336,12 @@ async function renderBalance() {
     const expense = rec.expense || 0;
     const myIncome = rec.myIncome || 0;
     const grandmaIncome = rec.grandmaIncome || 0;
+    const myIncomeAfterExpenses = myIncome - expense;
     const net = income - expense;
     totalIncome += income;
     totalExpense += expense;
     totalMyIncome += myIncome;
+    totalMyIncomeAfterExpenses += myIncomeAfterExpenses;
     totalGrandmaIncome += grandmaIncome;
     const monthLabel = `${key.slice(5, 7)}/${key.slice(0, 4)}`;
     const netColor = net >= 0 ? '#27ae60' : '#e74c3c';
@@ -7348,6 +7351,7 @@ async function renderBalance() {
       water: 'מים/ביוב',
       electricity: 'חשמל'
     };
+    const myIncomeAfterExpensesColor = myIncomeAfterExpenses >= 0 ? '#27ae60' : '#e74c3c';
     const incomeRows = details.incomes.length
       ? details.incomes.map(i => `
           <tr>
@@ -7373,12 +7377,13 @@ async function renderBalance() {
         <td>${monthLabel}</td>
         <td style="direction: ltr; text-align: left;">₪${formatCurrency(income)}</td>
         <td style="direction: ltr; text-align: left;">₪${formatCurrency(myIncome)}</td>
+        <td style="color:${myIncomeAfterExpensesColor};direction: ltr; text-align: left;">₪${formatCurrency(myIncomeAfterExpenses)}</td>
         <td style="direction: ltr; text-align: left;">₪${formatCurrency(grandmaIncome)}</td>
         <td style="direction: ltr; text-align: left;">₪${formatCurrency(expense)}</td>
         <td style="color:${netColor};font-weight:bold;direction: ltr; text-align: left;">₪${formatCurrency(net)}</td>
       </tr>
       <tr class="balance-detail-row hidden" data-month="${key}">
-        <td colspan="6" style="padding: 12px 8px;">
+        <td colspan="7" style="padding: 12px 8px;">
           <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
             <div>
               <div style="font-weight: bold; margin-bottom: 6px;">הכנסות</div>
@@ -7416,7 +7421,7 @@ async function renderBalance() {
         </td>
       </tr>
     `;
-  }).join('') : '<tr><td colspan="6" style="text-align:center;color:#999;">אין נתונים למאזן חודשי</td></tr>';
+  }).join('') : '<tr><td colspan="7" style="text-align:center;color:#999;">אין נתונים למאזן חודשי</td></tr>';
 
   const totalNet = totalIncome - totalExpense;
   const totalNetColor = totalNet >= 0 ? '#27ae60' : '#e74c3c';
@@ -7541,30 +7546,36 @@ async function renderBalance() {
     `;
   }).join('') : '<tr><td colspan="8" style="text-align:center;color:#999;">אין נתונים</td></tr>';
 
+  const totalMyIncomeAfterExpensesColor = totalMyIncomeAfterExpenses >= 0 ? '#27ae60' : '#e74c3c';
+
   list.innerHTML = `
-    <table class="payments-table">
-      <thead>
-        <tr>
-          <th>חודש</th>
-          <th>הכנסות</th>
-          <th>הכנסות ניר</th>
-          <th>הכנסות אמא</th>
-          <th>הוצאות</th>
-          <th>נטו</th>
-        </tr>
-      </thead>
-      <tbody>
-        ${rows}
-        <tr style="font-weight: bold; border-top: 2px solid #333;">
-          <td>סה"כ</td>
-          <td style="direction: ltr; text-align: left;">₪${formatCurrency(totalIncome)}</td>
-          <td style="direction: ltr; text-align: left;">₪${formatCurrency(totalMyIncome)}</td>
-          <td style="direction: ltr; text-align: left;">₪${formatCurrency(totalGrandmaIncome)}</td>
-          <td style="direction: ltr; text-align: left;">₪${formatCurrency(totalExpense)}</td>
-          <td style="color:${totalNetColor};direction: ltr; text-align: left;">₪${formatCurrency(totalNet)}</td>
-        </tr>
-      </tbody>
-    </table>
+    <div class="balance-table-scroll">
+      <table class="payments-table">
+        <thead>
+          <tr>
+            <th>חודש</th>
+            <th>הכנסות</th>
+            <th>הכנסות ניר</th>
+            <th>הכנסות ניר אחרי הוצאות</th>
+            <th>הכנסות אמא</th>
+            <th>הוצאות</th>
+            <th>נטו</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rows}
+          <tr style="font-weight: bold; border-top: 2px solid #333;">
+            <td>סה"כ</td>
+            <td style="direction: ltr; text-align: left;">₪${formatCurrency(totalIncome)}</td>
+            <td style="direction: ltr; text-align: left;">₪${formatCurrency(totalMyIncome)}</td>
+            <td style="color:${totalMyIncomeAfterExpensesColor};direction: ltr; text-align: left;">₪${formatCurrency(totalMyIncomeAfterExpenses)}</td>
+            <td style="direction: ltr; text-align: left;">₪${formatCurrency(totalGrandmaIncome)}</td>
+            <td style="direction: ltr; text-align: left;">₪${formatCurrency(totalExpense)}</td>
+            <td style="color:${totalNetColor};direction: ltr; text-align: left;">₪${formatCurrency(totalNet)}</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
     ${yearlyChartSection}
     <div style="margin-top: 20px;">
       <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
