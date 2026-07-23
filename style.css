@@ -560,7 +560,7 @@ textarea {
 /* Bills report table */
 .report-table{width:100%;border-collapse:collapse;font-size:12px;margin-top:8px}
 .report-table th,.report-table td{border:1px solid var(--border);padding:6px;vertical-align:top}
-.report-table th{background:#f3f6fa;color:var(--accent);font-weight:600;position:sticky;top:0;z-index:1}
+.report-table th{background:#f3f6fa;color:var(--accent);font-weight:600}
 .report-table .btn-pdf{padding:4px 8px;font-size:12px}
 
 /* Bulk readings entry */
@@ -576,13 +576,13 @@ textarea {
 /* Readings table */
 .readings-table{width:100%;border-collapse:collapse;font-size:12px;margin-top:8px}
 .readings-table th,.readings-table td{border:1px solid var(--border);padding:6px;text-align:center}
-.readings-table th{background:#f3f6fa;color:var(--accent);font-weight:600;position:sticky;top:0;z-index:1}
+.readings-table th{background:#f3f6fa;color:var(--accent);font-weight:600}
 .readings-table .date-col{white-space:nowrap;background:#fafafa;font-weight:600}
 
 /* Payments table */
 .payments-table{width:100%;border-collapse:collapse;font-size:12px;margin-top:8px}
 .payments-table th,.payments-table td{border:1px solid var(--border);padding:6px;text-align:center}
-.payments-table th{background:#f3f6fa;color:var(--accent);font-weight:600;position:sticky;top:0;z-index:1}
+.payments-table th{background:#f3f6fa;color:var(--accent);font-weight:600}
 .payments-table .btn-edit-payment,.payments-table .btn-delete-payment{padding:4px 6px;font-size:12px;border-radius:6px;border:1px solid var(--border);background:#fff}
 .payments-table .btn-edit-payment:hover,.payments-table .btn-delete-payment:hover{background:var(--accent-light);color:#fff;border-color:var(--accent)}
 
@@ -1546,18 +1546,21 @@ textarea {
   border-collapse: collapse;
 }
 
-.balance-table-scroll {
+.table-scroll {
   max-height: 60vh;
   overflow-y: auto;
   border: 1px solid var(--border);
   border-radius: 8px;
 }
 
-.balance-table-scroll .payments-table {
+.table-scroll .payments-table,
+.table-scroll .report-table,
+.table-scroll .readings-table {
   margin-top: 0;
 }
 
-.balance-table-scroll .payments-table thead th {
+.table-scroll thead th,
+.table-scroll th {
   position: sticky;
   top: 0;
   z-index: 2;

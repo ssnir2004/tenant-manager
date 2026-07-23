@@ -4226,6 +4226,7 @@ function renderBillsReport(report) {
   const header = `<div style="margin-bottom:8px;font-weight:600;">דוח חשבונות לחודש ${formatMonthEu(report.monthValue)}</div>`;
 
   const tableHeader = `
+    <div class="table-scroll">
     <table class="report-table">
       <thead>
         <tr>
@@ -4296,6 +4297,7 @@ function renderBillsReport(report) {
         </tr>
       </tfoot>
     </table>
+    </div>
   `;
 
   container.innerHTML = `${header}${tableHeader}${body}${footer}`;
@@ -5391,6 +5393,7 @@ async function renderTenantsTable() {
   }).join('');
 
   container.innerHTML = `
+    <div class="table-scroll">
     <table class="payments-table">
       <thead>
         <tr>
@@ -5413,6 +5416,7 @@ async function renderTenantsTable() {
       </thead>
       <tbody>${rows}</tbody>
     </table>
+    </div>
   `;
   updateTenantsBulkSelectedCount();
 }
@@ -5457,6 +5461,7 @@ async function renderArchive() {
   }).join('');
 
   list.innerHTML = `
+    <div class="table-scroll">
     <table class="payments-table">
       <thead>
         <tr>
@@ -5478,6 +5483,7 @@ async function renderArchive() {
       </thead>
       <tbody>${rows}</tbody>
     </table>
+    </div>
   `;
 }
 
@@ -5633,6 +5639,7 @@ async function renderReadings() {
       ? `<th><input type="checkbox" id="readings-select-all" aria-label="בחר את כל הקריאות"></th>`
       : '';
     list.innerHTML = `
+      <div class="table-scroll">
       <table class="payments-table">
         <thead>
           <tr>
@@ -5651,6 +5658,7 @@ async function renderReadings() {
         </thead>
         <tbody>${rows}</tbody>
       </table>
+      </div>
     `;
 
     setupReadingPaidToggleHandlers(list);
@@ -5704,6 +5712,7 @@ async function renderReadingApprovals() {
 
     container.innerHTML = `
       <h3 style="margin-bottom: 8px;">קריאות ממתינות לאישור</h3>
+      <div class="table-scroll">
       <table class="payments-table">
         <thead>
           <tr>
@@ -5717,6 +5726,7 @@ async function renderReadingApprovals() {
         </thead>
         <tbody>${rows}</tbody>
       </table>
+      </div>
     `;
   } catch (err) {
     console.error(err);
@@ -6382,6 +6392,7 @@ async function renderPayments() {
     ? `<th><input type="checkbox" id="payments-select-all" aria-label="בחר את כל ההפקדות"></th>`
     : '';
   list.innerHTML = `
+    <div class="table-scroll">
     <table class="payments-table">
       <thead>
         <tr>
@@ -6400,6 +6411,7 @@ async function renderPayments() {
       </thead>
       <tbody>${rows}</tbody>
     </table>
+    </div>
   `;
 
   updatePaymentsSelectedCount();
@@ -6568,6 +6580,7 @@ async function renderCredits() {
       סה"כ זיכויים: <strong>₪${formatCurrency(totalCredits)}</strong>
       | סה"כ חובות נוספים: <strong>₪${formatCurrency(totalDebts)}</strong>
     </div>
+    <div class="table-scroll">
     <table class="payments-table">
       <thead>
         <tr>
@@ -6597,6 +6610,7 @@ async function renderCredits() {
         `).join('')}
       </tbody>
     </table>
+    </div>
   `;
 }
 
@@ -7549,7 +7563,7 @@ async function renderBalance() {
   const totalMyIncomeAfterExpensesColor = totalMyIncomeAfterExpenses >= 0 ? '#27ae60' : '#e74c3c';
 
   list.innerHTML = `
-    <div class="balance-table-scroll">
+    <div class="table-scroll">
       <table class="payments-table">
         <thead>
           <tr>
@@ -7801,6 +7815,7 @@ async function renderMom() {
 
     <div style="margin-top: 8px;">
       <div style="font-weight: bold; margin-bottom: 8px;">תשלום לאסתר ומיכאל</div>
+      <div class="table-scroll">
       <table class="payments-table">
         <thead>
           <tr>
@@ -7818,6 +7833,7 @@ async function renderMom() {
           ${parentRows}
         </tbody>
       </table>
+      </div>
     </div>
   `;
   
@@ -8450,6 +8466,7 @@ async function renderExpenses() {
   }).join('');
   
   listEl.innerHTML = `
+    <div class="table-scroll">
     <table class="payments-table">
       <thead>
         <tr>
@@ -8469,6 +8486,7 @@ async function renderExpenses() {
         </tr>
       </tbody>
     </table>
+    </div>
   `;
 }
 
@@ -8922,6 +8940,7 @@ async function renderSolarIncome() {
   ` : '';
 
   listEl.innerHTML = `
+    <div class="table-scroll">
     <table class="payments-table">
       <thead>
         <tr>
@@ -8939,6 +8958,7 @@ async function renderSolarIncome() {
         </tr>
       </tbody>
     </table>
+    </div>
     ${yearlyChartSection}
     <div style="margin-top: 20px;">
       <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
@@ -9727,6 +9747,7 @@ async function renderSharedExpensesList() {
   }).join('');
 
   listEl.innerHTML = `
+    <div class="table-scroll">
     <table class="payments-table">
       <thead>
         <tr>
@@ -9748,6 +9769,7 @@ async function renderSharedExpensesList() {
         </tr>
       </tbody>
     </table>
+    </div>
   `;
 }
 
@@ -9774,6 +9796,7 @@ async function renderParentContributionsList() {
   }).join('');
 
   listEl.innerHTML = `
+    <div class="table-scroll">
     <table class="payments-table">
       <thead>
         <tr>
@@ -9793,6 +9816,7 @@ async function renderParentContributionsList() {
         </tr>
       </tbody>
     </table>
+    </div>
   `;
 }
 
@@ -10730,6 +10754,7 @@ async function renderApartmentsTable() {
   merged.sort((a, b) => String(a.apartmentNumber).localeCompare(String(b.apartmentNumber), 'he', { numeric: true }));
 
   container.innerHTML = `
+    <div class="table-scroll">
     <table class="payments-table">
       <thead>
         <tr>
@@ -10755,6 +10780,7 @@ async function renderApartmentsTable() {
         </tr>
       </tfoot>
     </table>
+    </div>
   `;
   recomputeApartmentsTotals();
 }
