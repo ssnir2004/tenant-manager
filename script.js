@@ -7391,9 +7391,9 @@ async function renderBalance() {
         <td>${monthLabel}</td>
         <td style="direction: ltr; text-align: left;">₪${formatCurrency(income)}</td>
         <td style="direction: ltr; text-align: left;">₪${formatCurrency(myIncome)}</td>
-        <td style="color:${myIncomeAfterExpensesColor};direction: ltr; text-align: left;">₪${formatCurrency(myIncomeAfterExpenses)}</td>
         <td style="direction: ltr; text-align: left;">₪${formatCurrency(grandmaIncome)}</td>
         <td style="direction: ltr; text-align: left;">₪${formatCurrency(expense)}</td>
+        <td style="color:${myIncomeAfterExpensesColor};direction: ltr; text-align: left;">₪${formatCurrency(myIncomeAfterExpenses)}</td>
         <td style="color:${netColor};font-weight:bold;direction: ltr; text-align: left;">₪${formatCurrency(net)}</td>
       </tr>
       <tr class="balance-detail-row hidden" data-month="${key}">
@@ -7570,9 +7570,9 @@ async function renderBalance() {
             <th>חודש</th>
             <th>הכנסות</th>
             <th>הכנסות ניר</th>
-            <th>הכנסות ניר אחרי הוצאות</th>
             <th>הכנסות אמא</th>
             <th>הוצאות</th>
+            <th>הכנסות ניר אחרי הוצאות</th>
             <th>נטו</th>
           </tr>
         </thead>
@@ -7582,9 +7582,9 @@ async function renderBalance() {
             <td>סה"כ</td>
             <td style="direction: ltr; text-align: left;">₪${formatCurrency(totalIncome)}</td>
             <td style="direction: ltr; text-align: left;">₪${formatCurrency(totalMyIncome)}</td>
-            <td style="color:${totalMyIncomeAfterExpensesColor};direction: ltr; text-align: left;">₪${formatCurrency(totalMyIncomeAfterExpenses)}</td>
             <td style="direction: ltr; text-align: left;">₪${formatCurrency(totalGrandmaIncome)}</td>
             <td style="direction: ltr; text-align: left;">₪${formatCurrency(totalExpense)}</td>
+            <td style="color:${totalMyIncomeAfterExpensesColor};direction: ltr; text-align: left;">₪${formatCurrency(totalMyIncomeAfterExpenses)}</td>
             <td style="color:${totalNetColor};direction: ltr; text-align: left;">₪${formatCurrency(totalNet)}</td>
           </tr>
         </tbody>
