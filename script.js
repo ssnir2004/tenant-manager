@@ -281,7 +281,7 @@ function normalizeRentHistoryEntries(value) {
       const startIso = parseDateToIso(item?.startDate || item?.startIso || '');
       const endIso = parseDateToIso(item?.endDate || item?.endIso || '');
       const rentAmount = Number(item?.rentAmount ?? item?.amount ?? item?.monthlyRent ?? 0);
-      if (!startIso || !Number.isFinite(rentAmount) || rentAmount <= 0) return null;
+      if (!startIso || !Number.isFinite(rentAmount) || rentAmount < 0) return null;
       if (endIso && endIso < startIso) return null;
       return {
         startIso,
@@ -366,7 +366,7 @@ function normalizeArnonaHistoryEntries(value) {
       const startIso = parseDateToIso(item?.startDate || item?.startIso || '');
       const endIso = parseDateToIso(item?.endDate || item?.endIso || '');
       const arnonaAmount = Number(item?.arnonaAmount ?? item?.amount ?? item?.monthlyArnona ?? 0);
-      if (!startIso || !Number.isFinite(arnonaAmount) || arnonaAmount <= 0) return null;
+      if (!startIso || !Number.isFinite(arnonaAmount) || arnonaAmount < 0) return null;
       if (endIso && endIso < startIso) return null;
       return {
         startIso,
@@ -1720,6 +1720,22 @@ function isAutoPaidReadingPayment(payment) {
   return String(payment?.notes || '').includes('אוטומטי מהסימון שולם');
 }
 
+// Monthly rent/arnona for a month, shared by the main balance and the balance table so both
+// screens always agree. With no history the tenant's base amount applies to every month; once a
+// history exists it is authoritative: a month no period covers is charged 0, and a period with
+// amount 0 (e.g. tenant pays arnona directly to the municipality) is respected.
+function resolveMonthlyRateFromHistory(entries, amountField, monthKey, fallbackAmount) {
+  if (!entries.length) {
+    const fallback = Number(fallbackAmount || 0);
+    return { amount: Number.isFinite(fallback) && fallback > 0 ? fallback : 0, entry: null };
+  }
+  const monthStart = monthKeyStartIso(monthKey);
+  const monthEnd = monthKeyEndIso(monthKey);
+  const entry = entries.find(e => e.startIso <= monthEnd && (!e.endIso || e.endIso >= monthStart)) || null;
+  const amount = entry ? Number(entry[amountField] || 0) : 0;
+  return { amount: Number.isFinite(amount) && amount > 0 ? amount : 0, entry };
+}
+
 function calculateTenantBalanceBreakdown(tenant, payments, readings, todayIso = currentIsoDate(), tenantCreditsMap = null) {
   const tenantId = Number(tenant?.id);
   const calcEndIso = tenantBalanceCalcEndIso(tenant, todayIso);
@@ -1807,21 +1823,11 @@ function calculateTenantBalanceBreakdown(tenant, payments, readings, todayIso = 
   const rentHistoryEntries = normalizeRentHistoryEntries(tenant?.rentHistory);
   const rentHistoryBreakdownMap = new Map();
   let expectedRent = 0;
-  let historyUsed = false;
+  const historyUsed = rentHistoryEntries.length > 0;
   dueMonthKeys.forEach(monthKey => {
-    const monthStart = monthKeyStartIso(monthKey);
-    const monthEnd = monthKeyEndIso(monthKey);
-    const matchedIndex = rentHistoryEntries.findIndex(entry => {
-      const startsBeforeMonthEnd = entry.startIso <= monthEnd;
-      const endsAfterMonthStart = !entry.endIso || entry.endIso >= monthStart;
-      return startsBeforeMonthEnd && endsAfterMonthStart;
-    });
-    if (matchedIndex < 0) return;
-    const entry = rentHistoryEntries[matchedIndex];
-    const monthlyRent = Number(entry.rentAmount || 0);
-    if (!Number.isFinite(monthlyRent) || monthlyRent <= 0) return;
-    historyUsed = true;
+    const { amount: monthlyRent, entry } = resolveMonthlyRateFromHistory(rentHistoryEntries, 'rentAmount', monthKey, rentAmount);
     expectedRent += monthlyRent;
+    if (!entry) return;
     const key = `${entry.startIso}|${entry.endIso || ''}|${monthlyRent}`;
     const agg = rentHistoryBreakdownMap.get(key) || {
       startIso: entry.startIso,
@@ -1835,28 +1841,15 @@ function calculateTenantBalanceBreakdown(tenant, payments, readings, todayIso = 
     rentHistoryBreakdownMap.set(key, agg);
   });
   const rentHistoryBreakdown = Array.from(rentHistoryBreakdownMap.values()).sort((a, b) => a.startIso.localeCompare(b.startIso));
-  if (!historyUsed) {
-    expectedRent = rentAmount > 0 ? (rentAmount * monthsDue) : 0;
-  }
 
   const arnonaHistoryEntries = normalizeArnonaHistoryEntries(tenant?.arnonaHistory);
   const arnonaHistoryBreakdownMap = new Map();
   let expectedArnona = 0;
-  let historyArnonaUsed = false;
+  const historyArnonaUsed = arnonaHistoryEntries.length > 0;
   dueMonthKeys.forEach(monthKey => {
-    const monthStart = monthKeyStartIso(monthKey);
-    const monthEnd = monthKeyEndIso(monthKey);
-    const matchedIndex = arnonaHistoryEntries.findIndex(entry => {
-      const startsBeforeMonthEnd = entry.startIso <= monthEnd;
-      const endsAfterMonthStart = !entry.endIso || entry.endIso >= monthStart;
-      return startsBeforeMonthEnd && endsAfterMonthStart;
-    });
-    if (matchedIndex < 0) return;
-    const entry = arnonaHistoryEntries[matchedIndex];
-    const monthlyArnona = Number(entry.arnonaAmount || 0);
-    if (!Number.isFinite(monthlyArnona) || monthlyArnona <= 0) return;
-    historyArnonaUsed = true;
+    const { amount: monthlyArnona, entry } = resolveMonthlyRateFromHistory(arnonaHistoryEntries, 'arnonaAmount', monthKey, tenant?.arnonaAmount);
     expectedArnona += monthlyArnona;
+    if (!entry) return;
     const key = `${entry.startIso}|${entry.endIso || ''}|${monthlyArnona}`;
     const agg = arnonaHistoryBreakdownMap.get(key) || {
       startIso: entry.startIso,
@@ -1878,7 +1871,6 @@ function calculateTenantBalanceBreakdown(tenant, payments, readings, todayIso = 
     arnonaAmount = arnonaHistoryBreakdown.length ? Number(arnonaHistoryBreakdown[arnonaHistoryBreakdown.length - 1].arnonaAmount || 0) : 0;
   } else {
     arnonaAmount = Number(tenant?.arnonaAmount || 0);
-    expectedArnona = arnonaAmount > 0 ? (arnonaAmount * monthsDue) : 0;
   }
 
   let rentPaidApplied = 0;
@@ -6670,29 +6662,12 @@ function computeTenantMonthBreakdown(tenant, monthKey, ctx) {
   let rent = 0;
   let arnona = 0;
   if (monthInTenancy) {
-    const rentHistory = normalizeRentHistoryEntries(tenant?.rentHistory);
-    const matchedRent = rentHistory.find(entry => {
-      const startsBefore = entry.startIso <= monthEnd;
-      const endsAfter = !entry.endIso || entry.endIso >= monthStart;
-      return startsBefore && endsAfter;
-    });
-    if (matchedRent) {
-      rent = Number(matchedRent.rentAmount || 0);
-    } else {
-      rent = Number(tenant?.rentAmount || 0);
-    }
-
-    const arnonaHistory = normalizeArnonaHistoryEntries(tenant?.arnonaHistory);
-    const matchedArnona = arnonaHistory.find(entry => {
-      const startsBefore = entry.startIso <= monthEnd;
-      const endsAfter = !entry.endIso || entry.endIso >= monthStart;
-      return startsBefore && endsAfter;
-    });
-    if (matchedArnona) {
-      arnona = Number(matchedArnona.arnonaAmount || 0);
-    } else {
-      arnona = Number(tenant?.arnonaAmount || 0);
-    }
+    rent = resolveMonthlyRateFromHistory(
+      normalizeRentHistoryEntries(tenant?.rentHistory), 'rentAmount', monthKey, tenant?.rentAmount
+    ).amount;
+    arnona = resolveMonthlyRateFromHistory(
+      normalizeArnonaHistoryEntries(tenant?.arnonaHistory), 'arnonaAmount', monthKey, tenant?.arnonaAmount
+    ).amount;
   }
 
   let electricity = 0;
@@ -10485,12 +10460,14 @@ function readRatesRows(tbody, type) {
     const endIso   = parseDateToIso(inputs[1]?.value.trim() || '') || '';
     if (!startIso) return;
     if (type === 'rent') {
-      const v = Number(inputs[2]?.value);
-      if (!Number.isFinite(v) || v <= 0) return;
+      const raw = String(inputs[2]?.value ?? '').trim();
+      const v = Number(raw);
+      if (raw === '' || !Number.isFinite(v) || v < 0) return;
       entries.push({ startIso, endIso, rentAmount: v });
     } else if (type === 'arnona') {
-      const v = Number(inputs[2]?.value);
-      if (!Number.isFinite(v) || v <= 0) return;
+      const raw = String(inputs[2]?.value ?? '').trim();
+      const v = Number(raw);
+      if (raw === '' || !Number.isFinite(v) || v < 0) return;
       entries.push({ startIso, endIso, arnonaAmount: v });
     } else if (type === 'water') {
       const v = Number(inputs[2]?.value);
