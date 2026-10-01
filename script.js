@@ -1615,6 +1615,32 @@ function normalizeApartmentKey(value) {
   return String(value ?? '').trim();
 }
 
+// Rent/arnona are billed per cycle anchored on the move-in day: a tenant who moved in on 15/09
+// owes the second month only from 15/10. Returns the month key of every cycle that has started
+// by endIso (the key of the month the cycle starts in). Day 29-31 anchors clamp to month end.
+function enumerateBillingCycleMonthKeys(startIso, endIso) {
+  const start = parseDateToIso(startIso);
+  const end = parseDateToIso(endIso);
+  if (!start || !end || start > end) return [];
+  const anchorDay = Number(start.slice(8, 10)) || 1;
+  let year = Number(start.slice(0, 4));
+  let month = Number(start.slice(5, 7));
+  const result = [];
+  while (true) {
+    const daysInMonth = new Date(year, month, 0).getDate();
+    const monthStr = String(month).padStart(2, '0');
+    const cycleStartIso = `${year}-${monthStr}-${String(Math.min(anchorDay, daysInMonth)).padStart(2, '0')}`;
+    if (cycleStartIso > end) break;
+    result.push(`${year}-${monthStr}`);
+    month += 1;
+    if (month > 12) {
+      month = 1;
+      year += 1;
+    }
+  }
+  return result;
+}
+
 function enumerateMonthsInclusive(fromIso, toIso) {
   const from = parseDateToIso(fromIso);
   const to = parseDateToIso(toIso);
@@ -1817,8 +1843,8 @@ function calculateTenantBalanceBreakdown(tenant, payments, readings, todayIso = 
   const rentStartIso = contractStartIso
     ? (adjustStartIsoForLateContractDay(contractStartIso) || contractStartIso)
     : (firstPaymentIso || calcEndIso);
-  const monthsDue = rentStartIso ? countMonthsInclusive(rentStartIso, calcEndIso) : 0;
-  const dueMonthKeys = monthsDue > 0 ? enumerateMonthsInclusive(rentStartIso, calcEndIso) : [];
+  const dueMonthKeys = rentStartIso ? enumerateBillingCycleMonthKeys(rentStartIso, calcEndIso) : [];
+  const monthsDue = dueMonthKeys.length;
 
   const rentHistoryEntries = normalizeRentHistoryEntries(tenant?.rentHistory);
   const rentHistoryBreakdownMap = new Map();
@@ -6654,7 +6680,13 @@ function computeTenantMonthBreakdown(tenant, monthKey, ctx) {
 
   const monthInTenancy = (() => {
     if (!monthStart || !monthEnd) return false;
-    if (rentStartIso && rentStartIso > monthEnd) return false;
+    if (rentStartIso) {
+      // Same billing-cycle rule as calculateTenantBalanceBreakdown: the month is charged only
+      // once its cycle (anchored on the move-in day) has started by today / tenancy end.
+      const todayIso = currentIsoDate();
+      const refIso = monthEnd < todayIso ? monthEnd : todayIso;
+      return enumerateBillingCycleMonthKeys(rentStartIso, tenantBalanceCalcEndIso(tenant, refIso)).includes(monthKey);
+    }
     if (tenancyEndIso && tenancyEndIso < monthStart) return false;
     return true;
   })();
