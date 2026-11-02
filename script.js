@@ -9103,7 +9103,12 @@ document.getElementById('refresh-tenant-balances')?.addEventListener('click', as
 showReadingsBtn?.addEventListener('click', async () => {
   setActiveButton('show-readings');
   applyMonthlyChargesChartVisibility();
-  const tenants = await getAllTenants(false);
+  const apartmentMetersMap = await getApartmentMetersMap();
+  const tenants = (await getAllTenants(false)).map(t => ({
+    ...t,
+    waterMeter: tenantWaterMeterDisplay(t, apartmentMetersMap),
+    electricityMeter: tenantElectricityMeterDisplay(t, apartmentMetersMap)
+  }));
   const readings = await getAllReadings();
   const latestElectricityByTenant = buildLatestReadingMap(readings, 'electricity');
   const latestWaterByTenant = buildLatestReadingMap(readings, 'water');
@@ -10731,11 +10736,12 @@ function computeApartmentGapHtml(sizeSqm, pricePerSqm, paidRent) {
   return `<span style="color:${color};">${sign}₪${formatCurrency(gap)}</span>`;
 }
 
-function makeApartmentRow(entry = {}) {
+function makeApartmentRow(entry = {}, tenantName = '') {
   const recommended = (entry.sizeSqm && entry.pricePerSqm) ? `₪${formatCurrency(entry.sizeSqm * entry.pricePerSqm)}` : '-';
   const gap = computeApartmentGapHtml(entry.sizeSqm, entry.pricePerSqm, entry.paidRent);
   return `<tr>
     <td><input type="text" class="apt-number" style="width:70px;" value="${entry.apartmentNumber || ''}"></td>
+    <td class="apt-tenant" style="white-space:nowrap;">${escapeHtml(tenantName) || '-'}</td>
     <td><input type="text" class="apt-water" style="width:90px;" value="${entry.waterMeter || ''}"></td>
     <td><input type="text" class="apt-elec" style="width:90px;" value="${entry.electricityMeter || ''}"></td>
     <td><input type="number" step="0.01" class="apt-size" style="width:80px;" value="${entry.sizeSqm || ''}"></td>
@@ -10762,12 +10768,24 @@ async function renderApartmentsTable() {
   });
   merged.sort((a, b) => String(a.apartmentNumber).localeCompare(String(b.apartmentNumber), 'he', { numeric: true }));
 
+  const currentTenantNames = new Map();
+  tenants
+    .filter(t => !t.archived && t.active !== false && !hasTenantMovedOut(t))
+    .forEach(t => {
+      const num = String(t.apartmentNumber || '').trim();
+      const name = `${t.firstName || ''} ${t.lastName || ''}`.trim();
+      if (!num || !name) return;
+      if (!currentTenantNames.has(num)) currentTenantNames.set(num, []);
+      currentTenantNames.get(num).push(name);
+    });
+
   container.innerHTML = `
     <div class="table-scroll">
     <table class="payments-table">
       <thead>
         <tr>
           <th>מספר דירה</th>
+          <th>דייר</th>
           <th>מונה מים</th>
           <th>מונה חשמל</th>
           <th>גודל (מ"ר)</th>
@@ -10778,10 +10796,10 @@ async function renderApartmentsTable() {
           <th></th>
         </tr>
       </thead>
-      <tbody>${merged.map(makeApartmentRow).join('')}</tbody>
+      <tbody>${merged.map(a => makeApartmentRow(a, (currentTenantNames.get(a.apartmentNumber) || []).join(', '))).join('')}</tbody>
       <tfoot>
         <tr style="font-weight:700; border-top:2px solid #ccc;">
-          <td colspan="5">סה"כ</td>
+          <td colspan="6">סה"כ</td>
           <td class="apt-total-recommended" style="direction:ltr; white-space:nowrap;">-</td>
           <td class="apt-total-paid" style="direction:ltr; white-space:nowrap;">-</td>
           <td class="apt-total-gap" style="direction:ltr; white-space:nowrap;">-</td>
