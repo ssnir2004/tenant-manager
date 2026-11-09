@@ -8441,11 +8441,23 @@ function parsePaidCsvValue(raw) {
   return ['1', 'true', 'yes', 'y', 'כן'].includes(value);
 }
 
+function expenseMatchesTypeFilter(expense, filterType) {
+  if (!filterType) return true;
+  if (filterType === 'arnona') return expense.type === 'arnona1' || expense.type === 'arnona2';
+  return expense.type === filterType;
+}
+
 async function renderExpenses() {
-  const expenses = await getAllExpenses();
+  const allExpenses = await getAllExpenses();
   const listEl = document.getElementById('expenses-list');
-  if (expenses.length === 0) {
+  if (allExpenses.length === 0) {
     listEl.innerHTML = '<p>אין חשבונות</p>';
+    return;
+  }
+  const filterType = document.getElementById('expenses-filter-type')?.value || '';
+  const expenses = allExpenses.filter(e => expenseMatchesTypeFilter(e, filterType));
+  if (expenses.length === 0) {
+    listEl.innerHTML = '<p>אין חשבונות מהסוג שנבחר</p>';
     return;
   }
   
@@ -9446,6 +9458,10 @@ document.getElementById('save-expense')?.addEventListener('click', async () => {
   document.getElementById('expense-electricity-period').value = '';
   
   await renderExpenses();
+});
+
+document.getElementById('expenses-filter-type')?.addEventListener('change', () => {
+  renderExpenses().catch(console.error);
 });
 
 document.getElementById('expenses-list')?.addEventListener('click', async e => {
